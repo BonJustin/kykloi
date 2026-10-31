@@ -37,7 +37,7 @@ jobs:
       - name: Set up Pandoc
         uses: pandoc/actions/setup@v1
         with:
-          version: '3.1.11.1'  # Set to match your local `pandoc --version`
+          version: '3.1.11'  # Set to match your local `pandoc --version`
 
       - name: Install Node Dependencies
         run: |
