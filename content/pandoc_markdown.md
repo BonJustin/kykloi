@@ -23,14 +23,19 @@ Headings consist of one to six `#` *(hash)* signs and a line of text.
 
 ```markdown
 # Level one
+
 ## Level two
+
 ### Level three
+
 ```
 
 ***Output:***
 
 # Level one
+
 ## Level two
+
 ### Level three
 
 ***Note:** While the six header levels are available in Markdown, the format Pandoc is exporting to matters. The first three levels of headers are generally safe, but the styling and export format should be checked.*

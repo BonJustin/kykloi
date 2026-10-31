@@ -43,7 +43,6 @@
 
                 <link rel="stylesheet" href="./assets/css/pico.css" />
                 <link rel="stylesheet" href="./assets/css/style.css" />
-                <link rel="stylesheet" href="./assets/katex/katex.min.css" />
         
         <script
             src="./assets/js/pico_pagefind.js"
@@ -62,7 +61,7 @@
                             ><a
                                 href="./index.html"
                                 style="text-decoration: none"
-                                >JmB²</a
+                                >John D. Foster III</a
                             ></span
                         >
                     </li>
@@ -141,13 +140,14 @@
 <hr />
 </section>
 <section id="headers-subheaders" class="level2">
-<h2><a href="#top">Headers &amp; Subheaders</a></h2>
+<h2>Headers &amp; Subheaders</h2>
 <p>Headings consist of one to six <code>#</code> <em>(hash)</em> signs and a line of text.</p>
 <div class="sourceCode" id="cb1"><pre class="sourceCode markdown"><code class="sourceCode markdown"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="fu"># Level one</span></span>
-<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="fu">## Level two</span></span>
-<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="fu">### Level three</span></span></code></pre></div>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="fu">## Level two</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="fu">### Level three</span></span></code></pre></div>
 <p><strong><em>Output:</em></strong></p>
-<hr />
 </section>
 <section id="level-one" class="level1">
 <h1>Level one</h1>
@@ -155,25 +155,29 @@
 <h2>Level two</h2>
 <section id="level-three" class="level3">
 <h3>Level three</h3>
-<hr />
 <p><em><strong>Note:</strong> While the six header levels are available in Markdown, the format Pandoc is exporting to matters. The first three levels of headers are generally safe, but the styling and export format should be checked.</em></p>
-<hr />
 </section>
+</section>
+<section id="horizontal-rules" class="level2">
+<h2>Horizontal Rules</h2>
+<p>Add a horizontal rule (a line across the entire width of the text) with <code>***</code>.</p>
+<div class="sourceCode" id="cb2"><pre class="sourceCode markdown"><code class="sourceCode markdown"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a>***</span></code></pre></div>
+<p><strong><em>Output:</em></strong></p>
+<hr />
 </section>
 <section id="blockquotes" class="level2">
 <h2>Blockquotes</h2>
 <p>Blockquotes are created with <code>&gt;</code> <em>(greater than)</em>.</p>
-<div class="sourceCode" id="cb2"><pre class="sourceCode markdown"><code class="sourceCode markdown"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="at">&gt; This is a blockquote. It can</span></span>
-<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="at">&gt; contain line breaks as this demonstrates.</span></span>
-<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="at">&gt;</span></span>
-<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a><span class="at">&gt; 1. Blockquotes can contain lists.</span></span>
-<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a><span class="at">&gt; 2. Item two.</span></span>
-<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a><span class="at">&gt;</span></span>
-<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a><span class="at">&gt; &gt; Blockquotes can contain blockquotes.</span></span>
-<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a><span class="at">&gt; &quot;Lazy&quot; blockquotes are also allowed, in which there is no need to manually include the </span><span class="in">`&gt;`</span><span class="at"> symbol at the beginning of each line to continue the quote. This is easier to type but less visually distinct in plain text.</span></span></code></pre></div>
+<div class="sourceCode" id="cb3"><pre class="sourceCode markdown"><code class="sourceCode markdown"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="at">&gt; This is a blockquote. It can</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="at">&gt; contain line breaks as this demonstrates.</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a><span class="at">&gt;</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a><span class="at">&gt; 1. Blockquotes can contain lists.</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a><span class="at">&gt; 2. Item two.</span></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a><span class="at">&gt;</span></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a><span class="at">&gt; &gt; Blockquotes can contain blockquotes.</span></span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a><span class="at">&gt; &quot;Lazy&quot; blockquotes are also allowed, in which there is no need to manually include the </span><span class="in">`&gt;`</span><span class="at"> symbol at the beginning of each line to continue the quote. This is easier to type but less visually distinct in plain text.</span></span></code></pre></div>
 <p><strong><em>Output:</em></strong></p>
-<hr />
 <blockquote>
 <p>This is a blockquote. It can contain be multiple lines long.</p>
 <ol type="1">
@@ -187,9 +191,7 @@
 <blockquote>
 <p>“Lazy” blockquotes are also allowed, in which there is no need to manually include the <code>&gt;</code> symbol at the beginning of each line to continue the quote. This is easier to type but less visually distinct in plain text.</p>
 </blockquote>
-<hr />
 <p><em><strong>Note:</strong> There is more possible, though the complexity of the spacing and indentation requirements becomes a headache.</em></p>
-<hr />
 </section>
 <section id="fenced-code-blocks" class="level2">
 <h2>Fenced Code Blocks</h2>
@@ -200,7 +202,6 @@ if x &gt; y {
 }
 ```</code></pre>
 <p><strong><em>Output:</em></strong></p>
-<hr />
 <pre><code>if x &gt; y {
     z = 0
 }</code></pre>
@@ -215,7 +216,6 @@ if x &gt; y {
 ```
 ````</code></pre>
 <p><strong><em>Output:</em></strong></p>
-<hr />
 <pre><code>```
 if x &gt; y {
   z = 0
@@ -226,16 +226,16 @@ if x &gt; y {
 <section id="pipe-tables" class="level2">
 <h2>Pipe Tables</h2>
 <p>The easiest way to explain pipe tables is to demonstrate one:</p>
-<div class="sourceCode" id="cb7"><pre class="sourceCode markdown"><code class="sourceCode markdown"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> Left <span class="pp">|</span> Center <span class="pp">|</span> Center <span class="pp">|</span> Right <span class="pp">|</span></span>
-<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a><span class="pp">| :---</span> <span class="pp">| :---:</span> <span class="pp">| :---:</span> <span class="pp">| ---:</span> <span class="pp">|</span></span>
-<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> row <span class="pp">|</span> 2 <span class="pp">|</span> three <span class="pp">|</span> four <span class="pp">|</span></span>
-<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> longer row <span class="pp">|</span> 3.14159 <span class="pp">|</span> 0 <span class="pp">|</span> more text <span class="pp">|</span></span></code></pre></div>
+<div class="sourceCode" id="cb8"><pre class="sourceCode markdown"><code class="sourceCode markdown"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> Left <span class="pp">|</span> Center <span class="pp">|</span> Center <span class="pp">|</span> Right <span class="pp">|</span></span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a><span class="pp">| :---</span> <span class="pp">| :---:</span> <span class="pp">| :---:</span> <span class="pp">| ---:</span> <span class="pp">|</span></span>
+<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> row <span class="pp">|</span> 2 <span class="pp">|</span> three <span class="pp">|</span> four <span class="pp">|</span></span>
+<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> longer row <span class="pp">|</span> 3.14159 <span class="pp">|</span> 0 <span class="pp">|</span> more text <span class="pp">|</span></span></code></pre></div>
 <p><em><strong>Notes:</strong> The header row can be omitted. The columns before or after the dashes in each column of the second row define the alignment used for that column. Tables are likely to require significant styling for the target export format.</em></p>
 <p>As typed above, pipe tables are very easy to type, but somewhat difficult to read. This can be improved as follows (adding spaces and hyphens) if needed:</p>
-<div class="sourceCode" id="cb8"><pre class="sourceCode markdown"><code class="sourceCode markdown"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> Left       <span class="pp">|</span> Center  <span class="pp">|</span> Center <span class="pp">|</span> Right     <span class="pp">|</span></span>
-<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a><span class="pp">| :---------</span> <span class="pp">| :-----:</span> <span class="pp">| :----:</span> <span class="pp">| --------:</span> <span class="pp">|</span></span>
-<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> row        <span class="pp">|</span> 2       <span class="pp">|</span> three  <span class="pp">|</span> four      <span class="pp">|</span></span>
-<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> longer row <span class="pp">|</span> 3.14159 <span class="pp">|</span> 0      <span class="pp">|</span> more text <span class="pp">|</span></span></code></pre></div>
+<div class="sourceCode" id="cb9"><pre class="sourceCode markdown"><code class="sourceCode markdown"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> Left       <span class="pp">|</span> Center  <span class="pp">|</span> Center <span class="pp">|</span> Right     <span class="pp">|</span></span>
+<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a><span class="pp">| :---------</span> <span class="pp">| :-----:</span> <span class="pp">| :----:</span> <span class="pp">| --------:</span> <span class="pp">|</span></span>
+<span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> row        <span class="pp">|</span> 2       <span class="pp">|</span> three  <span class="pp">|</span> four      <span class="pp">|</span></span>
+<span id="cb9-4"><a href="#cb9-4" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> longer row <span class="pp">|</span> 3.14159 <span class="pp">|</span> 0      <span class="pp">|</span> more text <span class="pp">|</span></span></code></pre></div>
 <p><strong><em>Output:</em></strong></p>
 <table>
 <thead>
@@ -264,13 +264,26 @@ if x &gt; y {
 </section>
 <section id="links" class="level2">
 <h2>Links</h2>
-<div class="sourceCode" id="cb9"><pre class="sourceCode markdown"><code class="sourceCode markdown"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="co">[</span><span class="ot">Link To Google</span><span class="co">](https://www.google.com)</span></span></code></pre></div>
+<section id="external-links" class="level3">
+<h3>External Links</h3>
+<div class="sourceCode" id="cb10"><pre class="sourceCode markdown"><code class="sourceCode markdown"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="co">[</span><span class="ot">Link To Google</span><span class="co">](https://www.google.com)</span></span></code></pre></div>
 <p><strong><em>Output:</em></strong></p>
 <p><a href="https://www.google.com">Link To Google</a></p>
 </section>
+<section id="internal-links-to-headers" class="level3">
+<h3>Internal Links to Headers</h3>
+<p>There is a built in feature that allows internal linking to headers within the document. For example, linking to the <strong>Fenced Code Blocks</strong> header above.</p>
+<p><em><strong>Caveats:</strong> Header references begin with a single <code>#</code>, must be in lowercase, and spaces must be replaced with hyphens.</em></p>
+<div class="sourceCode" id="cb11"><pre class="sourceCode markdown"><code class="sourceCode markdown"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a><span class="co">[</span><span class="ot">Link to **Fenced Code Blocks** header...</span><span class="co">](#fenced-code-blocks)</span></span></code></pre></div>
+<p><strong><em>Output</em></strong></p>
+<p><a href="#fenced-code-blocks">Link to <strong>Fenced Code Blocks</strong> header…</a></p>
+<p><em>There are other more complex ways of linking but these begin to get tricky and strange looking for non-technical users. The option exists.</em></p>
+</section>
+</section>
 <section id="images" class="level2">
 <h2>Images</h2>
-<div class="sourceCode" id="cb10"><pre class="sourceCode markdown"><code class="sourceCode markdown"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="al">![Test - Artemis II](media/test_artemis_2.jpg)</span></span></code></pre></div>
+<div class="sourceCode" id="cb12"><pre class="sourceCode markdown"><code class="sourceCode markdown"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a><span class="al">![Test - Artemis II](media/test_artemis_2.jpg)</span></span></code></pre></div>
+<p><strong><em>Output</em></strong></p>
 <figure>
 <img src="media/test_artemis_2.jpg" alt="Test - Artemis II" />
 <figcaption aria-hidden="true">Test - Artemis II</figcaption>

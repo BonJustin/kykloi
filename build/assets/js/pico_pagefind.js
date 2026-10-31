@@ -52,7 +52,7 @@ document.addEventListener("DOMContentLoaded", () => {
       `;
       })
       .join("");
-    }
+  }
 
   // --- Modal Event Listeners ---
   openSearchBtn.addEventListener("click", async (e) => {

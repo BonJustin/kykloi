@@ -14,11 +14,8 @@ document.addEventListener("DOMContentLoaded", () => {
   async function initPagefind() {
     if (!pagefind) {
       try {
-        const currentPath = window.location.pathname;
-        const basePath = currentPath.substring(0, currentPath.lastIndexOf('/'));
-        const pagefindPath = `${basePath}/pagefind/pagefind.js`;
-
-        pagefind = await import(pagefindPath);
+        const pagefindUrl = new URL('../../pagefind/pagefind.js', import.meta.url).href;
+        pagefind = await import(pagefindUrl);
         await pagefind.init();
       } catch (err) {
         console.error("Failed to load Pagefind index.", err);
@@ -41,15 +38,21 @@ document.addEventListener("DOMContentLoaded", () => {
     );
 
     resultsContainer.innerHTML = results
-      .map(
-        (data) => `
-        <a href="${data.url}" style="text-decoration: none; display: block; border-bottom: 1px solid var(--pico-muted-border-color);">
-          <small style="color: var(--pico-primary);">${data.meta.title}</small>
+      .map((data) => {
+        // data.url from Pagefind typically starts with a leading slash: "/note.html"
+        // Strip the leading slash so URL() resolves it relative to siteRoot
+        const relativeUrlPath = data.url.replace(/^\//, "");
+        const resolvedUrl = new URL(relativeUrlPath, siteRoot).href;
+        const displayTitle = data.meta.title || "Untitled";
+
+        return `
+        <a href="${resolvedUrl}" style="text-decoration: none; display: block; border-bottom: 1px solid var(--pico-muted-border-color); padding: 0.5rem 0;">
+          ${displayTitle}
         </a>
-      `
-      )
+      `;
+      })
       .join("");
-  }
+    }
 
   // --- Modal Event Listeners ---
   openSearchBtn.addEventListener("click", async (e) => {
