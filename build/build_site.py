@@ -146,7 +146,6 @@ def convert_file(
     css_files = [
         "assets/css/pico.css",
         "assets/css/style.css",
-        "assets/katex/katex.min.css",
     ]
     for css in css_files:
         cmd.extend(["--css", f"{relative_root}{css}"])

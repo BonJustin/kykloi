@@ -14,11 +14,8 @@ document.addEventListener("DOMContentLoaded", () => {
   async function initPagefind() {
     if (!pagefind) {
       try {
-        const currentPath = window.location.pathname;
-        const basePath = currentPath.substring(0, currentPath.lastIndexOf('/'));
-        const pagefindPath = `${basePath}/pagefind/pagefind.js`;
-
-        pagefind = await import(pagefindPath);
+        const pagefindUrl = new URL('../../pagefind/pagefind.js', import.meta.url).href;
+        pagefind = await import(pagefindUrl);
         await pagefind.init();
       } catch (err) {
         console.error("Failed to load Pagefind index.", err);
