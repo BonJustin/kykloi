@@ -16,7 +16,7 @@ The standard tabulation for Markdown is **4 spaces**. Structures such as lists w
 
 *** 
 
-## [Headers & Subheaders](#top)
+## Headers & Subheaders
 
 
 Headings consist of one to six `#` *(hash)* signs and a line of text.
@@ -29,15 +29,21 @@ Headings consist of one to six `#` *(hash)* signs and a line of text.
 
 ***Output:***
 
-***
-
 # Level one
 ## Level two
 ### Level three
 
-***
-
 ***Note:** While the six header levels are available in Markdown, the format Pandoc is exporting to matters. The first three levels of headers are generally safe, but the styling and export format should be checked.*
+
+## Horizontal Rules
+
+Add a horizontal rule (a line across the entire width of the text) with `***`.
+
+```markdown
+***
+```
+
+***Output***
 
 ***
 
@@ -59,8 +65,6 @@ Blockquotes are created with `>` *(greater than)*.
 
 ***Output:***
 
-***
-
 > This is a blockquote. It can
 > contain be multiple lines long.
 >
@@ -72,11 +76,7 @@ Blockquotes are created with `>` *(greater than)*.
 
 > "Lazy" blockquotes are also allowed, in which there is no need to manually include the `>` symbol at the beginning of each line to continue the quote. This is easier to type but less visually distinct in plain text.
 
-***
-
 ***Note:** There is more possible, though the complexity of the spacing and indentation requirements becomes a headache.*
-
-***
 
 ## Fenced Code Blocks
 
@@ -91,8 +91,6 @@ if x > y {
 ````
 
 ***Output:***
-
-***
 
 ```
 if x > y {
@@ -115,8 +113,6 @@ if x > y {
 `````
 
 ***Output:***
-
-***
 
 ````
 ```
@@ -157,6 +153,8 @@ As typed above, pipe tables are very easy to type, but somewhat difficult to rea
 
 ## Links
 
+### External Links
+
 ```markdown
 [Link To Google](https://www.google.com)
 ```
@@ -165,10 +163,28 @@ As typed above, pipe tables are very easy to type, but somewhat difficult to rea
 
 [Link To Google](https://www.google.com)
 
+### Internal Links to Headers
+
+There is a built in feature that allows internal linking to headers within the document. For example, linking to the **Fenced Code Blocks** header above.
+
+***Caveats:** Header references begin with a single `#`, must be in lowercase, and spaces must be replaced with hyphens.*
+
+```markdown
+[Link to **Fenced Code Blocks** header...](#fenced-code-blocks)
+```
+
+***Output***
+
+[Link to **Fenced Code Blocks** header...](#fenced-code-blocks)
+
+*There are other more complex ways of linking but these begin to get tricky and strange looking for non-technical users. The option exists.*
+
 ## Images
 
 ```markdown
 ![Test - Artemis II](media/test_artemis_2.jpg)
 ```
+
+***Output***
 
 ![Test - Artemis II](media/test_artemis_2.jpg)
