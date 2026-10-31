@@ -43,7 +43,7 @@ Add a horizontal rule (a line across the entire width of the text) with `***`.
 ***
 ```
 
-***Output***
+***Output:***
 
 ***
 
