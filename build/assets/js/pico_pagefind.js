@@ -14,7 +14,11 @@ document.addEventListener("DOMContentLoaded", () => {
   async function initPagefind() {
     if (!pagefind) {
       try {
-        pagefind = await import("/ticker_tape/pagefind/pagefind.js");
+        const currentPath = window.location.pathname;
+        const basePath = currentPath.substring(0, currentPath.lastIndexOf('/'));
+        const pagefindPath = `${basePath}/pagefind/pagefind.js`;
+
+        pagefind = await import(pagefindPath);
         await pagefind.init();
       } catch (err) {
         console.error("Failed to load Pagefind index.", err);
