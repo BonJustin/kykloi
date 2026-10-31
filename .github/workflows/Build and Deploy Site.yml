@@ -34,10 +34,10 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Install System Dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y pandoc
+      - name: Set up Pandoc
+        uses: pandoc/actions/setup@v1
+        with:
+          version: '3.1.11.1'  # Set to match your local `pandoc --version`
 
       - name: Install Node Dependencies
         run: |
