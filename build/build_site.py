@@ -288,7 +288,7 @@ def main():
         # Determine relative root based on path depth
         rel_parent = rel.parent
         depth = len(rel_parent.parts) if rel_parent != Path(".") else 0
-        relative_root = "../" * depth if depth > 0 else "."
+        relative_root = "../" * depth if depth > 0 else "./"
 
         out.parent.mkdir(parents=True, exist_ok=True)
         logging.info("BUILD: %s → %s", rel, out.relative_to(DST))
