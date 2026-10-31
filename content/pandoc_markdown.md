@@ -14,10 +14,9 @@ Markdown is intended to be easy to type and easy to read in plain text. One gene
 
 The standard tabulation for Markdown is **4 spaces**. Structures such as lists will not nest correctly without correct indentation/tabulation. This can usually be set in the editor. Syntax highlighting and linting are both helpful also, if the editor supports it.
 
-*** 
+***
 
 ## Headers & Subheaders
-
 
 Headings consist of one to six `#` *(hash)* signs and a line of text.
 
@@ -78,7 +77,6 @@ Blockquotes are created with `>` *(greater than)*.
 >
 > > Blockquotes can contain blockquotes.
 
-
 > "Lazy" blockquotes are also allowed, in which there is no need to manually include the `>` symbol at the beginning of each line to continue the quote. This is easier to type but less visually distinct in plain text.
 
 ***Note:** There is more possible, though the complexity of the spacing and indentation requirements becomes a headache.*
@@ -87,7 +85,7 @@ Blockquotes are created with `>` *(greater than)*.
 
 Code blocks are enclosed in 3 or more `` ` `` *(backtick)*.
 
-````
+````text
 ```
 if x > y {
   z = 0
@@ -97,7 +95,7 @@ if x > y {
 
 ***Output:***
 
-```
+```text
 if x > y {
     z = 0
 }
@@ -107,7 +105,7 @@ if x > y {
 
 Bracket fenced code blocks in more than three `` ` `` *(backticks)* to nest and include them in output.
 
-`````
+`````text
 ````
 ```
 if x > y {
@@ -119,7 +117,7 @@ if x > y {
 
 ***Output:***
 
-````
+````text
 ```
 if x > y {
   z = 0
