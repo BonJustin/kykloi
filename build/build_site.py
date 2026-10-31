@@ -269,6 +269,8 @@ def main():
             logging.error("Config path not found (%s): %s", label, path)
             sys.exit(1)
 
+    if DST.exists():
+        shutil.rmtree(DST)
     DST.mkdir(parents=True, exist_ok=True)
 
     # Collect all .md files (all assets folders inside SRC have been migrated)

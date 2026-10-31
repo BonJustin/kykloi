@@ -168,7 +168,7 @@ As typed above, pipe tables are very easy to type, but somewhat difficult to rea
 ## Images
 
 ```markdown
-![Test - Artemis II](../assets/media/test_artemis_2.jpg)
+![Test - Artemis II](media/test_artemis_2.jpg)
 ```
 
-![Test - Artemis II](../assets/media/test_artemis_2.jpg)
+![Test - Artemis II](media/test_artemis_2.jpg)
