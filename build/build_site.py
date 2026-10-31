@@ -97,6 +97,8 @@ def extract_custom_template_stream(
                 custom_tpl = metadata.get("html_template")
                 if custom_tpl:
                     resolved_path = app_dir / str(custom_tpl)
+                    if not resolved_path.exists():
+                        resolved_path = app_dir / "templates" / str(custom_tpl)
                     if resolved_path.exists() and resolved_path.is_file():
                         return resolved_path
 

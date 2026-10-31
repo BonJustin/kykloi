@@ -1,10 +1,12 @@
 function Link(el)
-  -- ONLY process links that end in .md AND do NOT start with http
-  if el.target:match("%.md(%#?.*)$") and not el.target:match("^http") then
-    -- 1. Replace .md with .html
-    local new_target = el.target:gsub("%.md", ".html")
-    
-    el.target = new_target
+  -- Skip external protocols and protocol-relative URLs
+  if el.target:match("^%a+://") or el.target:match("^//") then
+    return el
+  end
+
+  -- Target ending in .md or .md followed immediately by #anchor or ?query
+  if el.target:match("%.md$") or el.target:match("%.md([#?].*)$") then
+    el.target = el.target:gsub("(%w+)%.md([#?]?)", "%1.html%2", 1)
   end
   return el
 end
