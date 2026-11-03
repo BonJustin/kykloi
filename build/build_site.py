@@ -1,255 +1,315 @@
 import argparse
+import concurrent.futures
+import hashlib
+import json
 import logging
+import os
 import shutil
 import subprocess
 import sys
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Optional
 
 import yaml
 
 # ===========================================================================
-# 1. GLOBAL INITIALIZATION
+# 1. GLOBAL PATH INITIALIZATION & VALIDATION
 # ===========================================================================
 
 try:
     PROJECT_ROOT = Path(__file__).parent.resolve().parent
-
     SRC = PROJECT_ROOT / "content"
     DST = PROJECT_ROOT / "dist"
-    app_dir = PROJECT_ROOT / "build"
+    APP_DIR = PROJECT_ROOT / "build"
 
-    DEFAULTS_YAML = app_dir / "pandoc_md_to_static_html.yaml"
-    TEMPLATE_HTML = app_dir / "templates" / "md_to_static_html.html"
-    LUA_FILTER = app_dir / "translate_links.lua"
+    DEFAULTS_YAML = APP_DIR / "pandoc_md_to_static_html.yaml"
+    DEFAULT_TEMPLATE = APP_DIR / "templates" / "md_to_static_html.html"
+    LUA_FILTER = APP_DIR / "translate_links.lua"
+    MANIFEST_FILE = APP_DIR / ".build_manifest.json"
 
-
-except (FileNotFoundError, KeyError) as error:
-    print(
-        f"CRITICAL CONFIGURATION ERROR: Missing value or file: {error}", file=sys.stderr
-    )
+except Exception as err:
+    print(f"CRITICAL CONFIGURATION ERROR: {err}", file=sys.stderr)
     sys.exit(1)
 
+
 # ===========================================================================
-# 2. FUNCTION DEFINITIONS
+# 2. DATA STRUCTURES & ARGUMENT PARSING
 # ===========================================================================
+
+
+@dataclass(frozen=True)
+class CompileTask:
+    md_path: Path
+    out_path: Path
+    template_path: Path
+    relative_root: str
+    defaults_yaml: Path
+    lua_filter: Path
+    dry_run: bool
+    verbose: bool
 
 
 def parse_args():
-    p = argparse.ArgumentParser(description="Build HTML site from markdown folder.")
+    p = argparse.ArgumentParser(
+        description="Deterministic Hash-Based Pandoc Static Site Generator."
+    )
+    p.add_argument(
+        "--clean",
+        action="store_true",
+        help="Purge destination directory and hash manifest for a complete rebuild.",
+    )
     p.add_argument(
         "--dry-run",
         action="store_true",
-        help="Print what would happen without doing it.",
+        help="Simulate the build pipeline without modifying disk.",
     )
     p.add_argument(
         "--verbose",
         action="store_true",
-        help="Show each pandoc command before running it.",
+        help="Output granular diagnostic logs.",
+    )
+    p.add_argument(
+        "--workers",
+        type=int,
+        default=os.cpu_count() or 4,
+        help="Worker process concurrency pool size (default: CPU core count).",
     )
     return p.parse_args()
+
+
+# ===========================================================================
+# 3. CRYPTOGRAPHIC HASHING & MANIFEST UTILITIES
+# ===========================================================================
+
+
+def compute_file_hash(path: Path) -> str:
+    """Computes a SHA-256 digest in 64 KiB chunks for flat memory allocation."""
+    hasher = hashlib.sha256()
+    try:
+        with open(path, "rb") as f:
+            while chunk := f.read(65536):
+                hasher.update(chunk)
+        return hasher.hexdigest()
+    except (FileNotFoundError, PermissionError) as e:
+        logging.warning("Unable to hash %s: %s", path, e)
+        return ""
+
+
+def compute_global_dependencies_hash() -> str:
+    """
+    Computes a collective digest of pandoc defaults, lua filters,
+    and all template files. Any change triggers a global recompile.
+    """
+    hasher = hashlib.sha256()
+    tracked_files: list[Path] = [DEFAULTS_YAML, LUA_FILTER, DEFAULT_TEMPLATE]
+
+    templates_dir = APP_DIR / "templates"
+    if templates_dir.exists():
+        tracked_files.extend(sorted(templates_dir.glob("*.html")))
+
+    # Deduplicate while preserving order
+    seen = set()
+    for f in tracked_files:
+        if f.is_file() and f not in seen:
+            seen.add(f)
+            hasher.update(f.name.encode("utf-8"))
+            hasher.update(compute_file_hash(f).encode("utf-8"))
+
+    return hasher.hexdigest()
+
+
+def load_manifest(manifest_path: Path) -> dict[str, str]:
+    if manifest_path.exists():
+        try:
+            with open(manifest_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, dict):
+                    return data
+        except (json.JSONDecodeError, OSError) as e:
+            logging.warning(
+                "Corrupt manifest encountered (%s). Initializing empty manifest.", e
+            )
+    return {}
+
+
+def save_manifest(manifest_path: Path, manifest: dict[str, str], dry_run: bool):
+    if dry_run:
+        return
+    try:
+        manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(manifest_path, "w", encoding="utf-8") as f:
+            json.dump(manifest, f, indent=2, sort_keys=True)
+    except OSError as e:
+        logging.error("Failed to commit build manifest to disk: %s", e)
+
+
+# ===========================================================================
+# 4. TEMPLATE EXTRACTION
+# ===========================================================================
 
 
 def extract_custom_template_stream(
     md_path: Path, app_dir: Path, default_template: Path
 ) -> Path:
-    """
-    Parses the YAML frontmatter of a markdown file strictly within the start
-    and end delimiters ('---'). Fast-paths the template check and resolves
-    the template path against the 'app' directory.
-    """
+    """Fast-path streaming scan for custom frontmatter templates."""
     try:
         with open(md_path, "r", encoding="utf-8") as f:
             first_line = f.readline()
             if not first_line:
                 return default_template
 
-            # Handle UTF-8 Byte Order Mark (BOM) if present
             if first_line.startswith("\ufeff"):
                 first_line = first_line[1:]
 
-            # Standard YAML frontmatter must start on the absolute first line
             if first_line.strip() != "---":
                 return default_template
 
             yaml_lines = []
-            closed_properly = False
-            # Limit scan to 150 lines to prevent reading entire massive files
+            closed = False
             for _ in range(150):
                 line = f.readline()
                 if not line:
                     break
                 if line.strip() == "---":
-                    closed_properly = True
+                    closed = True
                     break
                 yaml_lines.append(line)
 
-        # Only parse if we isolated a completely closed, valid frontmatter block
-        if closed_properly and yaml_lines:
+        if closed and yaml_lines:
             yaml_block = "".join(yaml_lines)
-
-            # Fast-path lookup: check if our custom tag exists in the isolated block
             if "html_template" not in yaml_block:
                 return default_template
 
-            # Safely load the isolated YAML snippet
-            metadata = yaml.safe_load(yaml_block)
-            if isinstance(metadata, dict):
-                custom_tpl = metadata.get("html_template")
+            meta = yaml.safe_load(yaml_block)
+            if isinstance(meta, dict):
+                custom_tpl = meta.get("html_template")
                 if custom_tpl:
-                    resolved_path = app_dir / str(custom_tpl)
-                    if not resolved_path.exists():
-                        resolved_path = app_dir / "templates" / str(custom_tpl)
-                    if resolved_path.exists() and resolved_path.is_file():
-                        return resolved_path
+                    resolved = app_dir / str(custom_tpl)
+                    if not resolved.exists():
+                        resolved = app_dir / "templates" / str(custom_tpl)
+                    if resolved.is_file():
+                        return resolved
 
                     logging.warning(
-                        "Custom template '%s' declared in '%s' does not exist in '%s'. "
-                        "Falling back to default template.",
+                        "Template '%s' defined in '%s' missing. Falling back to default.",
                         custom_tpl,
                         md_path.name,
-                        app_dir,
                     )
     except Exception as error:
-        logging.debug(
-            "Stream-based template extraction failed for %s: %s", md_path.name, error
-        )
+        logging.debug("Frontmatter parse error on %s: %s", md_path.name, error)
 
     return default_template
 
 
-def convert_file(
-    md: Path,
-    out: Path,
-    defaults_yaml: Path,
-    template_html: Path,
-    lua_filter: Path,
-    relative_root: str,
-    dry_run: bool,
-    verbose: bool,
-) -> bool:
-    """Run pandoc on a single markdown file with dynamic variables. Returns True on success."""
+# ===========================================================================
+# 5. PARALLEL WORKER SUBSYSTEM
+# ===========================================================================
+
+
+def compile_markdown_worker(task: CompileTask) -> tuple[Path, bool, Optional[str]]:
+    """Isolated compile task executed across worker process boundaries."""
     cmd = [
         "pandoc",
-        str(md),
+        str(task.md_path),
         "--defaults",
-        str(defaults_yaml),
+        str(task.defaults_yaml),
         "--template",
-        str(template_html),
+        str(task.template_path),
         "--lua-filter",
-        str(lua_filter),
+        str(task.lua_filter),
         "-V",
-        f"relative_root={relative_root}",
-        f"--katex={relative_root}assets/katex/",
+        f"relative_root={task.relative_root}",
+        f"--katex={task.relative_root}assets/katex/",
         "-o",
-        str(out),
+        str(task.out_path),
     ]
 
-    # Inject relative paths to CSS stylesheets dynamically
-    css_files = [
-        "assets/css/pico.css",
-        "assets/css/style.css",
-    ]
+    css_files = ["assets/css/pico.css", "assets/css/style.css"]
     for css in css_files:
-        cmd.extend(["--css", f"{relative_root}{css}"])
+        cmd.extend(["--css", f"{task.relative_root}{css}"])
 
-    if verbose or dry_run:
-        logging.info("  cmd: %s", " ".join(cmd))
-    if dry_run:
-        return True
+    if task.dry_run:
+        return task.md_path, True, None
 
+    task.out_path.parent.mkdir(parents=True, exist_ok=True)
     result = subprocess.run(cmd, capture_output=True, text=True)
+
     if result.returncode != 0:
-        logging.error("pandoc failed on %s:\n%s", md, result.stderr.strip())
-        return False
-    return True
+        return task.md_path, False, result.stderr.strip()
+
+    return task.md_path, True, None
 
 
-def sync_functional_assets(
-    app_assets: Path, dst_assets: Path, dry_run: bool, verbose: bool
-):
-    """Mirror the functional assets folder (CSS, JS, KaTeX) to the destination assets directory."""
-    if not app_assets.exists():
-        logging.warning(
-            "Functional assets folder not found at: %s — skipping.", app_assets
-        )
-        return
-    if verbose or dry_run:
-        logging.info("Syncing functional assets: %s → %s", app_assets, dst_assets)
-    if dry_run:
-        return
-    shutil.copytree(app_assets, dst_assets, dirs_exist_ok=True)
-    logging.info("Functional assets synced.")
+# ===========================================================================
+# 6. ORPHAN PRUNING
+# ===========================================================================
 
 
-def sync_media_assets(src_dir: Path, dst_dir: Path, dry_run: bool, verbose: bool):
-    """Find and copy all non-markdown files (media, etc.) from SRC to DST, preserving folder structure."""
-    if verbose or dry_run:
-        logging.info(
-            "Syncing media assets (non-markdown files) from %s → %s", src_dir, dst_dir
-        )
-    if dry_run:
-        return
+def prune_orphans(
+    dst_dir: Path, expected_files: set[Path], preserve_dirs: set[str], dry_run: bool
+) -> int:
+    """Removes files and directories in dst_dir that are absent from expected_files."""
+    if not dst_dir.exists():
+        return 0
 
-    copied_count = 0
-    # Walk through src_dir to find non-markdown files
-    for p in src_dir.rglob("*"):
-        # Copy files that are not markdown (.md) and not system/hidden files
-        if p.is_file() and p.suffix.lower() != ".md" and not p.name.startswith("."):
-            rel = p.relative_to(src_dir)
-            target = dst_dir / rel
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(p, target)
-            copied_count += 1
+    orphans_removed = 0
 
-    if verbose:
-        logging.info("Copied %d media asset file(s).", copied_count)
+    for item in list(dst_dir.rglob("*")):
+        if item.is_file():
+            rel_parts = item.relative_to(dst_dir).parts
+            if any(part in preserve_dirs for part in rel_parts):
+                continue
+
+            if item.resolve() not in expected_files:
+                if not dry_run:
+                    item.unlink()
+                orphans_removed += 1
+                logging.debug("Pruned orphan file: %s", item)
+
+    for dirpath in sorted(dst_dir.rglob("*"), key=lambda p: len(p.parts), reverse=True):
+        if dirpath.is_dir():
+            rel_parts = dirpath.relative_to(dst_dir).parts
+            if any(part in preserve_dirs for part in rel_parts):
+                continue
+            if not any(dirpath.iterdir()):
+                if not dry_run:
+                    dirpath.rmdir()
+                logging.debug("Pruned empty dir: %s", dirpath)
+
+    return orphans_removed
 
 
-def sync_root_assets(root_src: Path, dst_dir: Path, dry_run: bool, verbose: bool):
-    """Copy files from the app root directory (favicon, .htaccess, robots.txt, etc.) directly into DST root."""
-    if not root_src.exists():
-        logging.warning(
-            "App root configuration folder not found at: %s — skipping.", root_src
-        )
-        return
-    if verbose or dry_run:
-        logging.info("Syncing root assets: %s → %s", root_src, dst_dir)
-    if dry_run:
-        return
-    shutil.copytree(root_src, dst_dir, dirs_exist_ok=True)
-    logging.info("Root assets synced.")
+# ===========================================================================
+# 7. SEARCH INDEXING
+# ===========================================================================
 
 
 def run_pagefind(site_dir: Path, dry_run: bool, verbose: bool):
-    """Run Pagefind indexing on the compiled output directory."""
+    """Executes Pagefind indexing on the static distribution directory."""
     if dry_run:
-        logging.info("[DRY RUN] Would run Pagefind indexing on: %s", site_dir)
+        logging.info("[DRY RUN] Would execute Pagefind search indexing.")
         return
 
-    logging.info("Running Pagefind search indexer...")
-
     cmd = ["pagefind", "--site", str(site_dir)]
-
     if verbose:
-        logging.info("  cmd: %s", " ".join(cmd))
+        logging.info("Running search indexer: %s", " ".join(cmd))
 
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=False)
-        if result.returncode != 0:
+        res = subprocess.run(cmd, capture_output=True, text=True, check=False)
+        if res.returncode != 0:
             logging.error(
-                "Pagefind indexing failed (Exit code %d).\n"
-                "Ensure pagefind is installed.\n"
-                "Stderr:\n%s",
-                result.returncode,
-                result.stderr.strip(),
+                "Pagefind failed (Exit %d):\n%s", res.returncode, res.stderr.strip()
             )
         else:
-            if verbose and result.stdout:
-                logging.info("Pagefind Output:\n%s", result.stdout.strip())
-            logging.info("Pagefind indexing completed successfully.")
+            logging.info("Pagefind index updated successfully.")
+    except Exception as err:
+        logging.error("Execution error running Pagefind: %s", err)
 
-    except Exception as error:
-        logging.error("An unexpected error occurred executing Pagefind: %s", error)
+
+# ===========================================================================
+# 8. PIPELINE ORCHESTRATION
+# ===========================================================================
 
 
 def main():
@@ -259,88 +319,213 @@ def main():
         format="%(levelname)s: %(message)s",
     )
 
-    # Validate configuration and assets path dependencies
-    for label, path in [
-        ("SRC", SRC),
-        ("DEFAULTS_YAML", DEFAULTS_YAML),
-        ("TEMPLATE_HTML", TEMPLATE_HTML),
-        ("LUA_FILTER", LUA_FILTER),
-    ]:
+    # 1. Critical Dependency Verification (includes DEFAULT_TEMPLATE)
+    dependencies = [
+        (SRC, "Source directory"),
+        (DEFAULTS_YAML, "Pandoc defaults configuration"),
+        (DEFAULT_TEMPLATE, "Default HTML template"),
+        (LUA_FILTER, "Lua link translation filter"),
+    ]
+    for path, desc in dependencies:
         if not path.exists():
-            logging.error("Config path not found (%s): %s", label, path)
+            logging.error("Configuration error: %s missing at %s", desc, path)
             sys.exit(1)
 
-    if DST.exists():
-        shutil.rmtree(DST)
+    # 2. Clean Execution Handling
+    if args.clean:
+        if DST.exists():
+            logging.info("Flag --clean active: Purging %s", DST)
+            if not args.dry_run:
+                shutil.rmtree(DST)
+        if MANIFEST_FILE.exists():
+            logging.info("Flag --clean active: Removing manifest %s", MANIFEST_FILE)
+            if not args.dry_run:
+                MANIFEST_FILE.unlink()
+
     DST.mkdir(parents=True, exist_ok=True)
 
-    # Collect all .md files (all assets folders inside SRC have been migrated)
-    md_files = list(SRC.rglob("*.md"))
+    # 3. Hash Manifest & Dependency Resolution
+    old_manifest = load_manifest(MANIFEST_FILE)
+    new_manifest: dict[str, str] = {}
 
-    if not md_files:
-        logging.warning("No .md files found under %s", SRC)
-        sys.exit(0)
+    current_global_hash = compute_global_dependencies_hash()
+    new_manifest["__GLOBAL_DEPENDENCIES__"] = current_global_hash
+    global_deps_changed = (
+        old_manifest.get("__GLOBAL_DEPENDENCIES__") != current_global_hash
+    )
 
-    total = len(md_files)
-    built = failed = 0
-
-    for md in sorted(md_files):
-        rel = md.relative_to(SRC)
-        out = DST / rel.with_suffix(".html")
-
-        # Determine relative root based on path depth
-        rel_parent = rel.parent
-        depth = len(rel_parent.parts) if rel_parent != Path(".") else 0
-        relative_root = "../" * depth if depth > 0 else "./"
-
-        out.parent.mkdir(parents=True, exist_ok=True)
-        logging.info("BUILD: %s → %s", rel, out.relative_to(DST))
-
-        # Dynamically resolve template path using high-performance stream parsing
-        current_template = extract_custom_template_stream(md, app_dir, TEMPLATE_HTML)
-
-        ok = convert_file(
-            md=md,
-            out=out,
-            defaults_yaml=DEFAULTS_YAML,
-            template_html=current_template,
-            lua_filter=LUA_FILTER,
-            relative_root=relative_root,
-            dry_run=args.dry_run,
-            verbose=args.verbose,
+    if global_deps_changed:
+        logging.info(
+            "Global dependencies/templates modified. Flagging all outputs for rebuild."
         )
 
-        if ok:
-            built += 1
-        else:
-            failed += 1
+    expected_outputs: set[Path] = set()
+    compile_tasks: list[CompileTask] = []
 
-    # 1. Sync functional assets (CSS, JS, Katex) from app/assets to dst/assets
-    sync_functional_assets(
-        app_dir / "assets", DST / "assets", dry_run=args.dry_run, verbose=args.verbose
+    # 4. Inventory and Diff Markdown Content
+    md_files = list(SRC.rglob("*.md"))
+    if not md_files:
+        logging.warning("No markdown files detected in %s.", SRC)
+        sys.exit(0)
+
+    for md in md_files:
+        rel = md.relative_to(SRC)
+        manifest_key = f"content:{rel.as_posix()}"
+        out = DST / rel.with_suffix(".html")
+        expected_outputs.add(out.resolve())
+
+        current_md_hash = compute_file_hash(md)
+        new_manifest[manifest_key] = current_md_hash
+
+        depth = len(rel.parent.parts) if rel.parent != Path(".") else 0
+        relative_root = "../" * depth if depth > 0 else "./"
+
+        template = extract_custom_template_stream(md, APP_DIR, DEFAULT_TEMPLATE)
+
+        is_dirty = (
+            not out.exists()
+            or global_deps_changed
+            or old_manifest.get(manifest_key) != current_md_hash
+        )
+
+        if is_dirty:
+            compile_tasks.append(
+                CompileTask(
+                    md_path=md,
+                    out_path=out,
+                    template_path=template,
+                    relative_root=relative_root,
+                    defaults_yaml=DEFAULTS_YAML,
+                    lua_filter=LUA_FILTER,
+                    dry_run=args.dry_run,
+                    verbose=args.verbose,
+                )
+            )
+
+    # 5. Inventory and Sync Assets (Content Media, Functional, and Root)
+    asset_sync_jobs: list[tuple[Path, Path]] = []
+
+    # A. Content media assets
+    for p in SRC.rglob("*"):
+        if p.is_file() and p.suffix.lower() != ".md" and not p.name.startswith("."):
+            target = DST / p.relative_to(SRC)
+            expected_outputs.add(target.resolve())
+            manifest_key = f"media:{p.relative_to(SRC).as_posix()}"
+            h = compute_file_hash(p)
+            new_manifest[manifest_key] = h
+            if not target.exists() or old_manifest.get(manifest_key) != h:
+                asset_sync_jobs.append((p, target))
+
+    # B. Functional assets (build/assets -> dist/assets)
+    assets_src = APP_DIR / "assets"
+    if assets_src.exists():
+        for p in assets_src.rglob("*"):
+            if p.is_file() and not p.name.startswith("."):
+                target = DST / "assets" / p.relative_to(assets_src)
+                expected_outputs.add(target.resolve())
+                manifest_key = (
+                    f"functional_asset:{p.relative_to(assets_src).as_posix()}"
+                )
+                h = compute_file_hash(p)
+                new_manifest[manifest_key] = h
+                if not target.exists() or old_manifest.get(manifest_key) != h:
+                    asset_sync_jobs.append((p, target))
+
+    # C. Root directory assets (build/root -> dist)
+    root_src = APP_DIR / "root"
+    if root_src.exists():
+        for p in root_src.rglob("*"):
+            if p.is_file() and not p.name.startswith("."):
+                target = DST / p.relative_to(root_src)
+                expected_outputs.add(target.resolve())
+                manifest_key = f"root_asset:{p.relative_to(root_src).as_posix()}"
+                h = compute_file_hash(p)
+                new_manifest[manifest_key] = h
+                if not target.exists() or old_manifest.get(manifest_key) != h:
+                    asset_sync_jobs.append((p, target))
+
+    # 6. Execute Orphan Pruning (Pre-compilation)
+    orphans_pruned = prune_orphans(
+        dst_dir=DST,
+        expected_files=expected_outputs,
+        preserve_dirs={"pagefind"},
+        dry_run=args.dry_run,
     )
+    if orphans_pruned:
+        logging.info("Pruned %d orphaned artifact(s).", orphans_pruned)
 
-    # 2. Sync media assets (non-markdown files) from SRC to DST
-    sync_media_assets(SRC, DST, dry_run=args.dry_run, verbose=args.verbose)
+    # 7. Execute Asset Copies
+    synced_assets = 0
+    for src_file, target_file in asset_sync_jobs:
+        if not args.dry_run:
+            target_file.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src_file, target_file)
+        synced_assets += 1
+    if synced_assets:
+        logging.info("Synced %d modified/new asset(s).", synced_assets)
 
-    # 3. Sync root assets (favicon, robots.txt, .htaccess, etc.) from app/root to DST root
-    sync_root_assets(app_dir / "root", DST, dry_run=args.dry_run, verbose=args.verbose)
+    # 8. Execute Concurrent Markdown Compilation
+    total_md = len(md_files)
+    to_compile = len(compile_tasks)
+    failed = 0
 
-    # Run Pagefind Indexer on raw unencrypted text (if no build failures occur)
-    if not failed:
+    if to_compile > 0:
+        logging.info(
+            "Compiling %d of %d documents using %d workers...",
+            to_compile,
+            total_md,
+            args.workers,
+        )
+        with concurrent.futures.ProcessPoolExecutor(
+            max_workers=args.workers
+        ) as executor:
+            future_to_file = {
+                executor.submit(compile_markdown_worker, t): t.md_path
+                for t in compile_tasks
+            }
+            for future in concurrent.futures.as_completed(future_to_file):
+                md_path = future_to_file[future]
+                try:
+                    _, success, err = future.result()
+                    if not success:
+                        failed += 1
+                        logging.error(
+                            "Pandoc compilation error on %s:\n%s", md_path.name, err
+                        )
+                    elif args.verbose:
+                        logging.info("Built: %s", md_path.name)
+                except Exception as exc:
+                    failed += 1
+                    logging.error(
+                        "Runtime exception compiling %s: %s", md_path.name, exc
+                    )
+    else:
+        logging.info("All %d documents are verified current.", total_md)
+
+    # 9. Update Manifest Post-Build
+    # Only save manifest state if no fatal build failures occurred
+    if failed == 0:
+        save_manifest(MANIFEST_FILE, new_manifest, args.dry_run)
+    else:
+        logging.warning(
+            "Build recorded failures. Manifest state will not be persisted."
+        )
+
+    # 10. Update Search Index
+    if (to_compile > 0 or orphans_pruned > 0) and failed == 0:
         run_pagefind(DST, dry_run=args.dry_run, verbose=args.verbose)
 
-    # Summary
-    mode = "[DRY RUN] " if args.dry_run else ""
-    logging.info(
-        "%sDone. %d/%d built, %d failed.",
-        mode,
-        built,
-        total,
-        failed,
-    )
-    if failed:
+    # 11. Final Verification and Status Code
+    if failed > 0:
+        logging.error("Build completed with %d failure(s).", failed)
         sys.exit(1)
+
+    logging.info(
+        "Build complete. (%d compiled, %d assets synced, %d orphans pruned)",
+        to_compile,
+        synced_assets,
+        orphans_pruned,
+    )
 
 
 if __name__ == "__main__":
