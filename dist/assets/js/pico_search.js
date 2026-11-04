@@ -53,9 +53,9 @@ document.addEventListener("DOMContentLoaded", () => {
         const title = item.title || item.url;
 
         return `
-          <li style="border-bottom: 1px solid var(--pico-muted-border-color); padding: 0.5rem 0;">
+          <li style="list-style: none; border-bottom: 1px solid var(--pico-muted-border-color); padding: 0.5rem 0;">
             <a href="${targetUrl}" style="text-decoration: none; display: block;">
-              <small style="color: var(--pico-primary); font-weight: bold;">${title}</small>
+              <span style="color: var(--pico-primary); font-weight: bold;">${title}</span>
             </a>
           </li>
         `;
