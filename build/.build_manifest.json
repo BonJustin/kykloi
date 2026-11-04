@@ -1,6 +1,5 @@
 {
   "__GLOBAL_DEPENDENCIES__": "0a2b78876b91d6d69b792af84fe1b41444bc33fe26dea9a2f72ab984aaaccf65",
-  "content:index.md": "af27beb022214b224dfcaa2fba543ae76357a57fa741cc2902ab95738b601c13",
   "content:pandoc_markdown.md": "3914f266883b75bd3b5897dc802289022b2d2887930c4d7593b4d8a230a5a6e3",
   "content:sub/20261031165927-nested-directory-test.md": "e4571bf77cb063f1d460a6b7c79c76bbe34077843a348d3559e15a20f77c6514",
   "functional_asset:css/pico.css": "55dae2996f4f2dc108cea27ffecd3ad8eaf0063fc96fa8d92306ed76a3ad33ec",
@@ -100,6 +99,7 @@
   "root_asset:favicon-96x96.png": "b90674f536d983b734e38f137349b3cdcba60be8e6fe3f0a7674aa74227ee8ff",
   "root_asset:favicon.ico": "05104d4cbd11f461ccbf5fbc296e4e097e8e9dac4f0e7240aad11a801d9f5eef",
   "root_asset:favicon.svg": "6c7c2b9eee6a5c8b1d8602b5752f701060a55e064e3420fa468f9ef0e714f593",
+  "root_asset:index.html": "673207c43dedba99cdaf5fafd94426f2355d5ee136bc50da6575d5102dfaf600",
   "root_asset:site.webmanifest": "6a8e197741ee4782f86a5e78aaa7cf9e50b1f86194280e1350e9c2f769ca3674",
   "root_asset:web-app-manifest-192x192.png": "ba6a3b76f7669044b4ad98c1305fe70f40ec747b33ac61498732121ff4f22841",
   "root_asset:web-app-manifest-512x512.png": "fc69648e769c50f90f4c3bdff6bd633cd2bfc7444f272b44978ba7756bf21c3a"
