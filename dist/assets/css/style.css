@@ -192,3 +192,29 @@ math[display="block"] {
 footer {
     color: var(--pico-muted-color);
 }
+
+/* --- Modal Search Constraints --- */
+#search-modal article {
+    max-height: 85vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    padding-bottom: 0;
+}
+
+#search-modal article header {
+    flex-shrink: 0;
+    margin-bottom: var(--pico-spacing);
+}
+
+#search-modal #search-input {
+    flex-shrink: 0;
+    margin-bottom: var(--pico-spacing);
+}
+
+#search-modal #search-results {
+    overflow-y: auto;
+    flex-grow: 1;
+    margin-top: 0;
+    padding-right: 0.5rem;
+}

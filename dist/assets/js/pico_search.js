@@ -57,9 +57,11 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    const hits = miniSearch.search(trimmed).slice(0, 50);
+    const allHits = miniSearch.search(trimmed);
+    const maxDisplay = 100;
+    const hits = allHits.slice(0, maxDisplay);
 
-    resultsContainer.innerHTML = hits
+    let html = hits
       .map((item) => {
         const cleanUrl = item.url.startsWith("/") ? item.url.slice(1) : item.url;
         const targetUrl = `${relativeRoot}${cleanUrl}`;
@@ -90,6 +92,17 @@ document.addEventListener("DOMContentLoaded", () => {
         `;
       })
       .join("");
+
+    if (allHits.length > maxDisplay) {
+      html += `
+        <li style="list-style: none; padding: 0.75rem 0; text-align: center; color: var(--pico-muted-color); font-size: 0.85rem;">
+          Showing top ${maxDisplay} of ${allHits.length} results. Refine your query for more specific matches.
+        </li>
+      `;
+    }
+
+    resultsContainer.innerHTML = html;
+    resultsContainer.scrollTop = 0;
   }
 
   // --- Modal Search Handlers ---
