@@ -32,7 +32,7 @@
 
         <title>$if(title-prefix)$$title-prefix$ – $endif$$pagetitle$</title>
 
-        <!-- Portable Asset Resolution using relative_root. Now let's see what happens when I touch the file! -->
+        <!-- Portable Asset Resolution using relative_root -->
         <link
             rel="icon"
             type="image/x-icon"
@@ -59,16 +59,16 @@
         <link rel="stylesheet" href="$css$" />
         $endfor$
 
-        <script
-            src="$relative_root$assets/js/pico_pagefind.js"
-            type="module"
-        ></script>
+        <!-- Offline Search Dependencies: Zero Fetch / file:// Safe -->
+        <script src="$relative_root$assets/js/minisearch.min.js" defer></script>
+        <script src="$relative_root$search_index.js" defer></script>
+        <script src="$relative_root$assets/js/pico_search.js" defer></script>
 
         $for(header-includes)$ $header-includes$ $endfor$ $if(math)$ $math$
         $endif$
     </head>
 
-    <body>
+    <body data-relative-root="$relative_root$">
         <header class="container site_header">
             <nav>
                 <ul>
@@ -134,18 +134,6 @@
 
         <main>
             <div class="container">
-                <div style="display: none">
-                    $if(title)$
-                    <span data-pagefind-body data-pagefind-meta="title">
-                        $title$
-                    </span>
-                    $endif$ $if(keywords)$
-                    <span data-pagefind-body data-pagefind-meta="keywords">
-                        $for(keywords)$$keywords$$sep$, $endfor$
-                    </span>
-                    $endif$
-                </div>
-
                 $if(title)$
                 <header id="title-block-header">
                     <h1 class="title">$title$</h1>

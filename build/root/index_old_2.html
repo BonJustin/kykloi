@@ -1,8 +1,5 @@
 <!doctype html>
-<html
-    data-theme="light"
-    xmlns="http://www.w3.org/1999/xhtml"
-    >
+<html data-theme="light" xmlns="http://www.w3.org/1999/xhtml">
     <head>
         <meta charset="utf-8" />
         <meta name="generator" content="pandoc" />
@@ -11,60 +8,42 @@
             content="width=device-width, initial-scale=1.0, user-scalable=yes"
         />
 
-
         <title>Κύκλοι</title>
 
-        <!-- Portable Asset Resolution using relative_root -->
-        <link
-            rel="icon"
-            type="image/x-icon"
-            href="./favicon.ico"
-        />
-        <link
-            rel="icon"
-            type="image/svg+xml"
-            href="./favicon.svg"
-        />
+        <!-- Portable Asset Resolution -->
+        <link rel="icon" type="image/x-icon" href="favicon.ico" />
+        <link rel="icon" type="image/svg+xml" href="favicon.svg" />
         <link
             rel="icon"
             type="image/png"
             sizes="96x96"
-            href="./favicon-96x96.png"
+            href="favicon-96x96.png"
         />
-        <link
-            rel="apple-touch-icon"
-            href="./apple-touch-icon.png"
-        />
-        <link rel="manifest" href="./site.webmanifest" />
+        <link rel="apple-touch-icon" href="apple-touch-icon.png" />
+        <link rel="manifest" href="site.webmanifest" />
 
-                <link rel="stylesheet" href="./assets/css/pico.css" />
-                <link rel="stylesheet" href="./assets/css/style.css" />
+        <link rel="stylesheet" href="assets/css/pico.css" />
+        <link rel="stylesheet" href="assets/css/style.css" />
 
-        <script
-            src="./assets/js/pico_pagefind.js"
-            type="module"
-        ></script>
-
-
+        <!-- Offline Search Dependencies: Zero Fetch / file:// Safe -->
+        <script src="assets/js/minisearch.min.js" defer></script>
+        <script src="search_index.js" defer></script>
+        <script src="assets/js/pico_search.js" defer></script>
     </head>
 
-    <body>
+    <body data-relative-root="">
         <header class="container site_header">
             <nav>
                 <ul>
                     <li>
-                        <span class="brand_text"
-                            ><a
-                                href="./index.html"
-                                style="text-decoration: none"
-                                >JdF³</a
-                            ></span
-                        >
+                        <span class="brand_text">
+                            <a href="index.html" style="text-decoration: none">JdF³</a>
+                        </span>
                     </li>
                 </ul>
                 <ul>
                     <li>
-                        <a href="./index.html" data-tooltip="Home">
+                        <a href="index.html" data-tooltip="Home">
                             <svg
                                 xmlns="http://www.w3.org/2000/svg"
                                 width="24"
@@ -108,26 +87,25 @@
                 </ul>
             </nav>
             <hr />
-
-
         </header>
 
         <main>
             <div class="container">
-                <div style="display: none">
-                                        <span data-pagefind-body data-pagefind-meta="title">
-                        Κύκλοι
-                    </span>
-                                     </div>
-
-                                <header id="title-block-header">
+                <header id="title-block-header">
                     <h1 class="title">Κύκλοι</h1>
+                </header>
 
-                                      </header>
-                                 <!-- Pagefind UI Container -->
-                <input type="search" id="body-search-input" placeholder="Search notes...">
-                <ul id="body-search-results"></ul>
-
+                <!-- In-Page Search Interface -->
+                <input
+                    type="search"
+                    id="body-search-input"
+                    placeholder="Search notes..."
+                    autocomplete="off"
+                />
+                <ul
+                    id="body-search-results"
+                    style="list-style: none; padding-left: 0; margin-top: 1rem"
+                ></ul>
             </div>
         </main>
 
@@ -135,13 +113,11 @@
             <hr />
             <div class="grid">
                 <div></div>
-                <div style="text-align: right">
-                                    </div>
+                <div style="text-align: right"></div>
             </div>
-
-
         </footer>
 
+        <!-- Modal Search Interface -->
         <dialog id="search-modal">
             <article style="width: 100%; max-width: 600px">
                 <header>

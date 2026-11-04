@@ -135,14 +135,21 @@ def save_manifest(manifest_path: Path, manifest: dict[str, str], dry_run: bool):
 
 
 # ===========================================================================
-# 4. METADATA EXTRACTION & SEARCH INDEX CREATION
+# 4. METADATA EXTRACTION & SEARCH INDEX GENERATION
 # ===========================================================================
 
 
 def extract_metadata_from_markdown(md_path: Path) -> dict[str, str]:
-    """Extracts title and keywords from frontmatter without full YAML parse overhead."""
-    title = ""
-    keywords = ""
+    """
+    Extracts title, keywords, date_edtf, and abstract from frontmatter.
+    Gracefully falls back to empty strings if absent.
+    """
+    meta = {
+        "title": "",
+        "keywords": "",
+        "date_edtf": "",
+        "abstract": "",
+    }
 
     try:
         with open(md_path, "r", encoding="utf-8") as f:
@@ -152,26 +159,46 @@ def extract_metadata_from_markdown(md_path: Path) -> dict[str, str]:
         if match:
             fm_text = match.group(1)
 
-            t_match = re.search(r"^title:\s*[\"']?(.*?)[\"']?\s*$", fm_text, re.MULTILINE)
+            t_match = re.search(
+                r"^title:\s*[\"']?(.*?)[\"']?\s*$", fm_text, re.MULTILINE
+            )
             if t_match:
-                title = t_match.group(1).strip()
+                meta["title"] = t_match.group(1).strip()
+
+            d_match = re.search(
+                r"^date_edtf:\s*[\"']?(.*?)[\"']?\s*$", fm_text, re.MULTILINE
+            )
+            if d_match:
+                meta["date_edtf"] = d_match.group(1).strip()
 
             k_match = re.search(
                 r"^keywords:\s*(?:\[(.*?)\]|(.*))", fm_text, re.MULTILINE
             )
             if k_match:
                 raw_keywords = k_match.group(1) or k_match.group(2) or ""
-                keywords = " ".join(
+                meta["keywords"] = " ".join(
                     re.sub(r"[\"']", "", part).strip()
                     for part in raw_keywords.split(",")
                 )
+
+            a_match = re.search(
+                r"^abstract:\s*(?:[|>]-?\s*\n)?((?:[ \t]+.*(?:\n|$))+|.*$)",
+                fm_text,
+                re.MULTILINE,
+            )
+            if a_match:
+                raw_abstract = a_match.group(1)
+                meta["abstract"] = " ".join(
+                    line.strip() for line in raw_abstract.splitlines() if line.strip()
+                )
+
     except Exception as e:
-        logging.warning("Error extracting frontmatter from %s: %s", md_path, e)
+        logging.warning("Error reading frontmatter from %s: %s", md_path, e)
 
-    if not title:
-        title = md_path.stem.replace("-", " ").replace("_", " ").title()
+    if not meta["title"]:
+        meta["title"] = md_path.stem.replace("-", " ").replace("_", " ").title()
 
-    return {"title": title, "keywords": keywords}
+    return meta
 
 
 def write_minisearch_index(records: list[dict], out_path: Path, dry_run: bool):
@@ -210,6 +237,7 @@ def compile_markdown_worker(task: CompileTask) -> tuple[Path, bool, Optional[str
         str(task.out_path),
     ]
 
+    # Explicit relative paths to CSS without leading slashes
     css_files = ["assets/css/pico.css", "assets/css/style.css"]
     for css in css_files:
         cmd.extend(["--css", f"{task.relative_root}{css}"])
@@ -231,10 +259,8 @@ def compile_markdown_worker(task: CompileTask) -> tuple[Path, bool, Optional[str
 # ===========================================================================
 
 
-def prune_orphans(
-    dst_dir: Path, expected_files: set[Path], dry_run: bool
-) -> int:
-    """Removes files and directories in dst_dir that are absent from expected_files."""
+def prune_orphans(dst_dir: Path, expected_files: set[Path], dry_run: bool) -> int:
+    """Removes files and directories in dst_dir absent from expected_files."""
     if not dst_dir.exists():
         return 0
 
@@ -326,8 +352,9 @@ def main():
         current_md_hash = compute_file_hash(md)
         new_manifest[manifest_key] = current_md_hash
 
+        # Strict relative root: "" for root files, "../" * depth for nested files
         depth = len(rel.parent.parts) if rel.parent != Path(".") else 0
-        relative_root = "../" * depth if depth > 0 else "./"
+        relative_root = ("../" * depth) if depth > 0 else ""
 
         is_dirty = (
             not out.exists()
@@ -336,12 +363,16 @@ def main():
         )
 
         meta = extract_metadata_from_markdown(md)
+        # Guarantees no leading slash in index URLs
+        clean_url = rel.with_suffix(".html").as_posix().lstrip("/")
         search_records.append(
             {
                 "id": idx + 1,
                 "title": meta["title"],
                 "keywords": meta["keywords"],
-                "url": rel.with_suffix(".html").as_posix(),
+                "date_edtf": meta["date_edtf"],
+                "abstract": meta["abstract"],
+                "url": clean_url,
             }
         )
 
@@ -462,7 +493,9 @@ def main():
         logging.info("All %d documents are verified current.", total_md)
 
     # 9. Update Search Index
-    if (to_compile > 0 or orphans_pruned > 0 or not SEARCH_INDEX_FILE.exists()) and failed == 0:
+    if (
+        to_compile > 0 or orphans_pruned > 0 or not SEARCH_INDEX_FILE.exists()
+    ) and failed == 0:
         write_minisearch_index(search_records, SEARCH_INDEX_FILE, dry_run=args.dry_run)
 
     # 10. Update Manifest Post-Build
