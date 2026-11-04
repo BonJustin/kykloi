@@ -4,6 +4,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -25,6 +26,7 @@ try:
     DEFAULT_TEMPLATE = APP_DIR / "templates" / "md_to_static_html.html"
     LUA_FILTER = APP_DIR / "translate_links.lua"
     MANIFEST_FILE = APP_DIR / ".build_manifest.json"
+    SEARCH_INDEX_FILE = DST / "search_index.js"
 
 except Exception as err:
     print(f"CRITICAL CONFIGURATION ERROR: {err}", file=sys.stderr)
@@ -50,7 +52,7 @@ class CompileTask:
 
 def parse_args():
     p = argparse.ArgumentParser(
-        description="Deterministic Hash-Based Pandoc Static Site Generator."
+        description="Deterministic Hash-Based Pandoc Static Site Generator (MiniSearch Offline)."
     )
     p.add_argument(
         "--clean",
@@ -95,10 +97,7 @@ def compute_file_hash(path: Path) -> str:
 
 
 def compute_global_dependencies_hash() -> str:
-    """
-    Computes a collective digest of pandoc defaults, lua filters,
-    and the single content template. Any change triggers a global recompile.
-    """
+    """Computes a collective digest of pandoc defaults, lua filters, and template."""
     hasher = hashlib.sha256()
     tracked_files: list[Path] = [DEFAULTS_YAML, LUA_FILTER, DEFAULT_TEMPLATE]
 
@@ -136,7 +135,60 @@ def save_manifest(manifest_path: Path, manifest: dict[str, str], dry_run: bool):
 
 
 # ===========================================================================
-# 4. PARALLEL WORKER SUBSYSTEM
+# 4. METADATA EXTRACTION & SEARCH INDEX CREATION
+# ===========================================================================
+
+
+def extract_metadata_from_markdown(md_path: Path) -> dict[str, str]:
+    """Extracts title and keywords from frontmatter without full YAML parse overhead."""
+    title = ""
+    keywords = ""
+
+    try:
+        with open(md_path, "r", encoding="utf-8") as f:
+            content = f.read()
+
+        match = re.match(r"^---\s*\n(.*?)\n---", content, re.DOTALL)
+        if match:
+            fm_text = match.group(1)
+
+            t_match = re.search(r"^title:\s*[\"']?(.*?)[\"']?\s*$", fm_text, re.MULTILINE)
+            if t_match:
+                title = t_match.group(1).strip()
+
+            k_match = re.search(
+                r"^keywords:\s*(?:\[(.*?)\]|(.*))", fm_text, re.MULTILINE
+            )
+            if k_match:
+                raw_keywords = k_match.group(1) or k_match.group(2) or ""
+                keywords = " ".join(
+                    re.sub(r"[\"']", "", part).strip()
+                    for part in raw_keywords.split(",")
+                )
+    except Exception as e:
+        logging.warning("Error extracting frontmatter from %s: %s", md_path, e)
+
+    if not title:
+        title = md_path.stem.replace("-", " ").replace("_", " ").title()
+
+    return {"title": title, "keywords": keywords}
+
+
+def write_minisearch_index(records: list[dict], out_path: Path, dry_run: bool):
+    """Writes index data directly as a JS file compatible with the file:/// scheme."""
+    if dry_run:
+        logging.info("[DRY RUN] Would write search index to %s", out_path)
+        return
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = f"window.__SEARCH_DOCS__ = {json.dumps(records, ensure_ascii=False, indent=2)};\n"
+    with open(out_path, "w", encoding="utf-8") as f:
+        f.write(payload)
+    logging.info("MiniSearch index generated with %d documents.", len(records))
+
+
+# ===========================================================================
+# 5. PARALLEL WORKER SUBSYSTEM
 # ===========================================================================
 
 
@@ -175,12 +227,12 @@ def compile_markdown_worker(task: CompileTask) -> tuple[Path, bool, Optional[str
 
 
 # ===========================================================================
-# 5. ORPHAN PRUNING
+# 6. ORPHAN PRUNING
 # ===========================================================================
 
 
 def prune_orphans(
-    dst_dir: Path, expected_files: set[Path], preserve_dirs: set[str], dry_run: bool
+    dst_dir: Path, expected_files: set[Path], dry_run: bool
 ) -> int:
     """Removes files and directories in dst_dir that are absent from expected_files."""
     if not dst_dir.exists():
@@ -190,10 +242,6 @@ def prune_orphans(
 
     for item in list(dst_dir.rglob("*")):
         if item.is_file():
-            rel_parts = item.relative_to(dst_dir).parts
-            if any(part in preserve_dirs for part in rel_parts):
-                continue
-
             if item.resolve() not in expected_files:
                 if not dry_run:
                     item.unlink()
@@ -202,42 +250,12 @@ def prune_orphans(
 
     for dirpath in sorted(dst_dir.rglob("*"), key=lambda p: len(p.parts), reverse=True):
         if dirpath.is_dir():
-            rel_parts = dirpath.relative_to(dst_dir).parts
-            if any(part in preserve_dirs for part in rel_parts):
-                continue
             if not any(dirpath.iterdir()):
                 if not dry_run:
                     dirpath.rmdir()
                 logging.debug("Pruned empty dir: %s", dirpath)
 
     return orphans_removed
-
-
-# ===========================================================================
-# 6. SEARCH INDEXING
-# ===========================================================================
-
-
-def run_pagefind(site_dir: Path, dry_run: bool, verbose: bool):
-    """Executes Pagefind indexing on the static distribution directory."""
-    if dry_run:
-        logging.info("[DRY RUN] Would execute Pagefind search indexing.")
-        return
-
-    cmd = ["pagefind", "--site", str(site_dir)]
-    if verbose:
-        logging.info("Running search indexer: %s", " ".join(cmd))
-
-    try:
-        res = subprocess.run(cmd, capture_output=True, text=True, check=False)
-        if res.returncode != 0:
-            logging.error(
-                "Pagefind failed (Exit %d):\n%s", res.returncode, res.stderr.strip()
-            )
-        else:
-            logging.info("Pagefind index updated successfully.")
-    except Exception as err:
-        logging.error("Execution error running Pagefind: %s", err)
 
 
 # ===========================================================================
@@ -294,11 +312,12 @@ def main():
 
     expected_outputs: set[Path] = set()
     compile_tasks: list[CompileTask] = []
+    search_records: list[dict] = []
 
-    # 4. Inventory and Diff Markdown Content
+    # 4. Inventory, Metadata Extraction, and Markdown Diffing
     md_files = list(SRC.rglob("*.md"))
 
-    for md in md_files:
+    for idx, md in enumerate(md_files):
         rel = md.relative_to(SRC)
         manifest_key = f"content:{rel.as_posix()}"
         out = DST / rel.with_suffix(".html")
@@ -316,6 +335,16 @@ def main():
             or old_manifest.get(manifest_key) != current_md_hash
         )
 
+        meta = extract_metadata_from_markdown(md)
+        search_records.append(
+            {
+                "id": idx + 1,
+                "title": meta["title"],
+                "keywords": meta["keywords"],
+                "url": rel.with_suffix(".html").as_posix(),
+            }
+        )
+
         if is_dirty:
             compile_tasks.append(
                 CompileTask(
@@ -330,7 +359,10 @@ def main():
                 )
             )
 
-    # 5. Inventory and Sync Assets (Content Media, Functional Assets, Root Assets)
+    # Register Search Index output
+    expected_outputs.add(SEARCH_INDEX_FILE.resolve())
+
+    # 5. Inventory and Sync Assets
     asset_sync_jobs: list[tuple[Path, Path]] = []
 
     # A. Content media assets
@@ -359,7 +391,7 @@ def main():
                 if not target.exists() or old_manifest.get(manifest_key) != h:
                     asset_sync_jobs.append((p, target))
 
-    # C. Root assets (build/root -> dist) -- Copies index.html, favicons, manifests
+    # C. Root assets (build/root -> dist)
     root_src = APP_DIR / "root"
     if root_src.exists():
         for p in root_src.rglob("*"):
@@ -372,11 +404,10 @@ def main():
                 if not target.exists() or old_manifest.get(manifest_key) != h:
                     asset_sync_jobs.append((p, target))
 
-    # 6. Execute Orphan Pruning (Pre-compilation)
+    # 6. Execute Orphan Pruning
     orphans_pruned = prune_orphans(
         dst_dir=DST,
         expected_files=expected_outputs,
-        preserve_dirs={"pagefind"},
         dry_run=args.dry_run,
     )
     if orphans_pruned:
@@ -430,17 +461,17 @@ def main():
     else:
         logging.info("All %d documents are verified current.", total_md)
 
-    # 9. Update Manifest Post-Build
+    # 9. Update Search Index
+    if (to_compile > 0 or orphans_pruned > 0 or not SEARCH_INDEX_FILE.exists()) and failed == 0:
+        write_minisearch_index(search_records, SEARCH_INDEX_FILE, dry_run=args.dry_run)
+
+    # 10. Update Manifest Post-Build
     if failed == 0:
         save_manifest(MANIFEST_FILE, new_manifest, args.dry_run)
     else:
         logging.warning(
             "Build recorded failures. Manifest state will not be persisted."
         )
-
-    # 10. Update Search Index
-    if (to_compile > 0 or orphans_pruned > 0) and failed == 0:
-        run_pagefind(DST, dry_run=args.dry_run, verbose=args.verbose)
 
     # 11. Final Status Check
     if failed > 0:

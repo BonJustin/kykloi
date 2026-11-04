@@ -18,7 +18,7 @@
          
         <title>Nested Dir Test</title>
 
-        <!-- Portable Asset Resolution using relative_root. Now let's see what happens when I touch the file! -->
+        <!-- Portable Asset Resolution using relative_root -->
         <link
             rel="icon"
             type="image/x-icon"
@@ -44,15 +44,15 @@
                 <link rel="stylesheet" href="../assets/css/pico.css" />
                 <link rel="stylesheet" href="../assets/css/style.css" />
         
-        <script
-            src="../assets/js/pico_pagefind.js"
-            type="module"
-        ></script>
+        <!-- Offline Search Dependencies: Zero Fetch / file:// Safe -->
+        <script src="../assets/js/minisearch.min.js" defer></script>
+        <script src="../search_index.js" defer></script>
+        <script src="../assets/js/pico_search.js" defer></script>
 
          
     </head>
 
-    <body>
+    <body data-relative-root="../">
         <header class="container site_header">
             <nav>
                 <ul>
@@ -118,15 +118,6 @@
 
         <main>
             <div class="container">
-                <div style="display: none">
-                                        <span data-pagefind-body data-pagefind-meta="title">
-                        Nested Dir Test
-                    </span>
-                                         <span data-pagefind-body data-pagefind-meta="keywords">
-                        delete
-                    </span>
-                                    </div>
-
                                 <header id="title-block-header">
                     <h1 class="title">Nested Dir Test</h1>
 

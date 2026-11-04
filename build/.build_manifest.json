@@ -1,5 +1,5 @@
 {
-  "__GLOBAL_DEPENDENCIES__": "2f1120b723be76ee29474bb2e0d7292f7248a7d29517881188df30b04f659673",
+  "__GLOBAL_DEPENDENCIES__": "0a2fca53cfff0005aa78838909e496d44fbeca0fdd3fb640ef7e608f611fef89",
   "content:pandoc_markdown.md": "3914f266883b75bd3b5897dc802289022b2d2887930c4d7593b4d8a230a5a6e3",
   "content:sub/20261031165927-nested-directory-test.md": "e4571bf77cb063f1d460a6b7c79c76bbe34077843a348d3559e15a20f77c6514",
   "functional_asset:css/pico.css": "55dae2996f4f2dc108cea27ffecd3ad8eaf0063fc96fa8d92306ed76a3ad33ec",
@@ -9,7 +9,9 @@
   "functional_asset:fonts/libertinusserif-bolditalic-webfont.woff2": "8bcd96d8a8527302bd08a356a72658eaf65265b38b9ad9361a7b877ca117eb02",
   "functional_asset:fonts/libertinusserif-italic-webfont.woff2": "1fe1034e17e2a9885c59a6345164db60bd24b4619dfb2257d70ec9b49a4455bd",
   "functional_asset:fonts/libertinusserif-regular-webfont.woff2": "5de622c3da64cc6ab2aefafaf62c4e18d1fa8315994eb39bdf361b7e384883bd",
+  "functional_asset:js/minisearch.min.js": "0205a8f71c82f33f56cf33176744acaeefd5282a3c910a4bfb9cda9566eb40de",
   "functional_asset:js/pico_pagefind.js": "afc6d594e650d9acf593fcb873ab25b8400db2d6af7749afcb21f310ae93309c",
+  "functional_asset:js/pico_search.js": "bd78acceb7dca7d3ea8c068b4e81ee03acebfc026b3d6ef1c893bb018576bd9b",
   "functional_asset:katex/README.md": "e0c30b2885935ad51857b802585e05218482915539ac5bc507a4ca8ee73118b6",
   "functional_asset:katex/contrib/auto-render.js": "4cfb141d56e2c5644f5226e6b8709a3eadd39989fcec86a38c8150adb196d89b",
   "functional_asset:katex/contrib/auto-render.min.js": "e5372d199bcdae8b4de71d0f7ceba72a4ba12774a27c60a6f1f77d03b3228ee4",
