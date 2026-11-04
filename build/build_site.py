@@ -11,8 +11,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-import yaml
-
 # ===========================================================================
 # 1. GLOBAL PATH INITIALIZATION & VALIDATION
 # ===========================================================================
@@ -99,20 +97,13 @@ def compute_file_hash(path: Path) -> str:
 def compute_global_dependencies_hash() -> str:
     """
     Computes a collective digest of pandoc defaults, lua filters,
-    and all template files. Any change triggers a global recompile.
+    and the single content template. Any change triggers a global recompile.
     """
     hasher = hashlib.sha256()
     tracked_files: list[Path] = [DEFAULTS_YAML, LUA_FILTER, DEFAULT_TEMPLATE]
 
-    templates_dir = APP_DIR / "templates"
-    if templates_dir.exists():
-        tracked_files.extend(sorted(templates_dir.glob("*.html")))
-
-    # Deduplicate while preserving order
-    seen = set()
     for f in tracked_files:
-        if f.is_file() and f not in seen:
-            seen.add(f)
+        if f.is_file():
             hasher.update(f.name.encode("utf-8"))
             hasher.update(compute_file_hash(f).encode("utf-8"))
 
@@ -145,65 +136,7 @@ def save_manifest(manifest_path: Path, manifest: dict[str, str], dry_run: bool):
 
 
 # ===========================================================================
-# 4. TEMPLATE EXTRACTION
-# ===========================================================================
-
-
-def extract_custom_template_stream(
-    md_path: Path, app_dir: Path, default_template: Path
-) -> Path:
-    """Fast-path streaming scan for custom frontmatter templates."""
-    try:
-        with open(md_path, "r", encoding="utf-8") as f:
-            first_line = f.readline()
-            if not first_line:
-                return default_template
-
-            if first_line.startswith("\ufeff"):
-                first_line = first_line[1:]
-
-            if first_line.strip() != "---":
-                return default_template
-
-            yaml_lines = []
-            closed = False
-            for _ in range(150):
-                line = f.readline()
-                if not line:
-                    break
-                if line.strip() == "---":
-                    closed = True
-                    break
-                yaml_lines.append(line)
-
-        if closed and yaml_lines:
-            yaml_block = "".join(yaml_lines)
-            if "html_template" not in yaml_block:
-                return default_template
-
-            meta = yaml.safe_load(yaml_block)
-            if isinstance(meta, dict):
-                custom_tpl = meta.get("html_template")
-                if custom_tpl:
-                    resolved = app_dir / str(custom_tpl)
-                    if not resolved.exists():
-                        resolved = app_dir / "templates" / str(custom_tpl)
-                    if resolved.is_file():
-                        return resolved
-
-                    logging.warning(
-                        "Template '%s' defined in '%s' missing. Falling back to default.",
-                        custom_tpl,
-                        md_path.name,
-                    )
-    except Exception as error:
-        logging.debug("Frontmatter parse error on %s: %s", md_path.name, error)
-
-    return default_template
-
-
-# ===========================================================================
-# 5. PARALLEL WORKER SUBSYSTEM
+# 4. PARALLEL WORKER SUBSYSTEM
 # ===========================================================================
 
 
@@ -242,7 +175,7 @@ def compile_markdown_worker(task: CompileTask) -> tuple[Path, bool, Optional[str
 
 
 # ===========================================================================
-# 6. ORPHAN PRUNING
+# 5. ORPHAN PRUNING
 # ===========================================================================
 
 
@@ -281,7 +214,7 @@ def prune_orphans(
 
 
 # ===========================================================================
-# 7. SEARCH INDEXING
+# 6. SEARCH INDEXING
 # ===========================================================================
 
 
@@ -308,7 +241,7 @@ def run_pagefind(site_dir: Path, dry_run: bool, verbose: bool):
 
 
 # ===========================================================================
-# 8. PIPELINE ORCHESTRATION
+# 7. PIPELINE ORCHESTRATION
 # ===========================================================================
 
 
@@ -319,11 +252,11 @@ def main():
         format="%(levelname)s: %(message)s",
     )
 
-    # 1. Critical Dependency Verification (includes DEFAULT_TEMPLATE)
+    # 1. Critical Dependency Verification
     dependencies = [
         (SRC, "Source directory"),
         (DEFAULTS_YAML, "Pandoc defaults configuration"),
-        (DEFAULT_TEMPLATE, "Default HTML template"),
+        (DEFAULT_TEMPLATE, "Content HTML template"),
         (LUA_FILTER, "Lua link translation filter"),
     ]
     for path, desc in dependencies:
@@ -344,7 +277,7 @@ def main():
 
     DST.mkdir(parents=True, exist_ok=True)
 
-    # 3. Hash Manifest & Dependency Resolution
+    # 3. Hash Manifest & Global Invalidation
     old_manifest = load_manifest(MANIFEST_FILE)
     new_manifest: dict[str, str] = {}
 
@@ -364,9 +297,6 @@ def main():
 
     # 4. Inventory and Diff Markdown Content
     md_files = list(SRC.rglob("*.md"))
-    if not md_files:
-        logging.warning("No markdown files detected in %s.", SRC)
-        sys.exit(0)
 
     for md in md_files:
         rel = md.relative_to(SRC)
@@ -380,8 +310,6 @@ def main():
         depth = len(rel.parent.parts) if rel.parent != Path(".") else 0
         relative_root = "../" * depth if depth > 0 else "./"
 
-        template = extract_custom_template_stream(md, APP_DIR, DEFAULT_TEMPLATE)
-
         is_dirty = (
             not out.exists()
             or global_deps_changed
@@ -393,7 +321,7 @@ def main():
                 CompileTask(
                     md_path=md,
                     out_path=out,
-                    template_path=template,
+                    template_path=DEFAULT_TEMPLATE,
                     relative_root=relative_root,
                     defaults_yaml=DEFAULTS_YAML,
                     lua_filter=LUA_FILTER,
@@ -402,7 +330,7 @@ def main():
                 )
             )
 
-    # 5. Inventory and Sync Assets (Content Media, Functional, and Root)
+    # 5. Inventory and Sync Assets (Content Media, Functional Assets, Root Assets)
     asset_sync_jobs: list[tuple[Path, Path]] = []
 
     # A. Content media assets
@@ -431,7 +359,7 @@ def main():
                 if not target.exists() or old_manifest.get(manifest_key) != h:
                     asset_sync_jobs.append((p, target))
 
-    # C. Root directory assets (build/root -> dist)
+    # C. Root assets (build/root -> dist) -- Copies index.html, favicons, manifests
     root_src = APP_DIR / "root"
     if root_src.exists():
         for p in root_src.rglob("*"):
@@ -503,7 +431,6 @@ def main():
         logging.info("All %d documents are verified current.", total_md)
 
     # 9. Update Manifest Post-Build
-    # Only save manifest state if no fatal build failures occurred
     if failed == 0:
         save_manifest(MANIFEST_FILE, new_manifest, args.dry_run)
     else:
@@ -515,7 +442,7 @@ def main():
     if (to_compile > 0 or orphans_pruned > 0) and failed == 0:
         run_pagefind(DST, dry_run=args.dry_run, verbose=args.verbose)
 
-    # 11. Final Verification and Status Code
+    # 11. Final Status Check
     if failed > 0:
         logging.error("Build completed with %d failure(s).", failed)
         sys.exit(1)
