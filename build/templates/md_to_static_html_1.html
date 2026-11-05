@@ -2,7 +2,13 @@
 <html
     data-theme="light"
     xmlns="http://www.w3.org/1999/xhtml"
-    >
+    $if(lang)$
+    lang="$lang$"
+    xml:lang="$lang$"
+    $endif$$if(dir)$
+    dir="$dir$"
+    $endif$
+>
     <head>
         <meta charset="utf-8" />
         <meta name="generator" content="pandoc" />
@@ -11,55 +17,65 @@
             content="width=device-width, initial-scale=1.0, user-scalable=yes"
         />
 
-                  <meta
+        $for(author-meta)$
+        <meta name="author" content="$author-meta$" />
+        $endfor$ $if(date-meta)$
+        <meta name="dcterms.date" content="$date-meta$" />
+        $endif$ $if(keywords)$
+        <meta
             name="keywords"
-            content="delete"
+            content="$for(keywords)$$keywords$$sep$, $endfor$"
         />
-         
-        <title>Nested Dir Test</title>
+        $endif$ $if(description-meta)$
+        <meta name="description" content="$description-meta$" />
+        $endif$
+
+        <title>$if(title-prefix)$$title-prefix$ – $endif$$pagetitle$</title>
 
         <!-- Portable Asset Resolution using direct prefix identity -->
         <link
             rel="icon"
             type="image/x-icon"
-            href="../favicon.ico"
+            href="$relative_root$favicon.ico"
         />
         <link
             rel="icon"
             type="image/svg+xml"
-            href="../favicon.svg"
+            href="$relative_root$favicon.svg"
         />
         <link
             rel="icon"
             type="image/png"
             sizes="96x96"
-            href="../favicon-96x96.png"
+            href="$relative_root$favicon-96x96.png"
         />
         <link
             rel="apple-touch-icon"
-            href="../apple-touch-icon.png"
+            href="$relative_root$apple-touch-icon.png"
         />
-        <link rel="manifest" href="../site.webmanifest" />
+        <link rel="manifest" href="$relative_root$site.webmanifest" />
 
-                <link rel="stylesheet" href="../assets/css/pico.css" />
-                <link rel="stylesheet" href="../assets/css/style.css" />
-        
+        $for(css)$
+        <link rel="stylesheet" href="$css$" />
+        $endfor$
+
         <!-- Offline Search Dependencies: Zero Fetch / file:// Safe -->
-        <script src="../assets/js/minisearch.min.js" defer></script>
-        <script src="../search_index.js" defer></script>
-        <script src="../assets/js/pico_search.js" defer></script>
+        <script src="$relative_root$assets/js/minisearch.min.js" defer></script>
+        <script src="$relative_root$search_index.js" defer></script>
+        <script src="$relative_root$assets/js/pico_search.js" defer></script>
 
-         
+        $for(header-includes)$ $header-includes$ $endfor$ $if(math)$ $math$
+        $endif$
     </head>
 
-    <body data-relative-root="../">
+    <body data-relative-root="$relative_root$">
         <header class="container site_header">
             <nav>
                 <ul>
                     <li>
                         <span class="brand_text">
                             <a
-                                href="../index.html"
+                                href="$relative_root$index.html"
                                 style="text-decoration: none"
                                 >JdF³</a
                             >
@@ -68,7 +84,7 @@
                 </ul>
                 <ul>
                     <li>
-                        <a href="../index.html" data-tooltip="Home">
+                        <a href="$relative_root$index.html" data-tooltip="Home">
                             <svg
                                 xmlns="http://www.w3.org/2000/svg"
                                 width="24"
@@ -113,32 +129,45 @@
             </nav>
             <hr />
 
-            
+            $for(include-before)$ $include-before$ $endfor$
         </header>
 
         <main>
             <div class="container">
-                                <header id="title-block-header">
-                    <h1 class="title">Nested Dir Test</h1>
+                $if(title)$
+                <header id="title-block-header">
+                    <h1 class="title">$title$</h1>
 
-                                      </header>
-                  <p>Testing nested directory structures.</p>
-<figure>
-<img src="media/test_artemis_2.jpg" alt="Test - Artemis II" />
-<figcaption aria-hidden="true">Test - Artemis II</figcaption>
-</figure>
+                    $if(subtitle)$
+                    <p class="subtitle">$subtitle$</p>
+                    $endif$ $if(date)$
+                    <p class="date">$date$</p>
+                    $endif$ $if(abstract)$
+                    <div class="abstract">$abstract$</div>
+                    $endif$
+                </header>
+                $endif$ $if(toc)$
+                <nav id="$idprefix$TOC" role="doc-toc">
+                    $if(toc-title)$
+                    <h2 id="$idprefix$toc-title">$toc-title$</h2>
+                    $endif$ $table-of-contents$
+                </nav>
+                $endif$ $body$
             </div>
         </main>
 
         <footer class="container">
             <hr />
             <div class="grid">
-                <div>delete</div>
+                <div>$for(keywords)$$keywords$$sep$, $endfor$</div>
                 <div style="text-align: right">
-                                    </div>
+                    $for(author)$
+                    <p class="author">$author$</p>
+                    $endfor$
+                </div>
             </div>
 
-            
+            $for(include-after)$ $include-after$ $endfor$
         </footer>
 
         <dialog id="search-modal">

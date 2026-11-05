@@ -13,6 +13,6 @@ window.__SEARCH_DOCS__ = [
     "keywords": "delete",
     "date_edtf": "2026-10-31T16:59:27",
     "abstract": "",
-    "url": "sub/20261031165927-nested-directory-test.html"
+    "url": "secure/20261031165927-nested-directory-test.html"
   }
 ];

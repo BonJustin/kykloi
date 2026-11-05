@@ -1,7 +1,9 @@
 [project]
 name = "kykloi"
-version = "0.1.0"
-description = "Simple Markdown SSG"
+version = "0.2.0"
+description = "Deterministic Archival Markdown SSG with WebCrypto Encryption"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "cryptography>=42.0.0",
+]

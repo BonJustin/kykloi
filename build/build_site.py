@@ -1,5 +1,7 @@
 import argparse
+import base64
 import concurrent.futures
+import getpass
 import hashlib
 import json
 import logging
@@ -11,6 +13,12 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
+
+# Optional Cryptography Import with Diagnostic Check
+try:
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+except ImportError:
+    AESGCM = None
 
 # ===========================================================================
 # 1. GLOBAL PATH INITIALIZATION & VALIDATION
@@ -46,6 +54,8 @@ class CompileTask:
     relative_root: str
     defaults_yaml: Path
     lua_filter: Path
+    is_secure: bool
+    passphrase: Optional[str]
     dry_run: bool
     verbose: bool
 
@@ -75,11 +85,17 @@ def parse_args():
         default=os.cpu_count() or 4,
         help="Worker process concurrency pool size (default: CPU core count).",
     )
+    p.add_argument(
+        "--password",
+        type=str,
+        default=os.environ.get("KYKLOI_ENCRYPT_KEY"),
+        help="Passphrase for /secure/ content encryption (or set KYKLOI_ENCRYPT_KEY).",
+    )
     return p.parse_args()
 
 
 # ===========================================================================
-# 3. CRYPTOGRAPHIC HASHING & MANIFEST UTILITIES
+# 3. CRYPTOGRAPHIC HASHING & ENCRYPTION UTILITIES
 # ===========================================================================
 
 
@@ -107,6 +123,38 @@ def compute_global_dependencies_hash() -> str:
             hasher.update(compute_file_hash(f).encode("utf-8"))
 
     return hasher.hexdigest()
+
+
+def derive_key(passphrase: str, salt: bytes) -> bytes:
+    """Derives a 256-bit key using PBKDF2-HMAC-SHA256 (600,000 iterations)."""
+    return hashlib.pbkdf2_hmac(
+        "sha256",
+        passphrase.encode("utf-8"),
+        salt,
+        600000,
+        dklen=32,
+    )
+
+
+def encrypt_payload(html_content: str, passphrase: str) -> str:
+    """
+    Encrypts HTML content using AES-256-GCM matching the WebCrypto API envelope:
+    Format: Base64(Salt [16 bytes] + IV [12 bytes] + Ciphertext & Tag [N bytes])
+    """
+    if AESGCM is None:
+        raise RuntimeError(
+            "Missing required dependency: run 'pip install cryptography'"
+        )
+
+    salt = os.urandom(16)
+    iv = os.urandom(12)
+    key = derive_key(passphrase, salt)
+
+    aesgcm = AESGCM(key)
+    ciphertext = aesgcm.encrypt(iv, html_content.encode("utf-8"), None)
+
+    envelope = salt + iv + ciphertext
+    return base64.b64encode(envelope).decode("ascii")
 
 
 def load_manifest(manifest_path: Path) -> dict[str, str]:
@@ -140,10 +188,6 @@ def save_manifest(manifest_path: Path, manifest: dict[str, str], dry_run: bool):
 
 
 def extract_metadata_from_markdown(md_path: Path) -> dict[str, str]:
-    """
-    Extracts title, keywords, date_edtf, and abstract from frontmatter.
-    Gracefully falls back to empty strings if absent.
-    """
     meta = {
         "title": "",
         "keywords": "",
@@ -202,7 +246,6 @@ def extract_metadata_from_markdown(md_path: Path) -> dict[str, str]:
 
 
 def write_minisearch_index(records: list[dict], out_path: Path, dry_run: bool):
-    """Writes index data directly as a JS file compatible with the file:/// scheme."""
     if dry_run:
         logging.info("[DRY RUN] Would write search index to %s", out_path)
         return
@@ -215,41 +258,107 @@ def write_minisearch_index(records: list[dict], out_path: Path, dry_run: bool):
 
 
 # ===========================================================================
-# 5. PARALLEL WORKER SUBSYSTEM
+# 5. WORKER COMPILATION SUBSYSTEM
 # ===========================================================================
 
 
 def compile_markdown_worker(task: CompileTask) -> tuple[Path, bool, Optional[str]]:
-    """Isolated compile task executed across worker process boundaries."""
-    cmd = [
+    """Compiles Markdown documents with conditional WebCrypto envelope wrapping."""
+    if task.dry_run:
+        return task.md_path, True, None
+
+    css_files = ["assets/css/pico.css", "assets/css/style.css"]
+
+    # ---------------------------------------------------------
+    # CASE 1: Standard Unencrypted Document
+    # ---------------------------------------------------------
+    if not task.is_secure:
+        cmd = [
+            "pandoc",
+            str(task.md_path),
+            "--defaults",
+            str(task.defaults_yaml),
+            "--template",
+            str(task.template_path),
+            "--lua-filter",
+            str(task.lua_filter),
+            "-V",
+            f"relative_root={task.relative_root}",
+            f"--katex={task.relative_root}assets/katex/",
+            "-o",
+            str(task.out_path),
+        ]
+        for css in css_files:
+            cmd.extend(["--css", f"{task.relative_root}{css}"])
+
+        task.out_path.parent.mkdir(parents=True, exist_ok=True)
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            return task.md_path, False, result.stderr.strip()
+        return task.md_path, True, None
+
+    # ---------------------------------------------------------
+    # CASE 2: Secure Encrypted Document
+    # ---------------------------------------------------------
+    if not task.passphrase:
+        return (
+            task.md_path,
+            False,
+            "Cannot compile secure file: No passphrase provided.",
+        )
+
+    # 1. Compile document body in isolation with embedded media data-URIs
+    body_cmd = [
         "pandoc",
         str(task.md_path),
         "--defaults",
         str(task.defaults_yaml),
-        "--template",
-        str(task.template_path),
         "--lua-filter",
         str(task.lua_filter),
-        "-V",
-        f"relative_root={task.relative_root}",
         f"--katex={task.relative_root}assets/katex/",
-        "-o",
-        str(task.out_path),
+        "--embed-resources",
+        "--resource-path",
+        str(task.md_path.parent),
     ]
 
-    # Explicit relative paths to CSS without leading slashes
-    css_files = ["assets/css/pico.css", "assets/css/style.css"]
+    body_result = subprocess.run(body_cmd, capture_output=True, text=True)
+    if body_result.returncode != 0:
+        return task.md_path, False, body_result.stderr.strip()
+
+    # 2. Encrypt the compiled HTML body in Python memory
+    try:
+        ciphertext_b64 = encrypt_payload(body_result.stdout, task.passphrase)
+    except Exception as e:
+        return task.md_path, False, f"Encryption failed: {e}"
+
+    # 3. Compile the standalone outer envelope
+    envelope_cmd = [
+        "pandoc",
+        str(task.md_path),
+        "--template",
+        str(task.template_path),
+        "-V",
+        f"relative_root={task.relative_root}",
+        "-V",
+        "encrypted=true",
+    ]
     for css in css_files:
-        cmd.extend(["--css", f"{task.relative_root}{css}"])
+        envelope_cmd.extend(["--css", f"{task.relative_root}{css}"])
 
-    if task.dry_run:
-        return task.md_path, True, None
+    envelope_result = subprocess.run(envelope_cmd, capture_output=True, text=True)
+    if envelope_result.returncode != 0:
+        return task.md_path, False, envelope_result.stderr.strip()
 
-    task.out_path.parent.mkdir(parents=True, exist_ok=True)
-    result = subprocess.run(cmd, capture_output=True, text=True)
-
-    if result.returncode != 0:
-        return task.md_path, False, result.stderr.strip()
+    # 4. Stream ciphertext directly into file on disk
+    try:
+        final_html = envelope_result.stdout.replace(
+            "__KYKLOI_ENCRYPTED_PAYLOAD__", ciphertext_b64
+        )
+        task.out_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(task.out_path, "w", encoding="utf-8") as f:
+            f.write(final_html)
+    except OSError as e:
+        return task.md_path, False, f"Disk write error: {e}"
 
     return task.md_path, True, None
 
@@ -260,12 +369,10 @@ def compile_markdown_worker(task: CompileTask) -> tuple[Path, bool, Optional[str
 
 
 def prune_orphans(dst_dir: Path, expected_files: set[Path], dry_run: bool) -> int:
-    """Removes files and directories in dst_dir absent from expected_files."""
     if not dst_dir.exists():
         return 0
 
     orphans_removed = 0
-
     for item in list(dst_dir.rglob("*")):
         if item.is_file():
             if item.resolve() not in expected_files:
@@ -340,9 +447,23 @@ def main():
     compile_tasks: list[CompileTask] = []
     search_records: list[dict] = []
 
-    # 4. Inventory, Metadata Extraction, and Markdown Diffing
-    md_files = list(SRC.rglob("*.md"))
+    # 4. Inventory, Security Scoping & Key Acquisition
+    md_files = sorted(SRC.rglob("*.md"))
+    has_secure_files = any("secure" in p.parts for p in md_files)
 
+    passphrase = args.password
+    if has_secure_files and not passphrase and not args.dry_run:
+        if AESGCM is None:
+            logging.error(
+                "Cryptography module missing. Install via 'pip install cryptography'."
+            )
+            sys.exit(1)
+        passphrase = getpass.getpass("Enter passphrase for /secure/ notes: ")
+        if not passphrase:
+            logging.error("Encryption passphrase cannot be empty.")
+            sys.exit(1)
+
+    # 5. Markdown Processing
     for idx, md in enumerate(md_files):
         rel = md.relative_to(SRC)
         manifest_key = f"content:{rel.as_posix()}"
@@ -352,10 +473,10 @@ def main():
         current_md_hash = compute_file_hash(md)
         new_manifest[manifest_key] = current_md_hash
 
-        # Strict relative root: "" for root files, "../" * depth for nested files
         depth = len(rel.parent.parts) if rel.parent != Path(".") else 0
         relative_root = ("../" * depth) if depth > 0 else ""
 
+        is_secure = "secure" in md.parts
         is_dirty = (
             not out.exists()
             or global_deps_changed
@@ -363,7 +484,6 @@ def main():
         )
 
         meta = extract_metadata_from_markdown(md)
-        # Guarantees no leading slash in index URLs
         clean_url = rel.with_suffix(".html").as_posix().lstrip("/")
         search_records.append(
             {
@@ -385,20 +505,26 @@ def main():
                     relative_root=relative_root,
                     defaults_yaml=DEFAULTS_YAML,
                     lua_filter=LUA_FILTER,
+                    is_secure=is_secure,
+                    passphrase=passphrase,
                     dry_run=args.dry_run,
                     verbose=args.verbose,
                 )
             )
 
-    # Register Search Index output
     expected_outputs.add(SEARCH_INDEX_FILE.resolve())
 
-    # 5. Inventory and Sync Assets
+    # 6. Inventory & Sync Assets
     asset_sync_jobs: list[tuple[Path, Path]] = []
 
-    # A. Content media assets
+    # A. Content media assets (Skip any file under /secure/)
     for p in SRC.rglob("*"):
-        if p.is_file() and p.suffix.lower() != ".md" and not p.name.startswith("."):
+        if (
+            p.is_file()
+            and p.suffix.lower() != ".md"
+            and not p.name.startswith(".")
+            and "secure" not in p.parts
+        ):
             target = DST / p.relative_to(SRC)
             expected_outputs.add(target.resolve())
             manifest_key = f"media:{p.relative_to(SRC).as_posix()}"
@@ -435,7 +561,7 @@ def main():
                 if not target.exists() or old_manifest.get(manifest_key) != h:
                     asset_sync_jobs.append((p, target))
 
-    # 6. Execute Orphan Pruning
+    # 7. Execute Orphan Pruning
     orphans_pruned = prune_orphans(
         dst_dir=DST,
         expected_files=expected_outputs,
@@ -444,7 +570,7 @@ def main():
     if orphans_pruned:
         logging.info("Pruned %d orphaned artifact(s).", orphans_pruned)
 
-    # 7. Execute Asset Copies
+    # 8. Execute Asset Sync
     synced_assets = 0
     for src_file, target_file in asset_sync_jobs:
         if not args.dry_run:
@@ -454,7 +580,7 @@ def main():
     if synced_assets:
         logging.info("Synced %d modified/new asset(s).", synced_assets)
 
-    # 8. Execute Concurrent Markdown Compilation
+    # 9. Execute Concurrent Markdown Compilation
     total_md = len(md_files)
     to_compile = len(compile_tasks)
     failed = 0
@@ -492,13 +618,13 @@ def main():
     else:
         logging.info("All %d documents are verified current.", total_md)
 
-    # 9. Update Search Index
+    # 10. Update Search Index
     if (
         to_compile > 0 or orphans_pruned > 0 or not SEARCH_INDEX_FILE.exists()
     ) and failed == 0:
         write_minisearch_index(search_records, SEARCH_INDEX_FILE, dry_run=args.dry_run)
 
-    # 10. Update Manifest Post-Build
+    # 11. Update Manifest Post-Build
     if failed == 0:
         save_manifest(MANIFEST_FILE, new_manifest, args.dry_run)
     else:
@@ -506,7 +632,6 @@ def main():
             "Build recorded failures. Manifest state will not be persisted."
         )
 
-    # 11. Final Status Check
     if failed > 0:
         logging.error("Build completed with %d failure(s).", failed)
         sys.exit(1)
