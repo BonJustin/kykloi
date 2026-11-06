@@ -12,4 +12,4 @@ Testing nested directory structures and encryption routines... the result should
 
 Math test
 
-$$\mathbf{i\hbar \frac{\partial}{\partial t} \Psi(\mathbf{r}, t) = \left[ -\frac{\hbar^2}{2m} \nabla^2 + V(\mathbf{r}, t) \right] \Psi(\mathbf{r}, t)}$$
+$$\mathrm{i\hbar \frac{\partial}{\partial t} \Psi(\mathrm{r}, t) = \left[ -\frac{\hbar^2}{2m} \nabla^2 + V(\mathrm{r}, t) \right] \Psi(\mathrm{r}, t)}$$

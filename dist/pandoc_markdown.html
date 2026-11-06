@@ -1,0 +1,318 @@
+<!doctype html>
+<html
+    data-theme="light"
+    xmlns="http://www.w3.org/1999/xhtml"
+    >
+    <head>
+        <meta charset="utf-8" />
+        <meta name="generator" content="pandoc" />
+        <meta
+            name="viewport"
+            content="width=device-width, initial-scale=1.0, user-scalable=yes"
+        />
+
+                  <meta
+            name="keywords"
+            content="pandoc, markdown, computer reference"
+        />
+         
+        <title>Pandoc Markdown</title>
+
+        <!-- Portable Asset Resolution using direct prefix identity -->
+        <link
+            rel="icon"
+            type="image/x-icon"
+            href="favicon.ico"
+        />
+        <link
+            rel="icon"
+            type="image/svg+xml"
+            href="favicon.svg"
+        />
+        <link
+            rel="icon"
+            type="image/png"
+            sizes="96x96"
+            href="favicon-96x96.png"
+        />
+        <link
+            rel="apple-touch-icon"
+            href="apple-touch-icon.png"
+        />
+        <link rel="manifest" href="site.webmanifest" />
+
+                <link rel="stylesheet" href="assets/css/pico.css" />
+                <link rel="stylesheet" href="assets/css/style.css" />
+        
+        <!-- Offline Search Dependencies: Zero Fetch / file:// Safe -->
+        <script src="assets/js/minisearch.min.js" defer></script>
+        <script src="search_index.js" defer></script>
+        <script src="assets/js/pico_search.js" defer></script>
+
+        
+         
+    </head>
+
+    <body data-relative-root="">
+        <header class="container site_header">
+            <nav>
+                <ul>
+                    <li>
+                        <span class="brand_text">
+                            <a
+                                href="index.html"
+                                style="text-decoration: none"
+                                >JdF³</a
+                            >
+                        </span>
+                    </li>
+                </ul>
+                <ul>
+                    <li>
+                        <a href="index.html" data-tooltip="Home">
+                            <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                width="24"
+                                height="24"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="2"
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                                class="lucide lucide-house-icon lucide-house"
+                            >
+                                <path
+                                    d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"
+                                />
+                                <path
+                                    d="M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"
+                                />
+                            </svg>
+                        </a>
+                    </li>
+                    <li>
+                        <a href="#" id="open-search" data-tooltip="Search">
+                            <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                width="24"
+                                height="24"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="2"
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                                class="lucide lucide-search-icon lucide-search"
+                            >
+                                <path d="m21 21-4.34-4.34" />
+                                <circle cx="11" cy="11" r="8" />
+                            </svg>
+                        </a>
+                    </li>
+                </ul>
+            </nav>
+            <hr />
+
+            
+        </header>
+
+        <main>
+            <div class="container">
+                                <!-- Standard Cleartext Body: Pure Markdown Output Only -->
+                                <p><em><a href="https://pandoc.org/MANUAL.html">Pandoc.org</a>.</em></p>
+                                <hr />
+                                <section id="starting-points" class="level2">
+                                <h2>Starting Points</h2>
+                                <p>Markdown is intended to be easy to type and easy to read in plain text. One general rule is <strong>always put a blank line between things</strong>. Pandoc Markdown requires a blank line preceding any header, and it seems best practice to add vertical whitespace between almost all individual document elements. <em>Lists, nested lists, and list items can be grouped tightly.</em></p>
+                                <p>The standard tabulation for Markdown is <strong>4 spaces</strong>. Structures such as lists will not nest correctly without correct indentation/tabulation. This can usually be set in the editor. Syntax highlighting and linting are both helpful also, if the editor supports it.</p>
+                                <hr />
+                                </section>
+                                <section id="headers-subheaders" class="level2">
+                                <h2>Headers &amp; Subheaders</h2>
+                                <p>Headings consist of one to six <code>#</code> <em>(hash)</em> signs and a line of text.</p>
+                                <div class="sourceCode" id="cb1"><pre class="sourceCode markdown"><code class="sourceCode markdown"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="fu"># Level one</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="fu">## Level two</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="fu">### Level three</span></span></code></pre></div>
+                                <p><strong><em>Output:</em></strong></p>
+                                </section>
+                                <section id="level-one" class="level1">
+                                <h1>Level one</h1>
+                                <section id="level-two" class="level2">
+                                <h2>Level two</h2>
+                                <section id="level-three" class="level3">
+                                <h3>Level three</h3>
+                                <p><em><strong>Note:</strong> While the six header levels are available in Markdown, the format Pandoc is exporting to matters. The first three levels of headers are generally safe, but the styling and export format should be checked.</em></p>
+                                </section>
+                                </section>
+                                <section id="horizontal-rules" class="level2">
+                                <h2>Horizontal Rules</h2>
+                                <p>Add a horizontal rule (a line across the entire width of the text) with <code>***</code>.</p>
+                                <div class="sourceCode" id="cb2"><pre class="sourceCode markdown"><code class="sourceCode markdown"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a>***</span></code></pre></div>
+                                <p><strong><em>Output:</em></strong></p>
+                                <hr />
+                                </section>
+                                <section id="blockquotes" class="level2">
+                                <h2>Blockquotes</h2>
+                                <p>Blockquotes are created with <code>&gt;</code> <em>(greater than)</em>.</p>
+                                <div class="sourceCode" id="cb3"><pre class="sourceCode markdown"><code class="sourceCode markdown"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="at">&gt; This is a blockquote. It can</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="at">&gt; contain line breaks as this demonstrates.</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a><span class="at">&gt;</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a><span class="at">&gt; 1. Blockquotes can contain lists.</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a><span class="at">&gt; 2. Item two.</span></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a><span class="at">&gt;</span></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a><span class="at">&gt; &gt; Blockquotes can contain blockquotes.</span></span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a><span class="at">&gt; &quot;Lazy&quot; blockquotes are also allowed, in which there is no need to manually include the </span><span class="in">`&gt;`</span><span class="at"> symbol at the beginning of each line to continue the quote. This is easier to type but less visually distinct in plain text.</span></span></code></pre></div>
+                                <p><strong><em>Output:</em></strong></p>
+                                <blockquote>
+                                <p>This is a blockquote. It can contain be multiple lines long.</p>
+                                <ol type="1">
+                                <li>Blockquotes can contain lists.</li>
+                                <li>Item two.</li>
+                                </ol>
+                                <blockquote>
+                                <p>Blockquotes can contain blockquotes.</p>
+                                </blockquote>
+                                </blockquote>
+                                <blockquote>
+                                <p>“Lazy” blockquotes are also allowed, in which there is no need to manually include the <code>&gt;</code> symbol at the beginning of each line to continue the quote. This is easier to type but less visually distinct in plain text.</p>
+                                </blockquote>
+                                <p><em><strong>Note:</strong> There is more possible, though the complexity of the spacing and indentation requirements becomes a headache.</em></p>
+                                </section>
+                                <section id="fenced-code-blocks" class="level2">
+                                <h2>Fenced Code Blocks</h2>
+                                <p>Code blocks are enclosed in 3 or more <code>`</code> <em>(backtick)</em>.</p>
+                                <pre class="text"><code>```
+if x &gt; y {
+  z = 0
+}
+```</code></pre>
+                                <p><strong><em>Output:</em></strong></p>
+                                <pre class="text"><code>if x &gt; y {
+    z = 0
+}</code></pre>
+                                <section id="enclosed-fence-code-blocks" class="level3">
+                                <h3>Enclosed Fence Code Blocks</h3>
+                                <p>Bracket fenced code blocks in more than three <code>`</code> <em>(backticks)</em> to nest and include them in output.</p>
+                                <pre class="text"><code>````
+```
+if x &gt; y {
+  z = 0
+}
+```
+````</code></pre>
+                                <p><strong><em>Output:</em></strong></p>
+                                <pre class="text"><code>```
+if x &gt; y {
+  z = 0
+}
+```</code></pre>
+                                </section>
+                                </section>
+                                <section id="pipe-tables" class="level2">
+                                <h2>Pipe Tables</h2>
+                                <p>The easiest way to explain pipe tables is to demonstrate one:</p>
+                                <div class="sourceCode" id="cb8"><pre class="sourceCode markdown"><code class="sourceCode markdown"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> Left <span class="pp">|</span> Center <span class="pp">|</span> Center <span class="pp">|</span> Right <span class="pp">|</span></span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a><span class="pp">| :---</span> <span class="pp">| :---:</span> <span class="pp">| :---:</span> <span class="pp">| ---:</span> <span class="pp">|</span></span>
+<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> row <span class="pp">|</span> 2 <span class="pp">|</span> three <span class="pp">|</span> four <span class="pp">|</span></span>
+<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> longer row <span class="pp">|</span> 3.14159 <span class="pp">|</span> 0 <span class="pp">|</span> more text <span class="pp">|</span></span></code></pre></div>
+                                <p><em><strong>Notes:</strong> The header row can be omitted. The columns before or after the dashes in each column of the second row define the alignment used for that column. Tables are likely to require significant styling for the target export format.</em></p>
+                                <p>As typed above, pipe tables are very easy to type, but somewhat difficult to read. This can be improved as follows (adding spaces and hyphens) if needed:</p>
+                                <div class="sourceCode" id="cb9"><pre class="sourceCode markdown"><code class="sourceCode markdown"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> Left       <span class="pp">|</span> Center  <span class="pp">|</span> Center <span class="pp">|</span> Right     <span class="pp">|</span></span>
+<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a><span class="pp">| :---------</span> <span class="pp">| :-----:</span> <span class="pp">| :----:</span> <span class="pp">| --------:</span> <span class="pp">|</span></span>
+<span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> row        <span class="pp">|</span> 2       <span class="pp">|</span> three  <span class="pp">|</span> four      <span class="pp">|</span></span>
+<span id="cb9-4"><a href="#cb9-4" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> longer row <span class="pp">|</span> 3.14159 <span class="pp">|</span> 0      <span class="pp">|</span> more text <span class="pp">|</span></span></code></pre></div>
+                                <p><strong><em>Output:</em></strong></p>
+                                <table>
+                                <thead>
+                                <tr class="header">
+                                <th style="text-align: left;">Left</th>
+                                <th style="text-align: center;">Center</th>
+                                <th style="text-align: center;">Center</th>
+                                <th style="text-align: right;">Right</th>
+                                </tr>
+                                </thead>
+                                <tbody>
+                                <tr class="odd">
+                                <td style="text-align: left;">row</td>
+                                <td style="text-align: center;">2</td>
+                                <td style="text-align: center;">three</td>
+                                <td style="text-align: right;">four</td>
+                                </tr>
+                                <tr class="even">
+                                <td style="text-align: left;">longer row</td>
+                                <td style="text-align: center;">3.14159</td>
+                                <td style="text-align: center;">0</td>
+                                <td style="text-align: right;">more text</td>
+                                </tr>
+                                </tbody>
+                                </table>
+                                </section>
+                                <section id="links" class="level2">
+                                <h2>Links</h2>
+                                <section id="external-links" class="level3">
+                                <h3>External Links</h3>
+                                <div class="sourceCode" id="cb10"><pre class="sourceCode markdown"><code class="sourceCode markdown"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="co">[</span><span class="ot">Link To Google</span><span class="co">](https://www.google.com)</span></span></code></pre></div>
+                                <p><strong><em>Output:</em></strong></p>
+                                <p><a href="https://www.google.com">Link To Google</a></p>
+                                </section>
+                                <section id="internal-links-to-headers" class="level3">
+                                <h3>Internal Links to Headers</h3>
+                                <p>There is a built in feature that allows internal linking to headers within the document. For example, linking to the <strong>Fenced Code Blocks</strong> header above.</p>
+                                <p><em><strong>Caveats:</strong> Header references begin with a single <code>#</code>, must be in lowercase, and spaces must be replaced with hyphens.</em></p>
+                                <div class="sourceCode" id="cb11"><pre class="sourceCode markdown"><code class="sourceCode markdown"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a><span class="co">[</span><span class="ot">Link to **Fenced Code Blocks** header...</span><span class="co">](#fenced-code-blocks)</span></span></code></pre></div>
+                                <p><strong><em>Output</em></strong></p>
+                                <p><a href="#fenced-code-blocks">Link to <strong>Fenced Code Blocks</strong> header…</a></p>
+                                <p><em>There are other more complex ways of linking but these begin to get tricky and strange looking for non-technical users. The option exists.</em></p>
+                                </section>
+                                </section>
+                                <section id="images" class="level2">
+                                <h2>Images</h2>
+                                <div class="sourceCode" id="cb12"><pre class="sourceCode markdown"><code class="sourceCode markdown"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a><span class="al">![Test - Artemis II](media/test_artemis_2.jpg)</span></span></code></pre></div>
+                                <p><strong><em>Output</em></strong></p>
+                                <figure>
+                                <img src="media/test_artemis_2.jpg" alt="Test - Artemis II" />
+                                <figcaption aria-hidden="true">Test - Artemis II</figcaption>
+                                </figure>
+                                </section>
+                                </section>
+                            </div>
+        </main>
+
+        <footer class="container">
+            <hr />
+            <div class="grid">
+                <div></div>
+                <div style="text-align: right"></div>
+            </div>
+
+            
+        </footer>
+
+        <dialog id="search-modal">
+            <article style="width: 100%; max-width: 600px">
+                <header>
+                    <button
+                        aria-label="Close"
+                        rel="prev"
+                        id="close-search"
+                    ></button>
+                    <strong>Search Titles & Keywords</strong>
+                </header>
+                <input
+                    type="search"
+                    id="search-input"
+                    placeholder="Type to search..."
+                    autocomplete="off"
+                />
+                <ul
+                    id="search-results"
+                    style="list-style: none; padding-left: 0; margin-top: 1rem"
+                ></ul>
+            </article>
+        </dialog>
+    </body>
+</html>
