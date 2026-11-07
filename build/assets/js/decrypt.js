@@ -12,7 +12,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
   /**
    * Renders Pandoc-generated mathematical elements via KaTeX core.
-   * Pandoc outputs: <span class="math inline">...</span> or <span class="math display">...</span>
    * @param {HTMLElement} container - The decrypted content container.
    */
   function renderDecryptedMath(container) {
@@ -25,7 +24,6 @@ document.addEventListener("DOMContentLoaded", () => {
     mathElements.forEach((el) => {
       let tex = el.textContent.trim();
 
-      // Normalize and defensively strip wrapper delimiters if present
       if (tex.startsWith("\\(") && tex.endsWith("\\)")) {
         tex = tex.slice(2, -2).trim();
       } else if (tex.startsWith("\\[") && tex.endsWith("\\]")) {
@@ -53,13 +51,31 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   /**
-   * Derives PBKDF2/AES-GCM key material and decrypts the Base64 envelope.
+   * High-efficiency Base64 decoding into an ArrayBuffer.
+   * Avoids iterator closure allocations that trigger GC pauses.
+   * @param {string} b64 - Base64 encoded payload.
+   * @returns {Uint8Array}
+   */
+  function base64ToUint8Array(b64) {
+    const binaryString = atob(b64);
+    const len = binaryString.length;
+    // Single contiguous typed allocation
+    const bytes = new Uint8Array(len);
+
+    // Optimized sequential iteration without closure overhead
+    for (let i = 0; i < len; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+    return bytes;
+  }
+
+  /**
+   * Derives PBKDF2/AES-GCM key material and decrypts the binary envelope.
    * @param {string} password - User-provided passphrase.
    * @param {string} rawText - Base64 encoded payload string.
    * @returns {Promise<string>} - Decrypted UTF-8 HTML string.
    */
   async function decryptEnvelope(password, rawText) {
-    // 1. Cleanly parse JSON to extract unquoted Base64 string
     let base64Payload = rawText.trim();
     if (base64Payload.startsWith('"') && base64Payload.endsWith('"')) {
       try {
@@ -69,9 +85,8 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     }
 
-    // 2. Decode Base64 string to Uint8Array
-    const binaryString = atob(base64Payload);
-    const bytes = Uint8Array.from(binaryString, (char) => char.charCodeAt(0));
+    // MEMORY OPTIMIZATION: Decode using standard typed loop
+    const bytes = base64ToUint8Array(base64Payload);
 
     console.debug(`[Kykloi] Envelope received: ${bytes.length} bytes.`);
 
@@ -79,12 +94,14 @@ document.addEventListener("DOMContentLoaded", () => {
       throw new Error("Payload too short to contain Salt + IV headers.");
     }
 
-    // Envelope schema: Salt (16B) | IV (12B) | Ciphertext + Tag (remaining bytes)
-    const salt = bytes.slice(0, 16);
-    const iv = bytes.slice(16, 28);
-    const ciphertext = bytes.slice(28);
+    // MEMORY OPTIMIZATION: Zero-copy slicing via .subarray()
+    // .subarray() returns a window view into the existing memory buffer
+    // rather than copying data into a newly allocated buffer via .slice()
+    const salt = bytes.subarray(0, 16);
+    const iv = bytes.subarray(16, 28);
+    const ciphertext = bytes.subarray(28);
 
-    // 3. Derive Key Material from Passphrase
+    // Derive PBKDF2 intermediate key
     const encoder = new TextEncoder();
     const keyMaterial = await window.crypto.subtle.importKey(
       "raw",
@@ -94,7 +111,7 @@ document.addEventListener("DOMContentLoaded", () => {
       ["deriveKey"]
     );
 
-    // 4. Derive AES-GCM Key (matches Python PBKDF2 parameters: 600,000 iterations)
+    // Derive symmetric AES-GCM decryption key
     const key = await window.crypto.subtle.deriveKey(
       {
         name: "PBKDF2",
@@ -108,7 +125,7 @@ document.addEventListener("DOMContentLoaded", () => {
       ["decrypt"]
     );
 
-    // 5. Perform Decryption & Authentication
+    // Hardware-accelerated AEAD decryption
     const decryptedBuffer = await window.crypto.subtle.decrypt(
       { name: "AES-GCM", iv: iv },
       key,
@@ -130,9 +147,13 @@ document.addEventListener("DOMContentLoaded", () => {
       const html = await decryptEnvelope(password, rawPayload);
       console.debug("[Kykloi] Decryption successful! Mounting document.");
 
-      // Mount decrypted markup and purge lock interface
+      // Mount decrypted markup
       contentContainer.innerHTML = html;
       contentContainer.style.display = "block";
+
+      // MEMORY OPTIMIZATION: Immediate memory reclamation
+      // Clear large Base64 payload string from DOM and script memory
+      payloadEl.textContent = "";
       lockContainer.remove();
 
       // Render math formulas

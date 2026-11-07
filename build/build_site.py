@@ -1,3 +1,9 @@
+"""
+Deterministic Hash-Based Pandoc Static Site Generator (MiniSearch Offline).
+Archival, zero-external-dependency implementation.
+Cryptographic primitive: Self-contained Pure-Python AES-256-GCM & PBKDF2.
+"""
+
 import argparse
 import base64
 import concurrent.futures
@@ -14,14 +20,438 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-# Optional Cryptography Import with Diagnostic Check
-try:
-    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-except ImportError:
-    AESGCM = None
+# ===========================================================================
+# 1. PURE-PYTHON AES-256-GCM ENGINE (NIST FIPS-197 & SP 800-38D)
+# ===========================================================================
+
+# Precomputed S-Box & Round Constant Tables (FIPS-197)
+S_BOX = [
+    0x63,
+    0x7C,
+    0x77,
+    0x7B,
+    0xF2,
+    0x6B,
+    0x6F,
+    0xC5,
+    0x30,
+    0x01,
+    0x67,
+    0x2B,
+    0xFE,
+    0xD7,
+    0xAB,
+    0x76,
+    0xCA,
+    0x82,
+    0xC9,
+    0x7D,
+    0xFA,
+    0x59,
+    0x47,
+    0xF0,
+    0xAD,
+    0xD4,
+    0xA2,
+    0xAF,
+    0x9C,
+    0xA4,
+    0x72,
+    0xC0,
+    0xB7,
+    0xFD,
+    0x93,
+    0x26,
+    0x36,
+    0x3F,
+    0xF7,
+    0xCC,
+    0x34,
+    0xA5,
+    0xE5,
+    0xF1,
+    0x71,
+    0xD8,
+    0x31,
+    0x15,
+    0x04,
+    0xC7,
+    0x23,
+    0xC3,
+    0x18,
+    0x96,
+    0x05,
+    0x9A,
+    0x07,
+    0x12,
+    0x80,
+    0xE2,
+    0xEB,
+    0x27,
+    0xB2,
+    0x75,
+    0x09,
+    0x83,
+    0x2C,
+    0x1A,
+    0x1B,
+    0x6E,
+    0x5A,
+    0xA0,
+    0x52,
+    0x3B,
+    0xD6,
+    0xB3,
+    0x29,
+    0xE3,
+    0x2F,
+    0x84,
+    0x53,
+    0xD1,
+    0x00,
+    0xED,
+    0x20,
+    0xFC,
+    0xB1,
+    0x5B,
+    0x6A,
+    0xCB,
+    0xBE,
+    0x39,
+    0x4A,
+    0x4C,
+    0x58,
+    0xCF,
+    0xD0,
+    0xEF,
+    0xAA,
+    0xFB,
+    0x43,
+    0x4D,
+    0x33,
+    0x85,
+    0x45,
+    0xF9,
+    0x02,
+    0x7F,
+    0x50,
+    0x3C,
+    0x9F,
+    0xA8,
+    0x51,
+    0xA3,
+    0x40,
+    0x8F,
+    0x92,
+    0x9D,
+    0x38,
+    0xF5,
+    0xBC,
+    0xB6,
+    0xDA,
+    0x21,
+    0x10,
+    0xFF,
+    0xF3,
+    0xD2,
+    0xCD,
+    0x0C,
+    0x13,
+    0xEC,
+    0x5F,
+    0x97,
+    0x44,
+    0x17,
+    0xC4,
+    0xA7,
+    0x7E,
+    0x3D,
+    0x64,
+    0x5D,
+    0x19,
+    0x73,
+    0x60,
+    0x81,
+    0x4F,
+    0xDC,
+    0x22,
+    0x2A,
+    0x90,
+    0x88,
+    0x46,
+    0xEE,
+    0xB8,
+    0x14,
+    0xDE,
+    0x5E,
+    0x0B,
+    0xDB,
+    0xE0,
+    0x32,
+    0x3A,
+    0x0A,
+    0x49,
+    0x06,
+    0x24,
+    0x5C,
+    0xC2,
+    0xD3,
+    0xAC,
+    0x62,
+    0x91,
+    0x95,
+    0xE4,
+    0x79,
+    0xE7,
+    0xC8,
+    0x37,
+    0x6D,
+    0x8D,
+    0xD5,
+    0x4E,
+    0xA9,
+    0x6C,
+    0x56,
+    0xF4,
+    0xEA,
+    0x65,
+    0x7A,
+    0xAE,
+    0x08,
+    0xBA,
+    0x78,
+    0x25,
+    0x2E,
+    0x1C,
+    0xA6,
+    0xB4,
+    0xC6,
+    0xE8,
+    0xDD,
+    0x74,
+    0x1F,
+    0x4B,
+    0xBD,
+    0x8B,
+    0x8A,
+    0x70,
+    0x3E,
+    0xB5,
+    0x66,
+    0x48,
+    0x03,
+    0xF6,
+    0x0E,
+    0x61,
+    0x35,
+    0x57,
+    0xB9,
+    0x86,
+    0xC1,
+    0x1D,
+    0x9E,
+    0xE1,
+    0xF8,
+    0x98,
+    0x11,
+    0x69,
+    0xD9,
+    0x8E,
+    0x94,
+    0x9B,
+    0x1E,
+    0x87,
+    0xE9,
+    0xCE,
+    0x55,
+    0x28,
+    0xDF,
+    0x8C,
+    0xA1,
+    0x89,
+    0x0D,
+    0xBF,
+    0xE6,
+    0x42,
+    0x68,
+    0x41,
+    0x99,
+    0x2D,
+    0x0F,
+    0xB0,
+    0x54,
+    0xBB,
+    0x16,
+]
+
+RCON = [0x00, 0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1B, 0x36]
+
+
+def _xtime(a: int) -> int:
+    return ((a << 1) ^ 0x1B) & 0xFF if (a & 0x80) else (a << 1)
+
+
+def _key_expansion_256(key: bytes) -> list[int]:
+    """Expands a 32-byte key into a 60-word round key array."""
+    w = list(key)
+    for i in range(8, 60):
+        temp = w[(i - 1) * 4 : i * 4]
+        if i % 8 == 0:
+            temp = [S_BOX[temp[1]], S_BOX[temp[2]], S_BOX[temp[3]], S_BOX[temp[0]]]
+            temp[0] ^= RCON[i // 8]
+        elif i % 8 == 4:
+            temp = [S_BOX[x] for x in temp]
+        for j in range(4):
+            w.append(w[(i - 8) * 4 + j] ^ temp[j])
+    return w
+
+
+def _cipher_block(state: list[int], round_keys: list[int]) -> bytes:
+    """Standard 14-round AES-256 block transformation."""
+    for i in range(16):
+        state[i] ^= round_keys[i]
+
+    for r in range(1, 14):
+        rk_offset = r * 16
+        s0, s1, s2, s3 = (
+            S_BOX[state[0]],
+            S_BOX[state[5]],
+            S_BOX[state[10]],
+            S_BOX[state[15]],
+        )
+        s4, s5, s6, s7 = (
+            S_BOX[state[4]],
+            S_BOX[state[9]],
+            S_BOX[state[14]],
+            S_BOX[state[3]],
+        )
+        s8, s9, s10, s11 = (
+            S_BOX[state[8]],
+            S_BOX[state[13]],
+            S_BOX[state[2]],
+            S_BOX[state[7]],
+        )
+        s12, s13, s14, s15 = (
+            S_BOX[state[12]],
+            S_BOX[state[1]],
+            S_BOX[state[6]],
+            S_BOX[state[11]],
+        )
+
+        state[0] = _xtime(s0 ^ s1) ^ s1 ^ s2 ^ s3 ^ round_keys[rk_offset]
+        state[1] = _xtime(s1 ^ s2) ^ s2 ^ s3 ^ s0 ^ round_keys[rk_offset + 1]
+        state[2] = _xtime(s2 ^ s3) ^ s3 ^ s0 ^ s1 ^ round_keys[rk_offset + 2]
+        state[3] = _xtime(s3 ^ s0) ^ s0 ^ s1 ^ s2 ^ round_keys[rk_offset + 3]
+
+        state[4] = _xtime(s4 ^ s5) ^ s5 ^ s6 ^ s7 ^ round_keys[rk_offset + 4]
+        state[5] = _xtime(s5 ^ s6) ^ s6 ^ s7 ^ s4 ^ round_keys[rk_offset + 5]
+        state[6] = _xtime(s6 ^ s7) ^ s7 ^ s4 ^ s5 ^ round_keys[rk_offset + 6]
+        state[7] = _xtime(s7 ^ s4) ^ s4 ^ s5 ^ s6 ^ round_keys[rk_offset + 7]
+
+        state[8] = _xtime(s8 ^ s9) ^ s9 ^ s10 ^ s11 ^ round_keys[rk_offset + 8]
+        state[9] = _xtime(s9 ^ s10) ^ s10 ^ s11 ^ s8 ^ round_keys[rk_offset + 9]
+        state[10] = _xtime(s10 ^ s11) ^ s11 ^ s8 ^ s9 ^ round_keys[rk_offset + 10]
+        state[11] = _xtime(s11 ^ s8) ^ s8 ^ s9 ^ s10 ^ round_keys[rk_offset + 11]
+
+        state[12] = _xtime(s12 ^ s13) ^ s13 ^ s14 ^ s15 ^ round_keys[rk_offset + 12]
+        state[13] = _xtime(s13 ^ s14) ^ s14 ^ s15 ^ s12 ^ round_keys[rk_offset + 13]
+        state[14] = _xtime(s14 ^ s15) ^ s15 ^ s12 ^ s13 ^ round_keys[rk_offset + 14]
+        state[15] = _xtime(s15 ^ s12) ^ s12 ^ s13 ^ s14 ^ round_keys[rk_offset + 15]
+
+    rk_offset = 224
+    out = bytearray(16)
+    out[0] = S_BOX[state[0]] ^ round_keys[rk_offset]
+    out[1] = S_BOX[state[5]] ^ round_keys[rk_offset + 1]
+    out[2] = S_BOX[state[10]] ^ round_keys[rk_offset + 2]
+    out[3] = S_BOX[state[15]] ^ round_keys[rk_offset + 3]
+    out[4] = S_BOX[state[4]] ^ round_keys[rk_offset + 4]
+    out[5] = S_BOX[state[9]] ^ round_keys[rk_offset + 5]
+    out[6] = S_BOX[state[14]] ^ round_keys[rk_offset + 6]
+    out[7] = S_BOX[state[3]] ^ round_keys[rk_offset + 7]
+    out[8] = S_BOX[state[8]] ^ round_keys[rk_offset + 8]
+    out[9] = S_BOX[state[13]] ^ round_keys[rk_offset + 9]
+    out[10] = S_BOX[state[2]] ^ round_keys[rk_offset + 10]
+    out[11] = S_BOX[state[7]] ^ round_keys[rk_offset + 11]
+    out[12] = S_BOX[state[12]] ^ round_keys[rk_offset + 12]
+    out[13] = S_BOX[state[1]] ^ round_keys[rk_offset + 13]
+    out[14] = S_BOX[state[6]] ^ round_keys[rk_offset + 14]
+    out[15] = S_BOX[state[11]] ^ round_keys[rk_offset + 15]
+
+    return bytes(out)
+
+
+def _ghash_mult(x: int, y: int) -> int:
+    """Multiplication in GF(2^128) using reducing polynomial x^128 + x^7 + x^2 + x + 1."""
+    r = 0xE1000000000000000000000000000000
+    z = 0
+    v = x
+    for i in range(128):
+        if (y >> (127 - i)) & 1:
+            z ^= v
+        if v & 1:
+            v = (v >> 1) ^ r
+        else:
+            v >>= 1
+    return z
+
+
+def pure_aes_gcm_encrypt(
+    key: bytes, iv: bytes, plaintext: bytes
+) -> tuple[bytes, bytes]:
+    """
+    Encrypts bytes via AES-256-GCM.
+    Returns: (ciphertext, 16-byte authentication tag).
+    """
+    if len(key) != 32:
+        raise ValueError("Key must be 32 bytes (256 bits).")
+    if len(iv) != 12:
+        raise ValueError("Initialization vector must be 12 bytes (96 bits).")
+
+    round_keys = _key_expansion_256(key)
+
+    # Compute Hash Subkey H = AES_K(0^128)
+    h_bytes = _cipher_block([0] * 16, round_keys)
+    h = int.from_bytes(h_bytes, byteorder="big")
+
+    # Construct Initial Counter Block J0
+    j0 = iv + b"\x00\x00\x00\x01"
+
+    # Encrypt Plaintext via GCTR mode
+    ciphertext = bytearray()
+    num_blocks = (len(plaintext) + 15) // 16
+
+    for i in range(num_blocks):
+        ctr_val = (1 + 1 + i) & 0xFFFFFFFF
+        ctr_block = iv + ctr_val.to_bytes(4, byteorder="big")
+        keystream = _cipher_block(list(ctr_block), round_keys)
+        chunk = plaintext[i * 16 : (i + 1) * 16]
+        for p_b, k_b in zip(chunk, keystream):
+            ciphertext.append(p_b ^ k_b)
+
+    ciphertext_bytes = bytes(ciphertext)
+
+    # Compute Authentication Tag over Ciphertext via GHASH
+    s = 0
+    pad_len = (16 - (len(ciphertext_bytes) % 16)) % 16
+    padded_ct = ciphertext_bytes + (b"\x00" * pad_len)
+
+    for i in range(0, len(padded_ct), 16):
+        block_int = int.from_bytes(padded_ct[i : i + 16], byteorder="big")
+        s = _ghash_mult(s ^ block_int, h)
+
+    # Length Block: len(AAD) [0 bits] || len(C) [bits]
+    len_block = (0).to_bytes(8, "big") + (len(ciphertext_bytes) * 8).to_bytes(8, "big")
+    s = _ghash_mult(s ^ int.from_bytes(len_block, "big"), h)
+
+    # Tag Mask T = GCTR_K(J0, S)
+    tag_mask = _cipher_block(list(j0), round_keys)
+    tag = bytes(a ^ b for a, b in zip(s.to_bytes(16, "big"), tag_mask))
+
+    return ciphertext_bytes, tag
+
 
 # ===========================================================================
-# 1. GLOBAL PATH INITIALIZATION & VALIDATION
+# 2. GLOBAL PATH INITIALIZATION & VALIDATION
 # ===========================================================================
 
 try:
@@ -42,7 +472,7 @@ except Exception as err:
 
 
 # ===========================================================================
-# 2. DATA STRUCTURES & ARGUMENT PARSING
+# 3. DATA STRUCTURES & ARGUMENT PARSING
 # ===========================================================================
 
 
@@ -62,7 +492,7 @@ class CompileTask:
 
 def parse_args():
     p = argparse.ArgumentParser(
-        description="Deterministic Hash-Based Pandoc Static Site Generator (MiniSearch Offline)."
+        description="Deterministic Archival Static Site Generator (Zero-Dependency Cryptography)."
     )
     p.add_argument(
         "--clean",
@@ -95,7 +525,7 @@ def parse_args():
 
 
 # ===========================================================================
-# 3. CRYPTOGRAPHIC HASHING & ENCRYPTION UTILITIES
+# 4. CRYPTOGRAPHIC HASHING & ENVELOPE UTILITIES
 # ===========================================================================
 
 
@@ -126,7 +556,7 @@ def compute_global_dependencies_hash() -> str:
 
 
 def derive_key(passphrase: str, salt: bytes) -> bytes:
-    """Derives a 256-bit key using PBKDF2-HMAC-SHA256 (600,000 iterations)."""
+    """Derives a 256-bit key via standard library PBKDF2-HMAC-SHA256 (600,000 rounds)."""
     return hashlib.pbkdf2_hmac(
         "sha256",
         passphrase.encode("utf-8"),
@@ -138,22 +568,16 @@ def derive_key(passphrase: str, salt: bytes) -> bytes:
 
 def encrypt_payload(html_content: str, passphrase: str) -> str:
     """
-    Encrypts HTML content using AES-256-GCM matching the WebCrypto API envelope:
-    Format: Base64(Salt [16 bytes] + IV [12 bytes] + Ciphertext & Tag [N bytes])
+    Encrypts HTML content using pure-Python AES-256-GCM.
+    Envelope: Base64(Salt [16B] + IV [12B] + Ciphertext [NB] + Tag [16B])
     """
-    if AESGCM is None:
-        raise RuntimeError(
-            "Missing required dependency: run 'pip install cryptography'"
-        )
-
     salt = os.urandom(16)
     iv = os.urandom(12)
     key = derive_key(passphrase, salt)
 
-    aesgcm = AESGCM(key)
-    ciphertext = aesgcm.encrypt(iv, html_content.encode("utf-8"), None)
+    ciphertext, tag = pure_aes_gcm_encrypt(key, iv, html_content.encode("utf-8"))
 
-    envelope = salt + iv + ciphertext
+    envelope = salt + iv + ciphertext + tag
     return base64.b64encode(envelope).decode("ascii")
 
 
@@ -183,7 +607,7 @@ def save_manifest(manifest_path: Path, manifest: dict[str, str], dry_run: bool):
 
 
 # ===========================================================================
-# 4. METADATA EXTRACTION & SEARCH INDEX GENERATION
+# 5. METADATA EXTRACTION & SEARCH INDEX GENERATION
 # ===========================================================================
 
 
@@ -258,11 +682,13 @@ def write_minisearch_index(records: list[dict], out_path: Path, dry_run: bool):
 
 
 # ===========================================================================
-# 5. WORKER COMPILATION SUBSYSTEM
+# 6. WORKER COMPILATION SUBSYSTEM
 # ===========================================================================
 
 
-def compile_markdown_worker(task: CompileTask) -> tuple[Path, bool, Optional[str]]:
+def compile_markdown_worker(
+    task: CompileTask,
+) -> tuple[Path, bool, Optional[str]]:
     """Compiles Markdown documents with conditional WebCrypto envelope wrapping."""
     if task.dry_run:
         return task.md_path, True, None
@@ -325,13 +751,13 @@ def compile_markdown_worker(task: CompileTask) -> tuple[Path, bool, Optional[str
     if body_result.returncode != 0:
         return task.md_path, False, body_result.stderr.strip()
 
-    # 2. Encrypt the compiled HTML body in Python memory
+    # 2. Encrypt the compiled HTML body in Python memory via pure-Python AES-GCM
     try:
         ciphertext_b64 = encrypt_payload(body_result.stdout, task.passphrase)
     except Exception as e:
         return task.md_path, False, f"Encryption failed: {e}"
 
-    # 3. Compile the standalone outer envelope
+    # 3. Compile standalone outer envelope
     envelope_cmd = [
         "pandoc",
         str(task.md_path),
@@ -349,7 +775,7 @@ def compile_markdown_worker(task: CompileTask) -> tuple[Path, bool, Optional[str
     if envelope_result.returncode != 0:
         return task.md_path, False, envelope_result.stderr.strip()
 
-    # 4. Stream ciphertext directly into file on disk
+    # 4. Stream ciphertext directly into output file
     try:
         final_html = envelope_result.stdout.replace(
             "__KYKLOI_ENCRYPTED_PAYLOAD__", ciphertext_b64
@@ -364,7 +790,7 @@ def compile_markdown_worker(task: CompileTask) -> tuple[Path, bool, Optional[str
 
 
 # ===========================================================================
-# 6. ORPHAN PRUNING
+# 7. ORPHAN PRUNING
 # ===========================================================================
 
 
@@ -392,7 +818,7 @@ def prune_orphans(dst_dir: Path, expected_files: set[Path], dry_run: bool) -> in
 
 
 # ===========================================================================
-# 7. PIPELINE ORCHESTRATION
+# 8. PIPELINE ORCHESTRATION
 # ===========================================================================
 
 
@@ -453,11 +879,6 @@ def main():
 
     passphrase = args.password
     if has_secure_files and not passphrase and not args.dry_run:
-        if AESGCM is None:
-            logging.error(
-                "Cryptography module missing. Install via 'pip install cryptography'."
-            )
-            sys.exit(1)
         passphrase = getpass.getpass("Enter passphrase for /secure/ notes: ")
         if not passphrase:
             logging.error("Encryption passphrase cannot be empty.")
@@ -606,7 +1027,9 @@ def main():
                     if not success:
                         failed += 1
                         logging.error(
-                            "Pandoc compilation error on %s:\n%s", md_path.name, err
+                            "Pandoc compilation error on %s:\n%s",
+                            md_path.name,
+                            err,
                         )
                     elif args.verbose:
                         logging.info("Built: %s", md_path.name)
