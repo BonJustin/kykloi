@@ -1,5 +1,5 @@
 {
-  "__GLOBAL_DEPENDENCIES__": "b0b376f5f36c27bc3eea8a0ab7c319b40fc417a965454e9e7c8155f84aa3977c",
+  "__GLOBAL_DEPENDENCIES__": "46c2f380315e42edae51855e14ca30998045f60ca7aae643d7180840508cabf3",
   "content:pandoc_markdown.md": "3914f266883b75bd3b5897dc802289022b2d2887930c4d7593b4d8a230a5a6e3",
   "content:secure/20261031165927-nested-directory-test.md": "1535fd3a1902ff4e50578dc1c799600b009a2a0a23ac9e6f20e1b46c94516124",
   "functional_asset:css/pico.css": "55dae2996f4f2dc108cea27ffecd3ad8eaf0063fc96fa8d92306ed76a3ad33ec",
@@ -9,11 +9,9 @@
   "functional_asset:fonts/libertinusserif-bolditalic-webfont.woff2": "8bcd96d8a8527302bd08a356a72658eaf65265b38b9ad9361a7b877ca117eb02",
   "functional_asset:fonts/libertinusserif-italic-webfont.woff2": "1fe1034e17e2a9885c59a6345164db60bd24b4619dfb2257d70ec9b49a4455bd",
   "functional_asset:fonts/libertinusserif-regular-webfont.woff2": "5de622c3da64cc6ab2aefafaf62c4e18d1fa8315994eb39bdf361b7e384883bd",
-  "functional_asset:js/aes-256.py": "0bda932364a72e24905b4027e507958ce936e99bdfc9ba4f31895b8391bf4815",
-  "functional_asset:js/decrypt.js": "8e6c9b9ec3d4f2c717ea0d3683255ddf9c7abc0582f4cb9b3d7ecf3289635849",
-  "functional_asset:js/decrypt_1.js": "10e9d6a585e7be2b721f79052660862fc455ed30afb4fb6c1d0ddcdaef273069",
+  "functional_asset:js/decrypt.js": "e8ff4300c11be054f08dc449531c34a425dfd84a9dd3733d0d6279a7b0efcfbf",
   "functional_asset:js/minisearch.min.js": "0205a8f71c82f33f56cf33176744acaeefd5282a3c910a4bfb9cda9566eb40de",
-  "functional_asset:js/pico_search.js": "67212d23653e3225a503d0ca99fb98588e3710b7740eedd8fee78c31f41a04be",
+  "functional_asset:js/pico_search.js": "63d3a53ac528ee4cc3932fb3b8b938282ae76a6015aa55029fd6f3857d13127b",
   "functional_asset:katex/README.md": "e0c30b2885935ad51857b802585e05218482915539ac5bc507a4ca8ee73118b6",
   "functional_asset:katex/contrib/auto-render.js": "4cfb141d56e2c5644f5226e6b8709a3eadd39989fcec86a38c8150adb196d89b",
   "functional_asset:katex/contrib/auto-render.min.js": "e5372d199bcdae8b4de71d0f7ceba72a4ba12774a27c60a6f1f77d03b3228ee4",
@@ -98,11 +96,23 @@
   "functional_asset:katex/katex.min.js": "45fbe318fea878fdc0a111913dc1f87894b2c439360d0228c086ef313f213efc",
   "functional_asset:katex/katex.mjs": "82197f25be72b21d0bdd4c37458f510b652ab096ab74d12ca38d05aff3432721",
   "media:media/test_artemis_2.jpg": "f78ce6b60e9d016b48fda5a95c61dff93740c101362b6b541c867418fdd1af5f",
+  "meta:pandoc_markdown.md": {
+    "abstract": "",
+    "date_edtf": "2026-06-25T06:46:00",
+    "keywords": "pandoc markdown computer reference",
+    "title": "Pandoc Markdown"
+  },
+  "meta:secure/20261031165927-nested-directory-test.md": {
+    "abstract": "",
+    "date_edtf": "2026-10-31T16:59:27",
+    "keywords": "delete",
+    "title": "Nested Dir Test"
+  },
   "root_asset:apple-touch-icon.png": "f5e4cdace52bbe32d9c03854146b863d98bac7c6ae4548c5ee4001a361d4beef",
   "root_asset:favicon-96x96.png": "b90674f536d983b734e38f137349b3cdcba60be8e6fe3f0a7674aa74227ee8ff",
   "root_asset:favicon.ico": "05104d4cbd11f461ccbf5fbc296e4e097e8e9dac4f0e7240aad11a801d9f5eef",
   "root_asset:favicon.svg": "6c7c2b9eee6a5c8b1d8602b5752f701060a55e064e3420fa468f9ef0e714f593",
-  "root_asset:index.html": "e6c34169e89665a45f1163dedfbacfa177297340d9da419c99dcbba5f653dbfa",
+  "root_asset:index.html": "aec71891a63bc7ef079199cd38686a4b540c9c1e30d02c5ccdbddd2a74ea2fc8",
   "root_asset:site.webmanifest": "6a8e197741ee4782f86a5e78aaa7cf9e50b1f86194280e1350e9c2f769ca3674",
   "root_asset:web-app-manifest-192x192.png": "ba6a3b76f7669044b4ad98c1305fe70f40ec747b33ac61498732121ff4f22841",
   "root_asset:web-app-manifest-512x512.png": "fc69648e769c50f90f4c3bdff6bd633cd2bfc7444f272b44978ba7756bf21c3a"

@@ -1236,9 +1236,9 @@ def _cipher_block(state: list[int], round_keys: list[int]) -> bytes:
     out[10] = S_BOX[state[2]] ^ round_keys[rk_offset + 10]
     out[11] = S_BOX[state[7]] ^ round_keys[rk_offset + 11]
     out[12] = S_BOX[state[12]] ^ round_keys[rk_offset + 12]
-    out[13] = S_BOX[state[11]] ^ round_keys[rk_offset + 13]
+    out[13] = S_BOX[state[1]] ^ round_keys[rk_offset + 13]
     out[14] = S_BOX[state[6]] ^ round_keys[rk_offset + 14]
-    out[15] = S_BOX[state[1]] ^ round_keys[rk_offset + 15]
+    out[15] = S_BOX[state[11]] ^ round_keys[rk_offset + 15]
 
     return bytes(out)
 
@@ -2032,3 +2032,5 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = []
 ```
+
+## query
