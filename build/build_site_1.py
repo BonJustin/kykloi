@@ -1,9 +1,3 @@
-"""
-Deterministic Hash-Based Pandoc Static Site Generator (MiniSearch Offline).
-Archival, zero-external-dependency implementation.
-Cryptographic primitive: Self-contained Pure-Python AES-256-GCM & PBKDF2.
-"""
-
 import argparse
 import base64
 import concurrent.futures
@@ -21,10 +15,9 @@ from pathlib import Path
 from typing import Optional
 
 # ===========================================================================
-# 1. PURE-PYTHON AES-256-GCM ENGINE (NIST FIPS-197 & SP 800-38D)
+# 1. PURE-PYTHON AES-256-GCM ENGINE & NIST CAVP SELF-TEST
 # ===========================================================================
 
-# Precomputed S-Box & Round Constant Tables (FIPS-197)
 S_BOX = [
     0x63,
     0x7C,
@@ -292,7 +285,7 @@ def _xtime(a: int) -> int:
 
 
 def _key_expansion_256(key: bytes) -> list[int]:
-    """Expands a 32-byte key into a 60-word round key array."""
+    """Expands a 32-byte key into a 60-word round key list (FIPS-197)."""
     w = list(key)
     for i in range(8, 60):
         temp = w[(i - 1) * 4 : i * 4]
@@ -381,7 +374,7 @@ def _cipher_block(state: list[int], round_keys: list[int]) -> bytes:
 
 
 def _ghash_mult(x: int, y: int) -> int:
-    """Multiplication in GF(2^128) using reducing polynomial x^128 + x^7 + x^2 + x + 1."""
+    """Galois Field multiplication in GF(2^128) modulo x^128 + x^7 + x^2 + x + 1."""
     r = 0xE1000000000000000000000000000000
     z = 0
     v = x
@@ -399,7 +392,7 @@ def pure_aes_gcm_encrypt(
     key: bytes, iv: bytes, plaintext: bytes
 ) -> tuple[bytes, bytes]:
     """
-    Encrypts bytes via AES-256-GCM.
+    Encrypts bytes via AES-256-GCM according to NIST SP 800-38D.
     Returns: (ciphertext, 16-byte authentication tag).
     """
     if len(key) != 32:
@@ -409,14 +402,11 @@ def pure_aes_gcm_encrypt(
 
     round_keys = _key_expansion_256(key)
 
-    # Compute Hash Subkey H = AES_K(0^128)
     h_bytes = _cipher_block([0] * 16, round_keys)
     h = int.from_bytes(h_bytes, byteorder="big")
 
-    # Construct Initial Counter Block J0
     j0 = iv + b"\x00\x00\x00\x01"
 
-    # Encrypt Plaintext via GCTR mode
     ciphertext = bytearray()
     num_blocks = (len(plaintext) + 15) // 16
 
@@ -430,7 +420,6 @@ def pure_aes_gcm_encrypt(
 
     ciphertext_bytes = bytes(ciphertext)
 
-    # Compute Authentication Tag over Ciphertext via GHASH
     s = 0
     pad_len = (16 - (len(ciphertext_bytes) % 16)) % 16
     padded_ct = ciphertext_bytes + (b"\x00" * pad_len)
@@ -439,15 +428,35 @@ def pure_aes_gcm_encrypt(
         block_int = int.from_bytes(padded_ct[i : i + 16], byteorder="big")
         s = _ghash_mult(s ^ block_int, h)
 
-    # Length Block: len(AAD) [0 bits] || len(C) [bits]
     len_block = (0).to_bytes(8, "big") + (len(ciphertext_bytes) * 8).to_bytes(8, "big")
     s = _ghash_mult(s ^ int.from_bytes(len_block, "big"), h)
 
-    # Tag Mask T = GCTR_K(J0, S)
     tag_mask = _cipher_block(list(j0), round_keys)
     tag = bytes(a ^ b for a, b in zip(s.to_bytes(16, "big"), tag_mask))
 
     return ciphertext_bytes, tag
+
+
+def verify_cryptographic_engine():
+    """
+    Executes a NIST SP 800-38D Known-Answer Test (KAT) at startup.
+    Fails closed if arithmetic, S-box lookups, or GHASH diverge from spec.
+    """
+    kat_key = bytes.fromhex("00" * 32)
+    kat_iv = bytes.fromhex("00" * 12)
+    kat_pt = bytes.fromhex("00" * 16)
+
+    expected_ct = bytes.fromhex("cea7403d4d606b6e074ec5d3baf39d18")
+    expected_tag = bytes.fromhex("d0d1c8a799996bf0265b98b5d48ab919")
+
+    ct, tag = pure_aes_gcm_encrypt(kat_key, kat_iv, kat_pt)
+
+    if ct != expected_ct or tag != expected_tag:
+        raise RuntimeError(
+            "CRITICAL: Pure-Python AES-GCM engine failed NIST KAT verification.\n"
+            f"Expected CT:  {expected_ct.hex()}\nActual CT:    {ct.hex()}\n"
+            f"Expected Tag: {expected_tag.hex()}\nActual Tag:   {tag.hex()}"
+        )
 
 
 # ===========================================================================
@@ -686,9 +695,7 @@ def write_minisearch_index(records: list[dict], out_path: Path, dry_run: bool):
 # ===========================================================================
 
 
-def compile_markdown_worker(
-    task: CompileTask,
-) -> tuple[Path, bool, Optional[str]]:
+def compile_markdown_worker(task: CompileTask) -> tuple[Path, bool, Optional[str]]:
     """Compiles Markdown documents with conditional WebCrypto envelope wrapping."""
     if task.dry_run:
         return task.md_path, True, None
@@ -733,7 +740,6 @@ def compile_markdown_worker(
             "Cannot compile secure file: No passphrase provided.",
         )
 
-    # 1. Compile document body in isolation with embedded media data-URIs
     body_cmd = [
         "pandoc",
         str(task.md_path),
@@ -751,13 +757,11 @@ def compile_markdown_worker(
     if body_result.returncode != 0:
         return task.md_path, False, body_result.stderr.strip()
 
-    # 2. Encrypt the compiled HTML body in Python memory via pure-Python AES-GCM
     try:
         ciphertext_b64 = encrypt_payload(body_result.stdout, task.passphrase)
     except Exception as e:
         return task.md_path, False, f"Encryption failed: {e}"
 
-    # 3. Compile standalone outer envelope
     envelope_cmd = [
         "pandoc",
         str(task.md_path),
@@ -775,7 +779,6 @@ def compile_markdown_worker(
     if envelope_result.returncode != 0:
         return task.md_path, False, envelope_result.stderr.strip()
 
-    # 4. Stream ciphertext directly into output file
     try:
         final_html = envelope_result.stdout.replace(
             "__KYKLOI_ENCRYPTED_PAYLOAD__", ciphertext_b64
@@ -829,7 +832,12 @@ def main():
         format="%(levelname)s: %(message)s",
     )
 
-    # 1. Critical Dependency Verification
+    try:
+        verify_cryptographic_engine()
+    except RuntimeError as err:
+        logging.critical(str(err))
+        sys.exit(1)
+
     dependencies = [
         (SRC, "Source directory"),
         (DEFAULTS_YAML, "Pandoc defaults configuration"),
@@ -841,7 +849,6 @@ def main():
             logging.error("Configuration error: %s missing at %s", desc, path)
             sys.exit(1)
 
-    # 2. Clean Execution Handling
     if args.clean:
         if DST.exists():
             logging.info("Flag --clean active: Purging %s", DST)
@@ -854,7 +861,6 @@ def main():
 
     DST.mkdir(parents=True, exist_ok=True)
 
-    # 3. Hash Manifest & Global Invalidation
     old_manifest = load_manifest(MANIFEST_FILE)
     new_manifest: dict[str, str] = {}
 
@@ -873,7 +879,6 @@ def main():
     compile_tasks: list[CompileTask] = []
     search_records: list[dict] = []
 
-    # 4. Inventory, Security Scoping & Key Acquisition
     md_files = sorted(SRC.rglob("*.md"))
     has_secure_files = any("secure" in p.parts for p in md_files)
 
@@ -884,7 +889,6 @@ def main():
             logging.error("Encryption passphrase cannot be empty.")
             sys.exit(1)
 
-    # 5. Markdown Processing
     for idx, md in enumerate(md_files):
         rel = md.relative_to(SRC)
         manifest_key = f"content:{rel.as_posix()}"
@@ -935,10 +939,8 @@ def main():
 
     expected_outputs.add(SEARCH_INDEX_FILE.resolve())
 
-    # 6. Inventory & Sync Assets
     asset_sync_jobs: list[tuple[Path, Path]] = []
 
-    # A. Content media assets (Skip any file under /secure/)
     for p in SRC.rglob("*"):
         if (
             p.is_file()
@@ -954,7 +956,6 @@ def main():
             if not target.exists() or old_manifest.get(manifest_key) != h:
                 asset_sync_jobs.append((p, target))
 
-    # B. Functional assets (build/assets -> dist/assets)
     assets_src = APP_DIR / "assets"
     if assets_src.exists():
         for p in assets_src.rglob("*"):
@@ -969,7 +970,6 @@ def main():
                 if not target.exists() or old_manifest.get(manifest_key) != h:
                     asset_sync_jobs.append((p, target))
 
-    # C. Root assets (build/root -> dist)
     root_src = APP_DIR / "root"
     if root_src.exists():
         for p in root_src.rglob("*"):
@@ -982,7 +982,6 @@ def main():
                 if not target.exists() or old_manifest.get(manifest_key) != h:
                     asset_sync_jobs.append((p, target))
 
-    # 7. Execute Orphan Pruning
     orphans_pruned = prune_orphans(
         dst_dir=DST,
         expected_files=expected_outputs,
@@ -991,7 +990,6 @@ def main():
     if orphans_pruned:
         logging.info("Pruned %d orphaned artifact(s).", orphans_pruned)
 
-    # 8. Execute Asset Sync
     synced_assets = 0
     for src_file, target_file in asset_sync_jobs:
         if not args.dry_run:
@@ -1001,7 +999,6 @@ def main():
     if synced_assets:
         logging.info("Synced %d modified/new asset(s).", synced_assets)
 
-    # 9. Execute Concurrent Markdown Compilation
     total_md = len(md_files)
     to_compile = len(compile_tasks)
     failed = 0
@@ -1027,9 +1024,7 @@ def main():
                     if not success:
                         failed += 1
                         logging.error(
-                            "Pandoc compilation error on %s:\n%s",
-                            md_path.name,
-                            err,
+                            "Pandoc compilation error on %s:\n%s", md_path.name, err
                         )
                     elif args.verbose:
                         logging.info("Built: %s", md_path.name)
@@ -1041,13 +1036,11 @@ def main():
     else:
         logging.info("All %d documents are verified current.", total_md)
 
-    # 10. Update Search Index
     if (
         to_compile > 0 or orphans_pruned > 0 or not SEARCH_INDEX_FILE.exists()
     ) and failed == 0:
         write_minisearch_index(search_records, SEARCH_INDEX_FILE, dry_run=args.dry_run)
 
-    # 11. Update Manifest Post-Build
     if failed == 0:
         save_manifest(MANIFEST_FILE, new_manifest, args.dry_run)
     else:

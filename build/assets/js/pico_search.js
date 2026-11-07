@@ -5,11 +5,9 @@ document.addEventListener("DOMContentLoaded", () => {
   const searchInput = document.getElementById("search-input");
   const searchResults = document.getElementById("search-results");
 
-  // Inline search elements (e.g., on index.html)
   const bodySearchInput = document.getElementById("body-search-input");
   const bodySearchResults = document.getElementById("body-search-results");
 
-  // Base relative offset for nested files (canonical: "" or "../" or "../../")
   const rawRoot = document.body.dataset.relativeRoot || "";
   const relativeRoot = rawRoot && !rawRoot.endsWith("/") ? `${rawRoot}/` : rawRoot;
 
@@ -105,7 +103,6 @@ document.addEventListener("DOMContentLoaded", () => {
     resultsContainer.scrollTop = 0;
   }
 
-  // --- Modal Search Handlers ---
   if (openSearchBtn && searchModal) {
     openSearchBtn.addEventListener("click", (e) => {
       e.preventDefault();
@@ -125,7 +122,6 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // --- Inline Search Handlers ---
   if (bodySearchInput && bodySearchResults) {
     bodySearchInput.addEventListener("input", (e) => {
       performSearch(e.target.value, bodySearchResults);

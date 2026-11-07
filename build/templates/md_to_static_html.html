@@ -32,7 +32,6 @@
 
         <title>$if(title-prefix)$$title-prefix$ – $endif$$pagetitle$</title>
 
-        <!-- Portable Asset Resolution using direct prefix identity -->
         <link
             rel="icon"
             type="image/x-icon"
@@ -59,15 +58,12 @@
         <link rel="stylesheet" href="$css$" />
         $endfor$
 
-        <!-- Offline Search Dependencies: Zero Fetch / file:// Safe -->
         <script src="$relative_root$assets/js/minisearch.min.js" defer></script>
         <script src="$relative_root$search_index.js" defer></script>
         <script src="$relative_root$assets/js/pico_search.js" defer></script>
 
         $if(encrypted)$
-        <!-- Client-Side WebCrypto Subsystem -->
         <script src="$relative_root$assets/js/decrypt.js" defer></script>
-        <!-- Katex Resources -->
         <link rel="stylesheet" href="$relative_root$assets/katex/katex.min.css" />
         <script src="$relative_root$assets/katex/katex.min.js" defer></script>
         $endif$
@@ -143,7 +139,6 @@
         <main>
             <div class="container">
                 $if(encrypted)$
-                <!-- Secure Locked Container -->
                 <div id="kykloi-decrypted-content" style="display: none;"></div>
 
                 <div id="kykloi-lock-container">
@@ -173,12 +168,10 @@
                     </article>
                 </div>
 
-                <!-- Ciphertext is injected directly into this script block -->
                 <script id="kykloi-encrypted-payload" type="application/json">
 __KYKLOI_ENCRYPTED_PAYLOAD__
                 </script>
                 $else$
-                <!-- Standard Cleartext Body: Pure Markdown Output Only -->
                 $if(toc)$
                 <nav id="$idprefix$TOC" role="doc-toc">
                     $if(toc-title)$

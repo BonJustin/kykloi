@@ -6,7 +6,6 @@ import hashlib
 import json
 import logging
 import os
-import re
 import shutil
 import subprocess
 import sys
@@ -18,7 +17,6 @@ from typing import Optional
 # 1. PURE-PYTHON AES-256-GCM ENGINE & NIST CAVP SELF-TEST
 # ===========================================================================
 
-# Precomputed S-Box & Round Constant Tables (FIPS-197)
 S_BOX = [
     0x63,
     0x7C,
@@ -367,9 +365,9 @@ def _cipher_block(state: list[int], round_keys: list[int]) -> bytes:
     out[10] = S_BOX[state[2]] ^ round_keys[rk_offset + 10]
     out[11] = S_BOX[state[7]] ^ round_keys[rk_offset + 11]
     out[12] = S_BOX[state[12]] ^ round_keys[rk_offset + 12]
-    out[13] = S_BOX[state[1]] ^ round_keys[rk_offset + 13]
+    out[13] = S_BOX[state[11]] ^ round_keys[rk_offset + 13]
     out[14] = S_BOX[state[6]] ^ round_keys[rk_offset + 14]
-    out[15] = S_BOX[state[11]] ^ round_keys[rk_offset + 15]
+    out[15] = S_BOX[state[1]] ^ round_keys[rk_offset + 15]
 
     return bytes(out)
 
@@ -403,14 +401,11 @@ def pure_aes_gcm_encrypt(
 
     round_keys = _key_expansion_256(key)
 
-    # 1. Compute Hash Subkey H = AES_K(0^128)
     h_bytes = _cipher_block([0] * 16, round_keys)
     h = int.from_bytes(h_bytes, byteorder="big")
 
-    # 2. Construct Initial Counter Block J0
     j0 = iv + b"\x00\x00\x00\x01"
 
-    # 3. Encrypt Plaintext via GCTR mode (counter starts at inc32(J0) -> 2)
     ciphertext = bytearray()
     num_blocks = (len(plaintext) + 15) // 16
 
@@ -424,7 +419,6 @@ def pure_aes_gcm_encrypt(
 
     ciphertext_bytes = bytes(ciphertext)
 
-    # 4. Compute Authentication Tag over Ciphertext via GHASH
     s = 0
     pad_len = (16 - (len(ciphertext_bytes) % 16)) % 16
     padded_ct = ciphertext_bytes + (b"\x00" * pad_len)
@@ -433,11 +427,9 @@ def pure_aes_gcm_encrypt(
         block_int = int.from_bytes(padded_ct[i : i + 16], byteorder="big")
         s = _ghash_mult(s ^ block_int, h)
 
-    # Length Block: len(AAD) [0 bits] || len(C) [bits]
     len_block = (0).to_bytes(8, "big") + (len(ciphertext_bytes) * 8).to_bytes(8, "big")
     s = _ghash_mult(s ^ int.from_bytes(len_block, "big"), h)
 
-    # 5. Tag Mask T = GCTR_K(J0, S)
     tag_mask = _cipher_block(list(j0), round_keys)
     tag = bytes(a ^ b for a, b in zip(s.to_bytes(16, "big"), tag_mask))
 
@@ -453,7 +445,6 @@ def verify_cryptographic_engine():
     kat_iv = bytes.fromhex("00" * 12)
     kat_pt = bytes.fromhex("00" * 16)
 
-    # NIST SP 800-38D Test Case 14
     expected_ct = bytes.fromhex("cea7403d4d606b6e074ec5d3baf39d18")
     expected_tag = bytes.fromhex("d0d1c8a799996bf0265b98b5d48ab919")
 
@@ -479,6 +470,7 @@ try:
 
     DEFAULTS_YAML = APP_DIR / "pandoc_md_to_static_html.yaml"
     DEFAULT_TEMPLATE = APP_DIR / "templates" / "md_to_static_html.html"
+    METADATA_TEMPLATE = APP_DIR / "templates" / "metadata.json"
     LUA_FILTER = APP_DIR / "translate_links.lua"
     MANIFEST_FILE = APP_DIR / ".build_manifest.json"
     SEARCH_INDEX_FILE = DST / "search_index.js"
@@ -547,7 +539,6 @@ def parse_args():
 
 
 def compute_file_hash(path: Path) -> str:
-    """Computes a SHA-256 digest in 64 KiB chunks for flat memory allocation."""
     hasher = hashlib.sha256()
     try:
         with open(path, "rb") as f:
@@ -560,9 +551,13 @@ def compute_file_hash(path: Path) -> str:
 
 
 def compute_global_dependencies_hash() -> str:
-    """Computes a collective digest of pandoc defaults, lua filters, and template."""
     hasher = hashlib.sha256()
-    tracked_files: list[Path] = [DEFAULTS_YAML, LUA_FILTER, DEFAULT_TEMPLATE]
+    tracked_files: list[Path] = [
+        DEFAULTS_YAML,
+        LUA_FILTER,
+        DEFAULT_TEMPLATE,
+        METADATA_TEMPLATE,
+    ]
 
     for f in tracked_files:
         if f.is_file():
@@ -573,7 +568,6 @@ def compute_global_dependencies_hash() -> str:
 
 
 def derive_key(passphrase: str, salt: bytes) -> bytes:
-    """Derives a 256-bit key via standard library PBKDF2-HMAC-SHA256 (600,000 rounds)."""
     return hashlib.pbkdf2_hmac(
         "sha256",
         passphrase.encode("utf-8"),
@@ -584,10 +578,6 @@ def derive_key(passphrase: str, salt: bytes) -> bytes:
 
 
 def encrypt_payload(html_content: str, passphrase: str) -> str:
-    """
-    Encrypts HTML content using pure-Python AES-256-GCM.
-    Envelope: Base64(Salt [16B] + IV [12B] + Ciphertext [NB] + Tag [16B])
-    """
     salt = os.urandom(16)
     iv = os.urandom(12)
     key = derive_key(passphrase, salt)
@@ -598,7 +588,7 @@ def encrypt_payload(html_content: str, passphrase: str) -> str:
     return base64.b64encode(envelope).decode("ascii")
 
 
-def load_manifest(manifest_path: Path) -> dict[str, str]:
+def load_manifest(manifest_path: Path) -> dict:
     if manifest_path.exists():
         try:
             with open(manifest_path, "r", encoding="utf-8") as f:
@@ -612,7 +602,7 @@ def load_manifest(manifest_path: Path) -> dict[str, str]:
     return {}
 
 
-def save_manifest(manifest_path: Path, manifest: dict[str, str], dry_run: bool):
+def save_manifest(manifest_path: Path, manifest: dict, dry_run: bool):
     if dry_run:
         return
     try:
@@ -628,7 +618,18 @@ def save_manifest(manifest_path: Path, manifest: dict[str, str], dry_run: bool):
 # ===========================================================================
 
 
-def extract_metadata_from_markdown(md_path: Path) -> dict[str, str]:
+def extract_metadata_via_pandoc(
+    md_path: Path, template_path: Path
+) -> tuple[Path, dict[str, str]]:
+    cmd = [
+        "pandoc",
+        str(md_path),
+        "--template",
+        str(template_path),
+        "-t",
+        "plain",
+    ]
+
     meta = {
         "title": "",
         "keywords": "",
@@ -636,54 +637,44 @@ def extract_metadata_from_markdown(md_path: Path) -> dict[str, str]:
         "abstract": "",
     }
 
-    try:
-        with open(md_path, "r", encoding="utf-8") as f:
-            content = f.read()
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        logging.warning(
+            "Pandoc metadata extraction failed for %s: %s",
+            md_path.name,
+            result.stderr.strip(),
+        )
+    else:
+        try:
+            raw_meta = json.loads(result.stdout.strip())
+            if isinstance(raw_meta, dict):
+                title_val = raw_meta.get("title", "")
+                meta["title"] = str(title_val).strip()
 
-        match = re.match(r"^---\s*\n(.*?)\n---", content, re.DOTALL)
-        if match:
-            fm_text = match.group(1)
+                date_val = raw_meta.get("date_edtf", "")
+                meta["date_edtf"] = str(date_val).strip()
 
-            t_match = re.search(
-                r"^title:\s*[\"']?(.*?)[\"']?\s*$", fm_text, re.MULTILINE
+                keywords_val = raw_meta.get("keywords", "")
+                if isinstance(keywords_val, list):
+                    meta["keywords"] = " ".join(str(k).strip() for k in keywords_val)
+                elif isinstance(keywords_val, str):
+                    meta["keywords"] = keywords_val.strip()
+
+                abstract_val = raw_meta.get("abstract", "")
+                if isinstance(abstract_val, str):
+                    meta["abstract"] = " ".join(abstract_val.split())
+
+        except json.JSONDecodeError as err:
+            logging.warning(
+                "Malformed JSON from Pandoc metadata extraction on %s: %s",
+                md_path.name,
+                err,
             )
-            if t_match:
-                meta["title"] = t_match.group(1).strip()
-
-            d_match = re.search(
-                r"^date_edtf:\s*[\"']?(.*?)[\"']?\s*$", fm_text, re.MULTILINE
-            )
-            if d_match:
-                meta["date_edtf"] = d_match.group(1).strip()
-
-            k_match = re.search(
-                r"^keywords:\s*(?:\[(.*?)\]|(.*))", fm_text, re.MULTILINE
-            )
-            if k_match:
-                raw_keywords = k_match.group(1) or k_match.group(2) or ""
-                meta["keywords"] = " ".join(
-                    re.sub(r"[\"']", "", part).strip()
-                    for part in raw_keywords.split(",")
-                )
-
-            a_match = re.search(
-                r"^abstract:\s*(?:[|>]-?\s*\n)?((?:[ \t]+.*(?:\n|$))+|.*$)",
-                fm_text,
-                re.MULTILINE,
-            )
-            if a_match:
-                raw_abstract = a_match.group(1)
-                meta["abstract"] = " ".join(
-                    line.strip() for line in raw_abstract.splitlines() if line.strip()
-                )
-
-    except Exception as e:
-        logging.warning("Error reading frontmatter from %s: %s", md_path, e)
 
     if not meta["title"]:
         meta["title"] = md_path.stem.replace("-", " ").replace("_", " ").title()
 
-    return meta
+    return md_path, meta
 
 
 def write_minisearch_index(records: list[dict], out_path: Path, dry_run: bool):
@@ -704,7 +695,6 @@ def write_minisearch_index(records: list[dict], out_path: Path, dry_run: bool):
 
 
 def compile_markdown_worker(task: CompileTask) -> tuple[Path, bool, Optional[str]]:
-    """Compiles Markdown documents with conditional WebCrypto envelope wrapping."""
     if task.dry_run:
         return task.md_path, True, None
 
@@ -748,7 +738,6 @@ def compile_markdown_worker(task: CompileTask) -> tuple[Path, bool, Optional[str
             "Cannot compile secure file: No passphrase provided.",
         )
 
-    # 1. Compile document body in isolation with embedded media data-URIs
     body_cmd = [
         "pandoc",
         str(task.md_path),
@@ -766,13 +755,11 @@ def compile_markdown_worker(task: CompileTask) -> tuple[Path, bool, Optional[str
     if body_result.returncode != 0:
         return task.md_path, False, body_result.stderr.strip()
 
-    # 2. Encrypt the compiled HTML body in Python memory via pure-Python AES-GCM
     try:
         ciphertext_b64 = encrypt_payload(body_result.stdout, task.passphrase)
     except Exception as e:
         return task.md_path, False, f"Encryption failed: {e}"
 
-    # 3. Compile standalone outer envelope
     envelope_cmd = [
         "pandoc",
         str(task.md_path),
@@ -790,7 +777,6 @@ def compile_markdown_worker(task: CompileTask) -> tuple[Path, bool, Optional[str
     if envelope_result.returncode != 0:
         return task.md_path, False, envelope_result.stderr.strip()
 
-    # 4. Stream ciphertext directly into output file
     try:
         final_html = envelope_result.stdout.replace(
             "__KYKLOI_ENCRYPTED_PAYLOAD__", ciphertext_b64
@@ -844,18 +830,17 @@ def main():
         format="%(levelname)s: %(message)s",
     )
 
-    # 0. Cryptographic Integrity Self-Test (Fail-Closed)
     try:
         verify_cryptographic_engine()
     except RuntimeError as err:
         logging.critical(str(err))
         sys.exit(1)
 
-    # 1. Critical Dependency Verification
     dependencies = [
         (SRC, "Source directory"),
         (DEFAULTS_YAML, "Pandoc defaults configuration"),
         (DEFAULT_TEMPLATE, "Content HTML template"),
+        (METADATA_TEMPLATE, "Metadata JSON template"),
         (LUA_FILTER, "Lua link translation filter"),
     ]
     for path, desc in dependencies:
@@ -863,7 +848,6 @@ def main():
             logging.error("Configuration error: %s missing at %s", desc, path)
             sys.exit(1)
 
-    # 2. Clean Execution Handling
     if args.clean:
         if DST.exists():
             logging.info("Flag --clean active: Purging %s", DST)
@@ -876,9 +860,8 @@ def main():
 
     DST.mkdir(parents=True, exist_ok=True)
 
-    # 3. Hash Manifest & Global Invalidation
     old_manifest = load_manifest(MANIFEST_FILE)
-    new_manifest: dict[str, str] = {}
+    new_manifest: dict = {}
 
     current_global_hash = compute_global_dependencies_hash()
     new_manifest["__GLOBAL_DEPENDENCIES__"] = current_global_hash
@@ -893,9 +876,7 @@ def main():
 
     expected_outputs: set[Path] = set()
     compile_tasks: list[CompileTask] = []
-    search_records: list[dict] = []
 
-    # 4. Inventory, Security Scoping & Key Acquisition
     md_files = sorted(SRC.rglob("*.md"))
     has_secure_files = any("secure" in p.parts for p in md_files)
 
@@ -906,10 +887,13 @@ def main():
             logging.error("Encryption passphrase cannot be empty.")
             sys.exit(1)
 
-    # 5. Markdown Processing
-    for idx, md in enumerate(md_files):
+    metadata_extraction_jobs: list[Path] = []
+    file_metadata_map: dict[Path, dict[str, str]] = {}
+
+    for md in md_files:
         rel = md.relative_to(SRC)
         manifest_key = f"content:{rel.as_posix()}"
+        meta_cache_key = f"meta:{rel.as_posix()}"
         out = DST / rel.with_suffix(".html")
         expected_outputs.add(out.resolve())
 
@@ -926,18 +910,12 @@ def main():
             or old_manifest.get(manifest_key) != current_md_hash
         )
 
-        meta = extract_metadata_from_markdown(md)
-        clean_url = rel.with_suffix(".html").as_posix().lstrip("/")
-        search_records.append(
-            {
-                "id": idx + 1,
-                "title": meta["title"],
-                "keywords": meta["keywords"],
-                "date_edtf": meta["date_edtf"],
-                "abstract": meta["abstract"],
-                "url": clean_url,
-            }
-        )
+        cached_meta = old_manifest.get(meta_cache_key)
+        if not is_dirty and isinstance(cached_meta, dict):
+            file_metadata_map[md] = cached_meta
+            new_manifest[meta_cache_key] = cached_meta
+        else:
+            metadata_extraction_jobs.append(md)
 
         if is_dirty:
             compile_tasks.append(
@@ -955,12 +933,46 @@ def main():
                 )
             )
 
+    if metadata_extraction_jobs:
+        logging.info(
+            "Extracting metadata from %d file(s) via Pandoc CLI...",
+            len(metadata_extraction_jobs),
+        )
+        with concurrent.futures.ThreadPoolExecutor(
+            max_workers=args.workers
+        ) as meta_executor:
+            futures = [
+                meta_executor.submit(
+                    extract_metadata_via_pandoc, md_file, METADATA_TEMPLATE
+                )
+                for md_file in metadata_extraction_jobs
+            ]
+            for future in concurrent.futures.as_completed(futures):
+                md_path, extracted_meta = future.result()
+                file_metadata_map[md_path] = extracted_meta
+                rel = md_path.relative_to(SRC)
+                new_manifest[f"meta:{rel.as_posix()}"] = extracted_meta
+
+    search_records: list[dict] = []
+    for idx, md in enumerate(md_files):
+        rel = md.relative_to(SRC)
+        clean_url = rel.with_suffix(".html").as_posix().lstrip("/")
+        meta = file_metadata_map[md]
+        search_records.append(
+            {
+                "id": idx + 1,
+                "title": meta["title"],
+                "keywords": meta["keywords"],
+                "date_edtf": meta["date_edtf"],
+                "abstract": meta["abstract"],
+                "url": clean_url,
+            }
+        )
+
     expected_outputs.add(SEARCH_INDEX_FILE.resolve())
 
-    # 6. Inventory & Sync Assets
     asset_sync_jobs: list[tuple[Path, Path]] = []
 
-    # A. Content media assets (Skip any file under /secure/)
     for p in SRC.rglob("*"):
         if (
             p.is_file()
@@ -976,7 +988,6 @@ def main():
             if not target.exists() or old_manifest.get(manifest_key) != h:
                 asset_sync_jobs.append((p, target))
 
-    # B. Functional assets (build/assets -> dist/assets)
     assets_src = APP_DIR / "assets"
     if assets_src.exists():
         for p in assets_src.rglob("*"):
@@ -991,7 +1002,6 @@ def main():
                 if not target.exists() or old_manifest.get(manifest_key) != h:
                     asset_sync_jobs.append((p, target))
 
-    # C. Root assets (build/root -> dist)
     root_src = APP_DIR / "root"
     if root_src.exists():
         for p in root_src.rglob("*"):
@@ -1004,7 +1014,6 @@ def main():
                 if not target.exists() or old_manifest.get(manifest_key) != h:
                     asset_sync_jobs.append((p, target))
 
-    # 7. Execute Orphan Pruning
     orphans_pruned = prune_orphans(
         dst_dir=DST,
         expected_files=expected_outputs,
@@ -1013,7 +1022,6 @@ def main():
     if orphans_pruned:
         logging.info("Pruned %d orphaned artifact(s).", orphans_pruned)
 
-    # 8. Execute Asset Sync
     synced_assets = 0
     for src_file, target_file in asset_sync_jobs:
         if not args.dry_run:
@@ -1023,7 +1031,6 @@ def main():
     if synced_assets:
         logging.info("Synced %d modified/new asset(s).", synced_assets)
 
-    # 9. Execute Concurrent Markdown Compilation
     total_md = len(md_files)
     to_compile = len(compile_tasks)
     failed = 0
@@ -1061,13 +1068,11 @@ def main():
     else:
         logging.info("All %d documents are verified current.", total_md)
 
-    # 10. Update Search Index
     if (
         to_compile > 0 or orphans_pruned > 0 or not SEARCH_INDEX_FILE.exists()
     ) and failed == 0:
         write_minisearch_index(search_records, SEARCH_INDEX_FILE, dry_run=args.dry_run)
 
-    # 11. Update Manifest Post-Build
     if failed == 0:
         save_manifest(MANIFEST_FILE, new_manifest, args.dry_run)
     else:
