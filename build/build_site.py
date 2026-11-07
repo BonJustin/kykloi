@@ -1,9 +1,3 @@
-"""
-Deterministic Hash-Based Pandoc Static Site Generator (MiniSearch Offline).
-Archival, zero-external-dependency implementation.
-Cryptographic primitive: Self-contained Pure-Python AES-256-GCM & PBKDF2.
-"""
-
 import argparse
 import base64
 import concurrent.futures
@@ -21,7 +15,7 @@ from pathlib import Path
 from typing import Optional
 
 # ===========================================================================
-# 1. PURE-PYTHON AES-256-GCM ENGINE (NIST FIPS-197 & SP 800-38D)
+# 1. PURE-PYTHON AES-256-GCM ENGINE & NIST CAVP SELF-TEST
 # ===========================================================================
 
 # Precomputed S-Box & Round Constant Tables (FIPS-197)
@@ -292,7 +286,7 @@ def _xtime(a: int) -> int:
 
 
 def _key_expansion_256(key: bytes) -> list[int]:
-    """Expands a 32-byte key into a 60-word round key array."""
+    """Expands a 32-byte key into a 60-word round key list (FIPS-197)."""
     w = list(key)
     for i in range(8, 60):
         temp = w[(i - 1) * 4 : i * 4]
@@ -381,7 +375,7 @@ def _cipher_block(state: list[int], round_keys: list[int]) -> bytes:
 
 
 def _ghash_mult(x: int, y: int) -> int:
-    """Multiplication in GF(2^128) using reducing polynomial x^128 + x^7 + x^2 + x + 1."""
+    """Galois Field multiplication in GF(2^128) modulo x^128 + x^7 + x^2 + x + 1."""
     r = 0xE1000000000000000000000000000000
     z = 0
     v = x
@@ -399,7 +393,7 @@ def pure_aes_gcm_encrypt(
     key: bytes, iv: bytes, plaintext: bytes
 ) -> tuple[bytes, bytes]:
     """
-    Encrypts bytes via AES-256-GCM.
+    Encrypts bytes via AES-256-GCM according to NIST SP 800-38D.
     Returns: (ciphertext, 16-byte authentication tag).
     """
     if len(key) != 32:
@@ -409,14 +403,14 @@ def pure_aes_gcm_encrypt(
 
     round_keys = _key_expansion_256(key)
 
-    # Compute Hash Subkey H = AES_K(0^128)
+    # 1. Compute Hash Subkey H = AES_K(0^128)
     h_bytes = _cipher_block([0] * 16, round_keys)
     h = int.from_bytes(h_bytes, byteorder="big")
 
-    # Construct Initial Counter Block J0
+    # 2. Construct Initial Counter Block J0
     j0 = iv + b"\x00\x00\x00\x01"
 
-    # Encrypt Plaintext via GCTR mode
+    # 3. Encrypt Plaintext via GCTR mode (counter starts at inc32(J0) -> 2)
     ciphertext = bytearray()
     num_blocks = (len(plaintext) + 15) // 16
 
@@ -430,7 +424,7 @@ def pure_aes_gcm_encrypt(
 
     ciphertext_bytes = bytes(ciphertext)
 
-    # Compute Authentication Tag over Ciphertext via GHASH
+    # 4. Compute Authentication Tag over Ciphertext via GHASH
     s = 0
     pad_len = (16 - (len(ciphertext_bytes) % 16)) % 16
     padded_ct = ciphertext_bytes + (b"\x00" * pad_len)
@@ -443,11 +437,34 @@ def pure_aes_gcm_encrypt(
     len_block = (0).to_bytes(8, "big") + (len(ciphertext_bytes) * 8).to_bytes(8, "big")
     s = _ghash_mult(s ^ int.from_bytes(len_block, "big"), h)
 
-    # Tag Mask T = GCTR_K(J0, S)
+    # 5. Tag Mask T = GCTR_K(J0, S)
     tag_mask = _cipher_block(list(j0), round_keys)
     tag = bytes(a ^ b for a, b in zip(s.to_bytes(16, "big"), tag_mask))
 
     return ciphertext_bytes, tag
+
+
+def verify_cryptographic_engine():
+    """
+    Executes a NIST SP 800-38D Known-Answer Test (KAT) at startup.
+    Fails closed if arithmetic, S-box lookups, or GHASH diverge from spec.
+    """
+    kat_key = bytes.fromhex("00" * 32)
+    kat_iv = bytes.fromhex("00" * 12)
+    kat_pt = bytes.fromhex("00" * 16)
+
+    # NIST SP 800-38D Test Case 14
+    expected_ct = bytes.fromhex("cea7403d4d606b6e074ec5d3baf39d18")
+    expected_tag = bytes.fromhex("d0d1c8a799996bf0265b98b5d48ab919")
+
+    ct, tag = pure_aes_gcm_encrypt(kat_key, kat_iv, kat_pt)
+
+    if ct != expected_ct or tag != expected_tag:
+        raise RuntimeError(
+            "CRITICAL: Pure-Python AES-GCM engine failed NIST KAT verification.\n"
+            f"Expected CT:  {expected_ct.hex()}\nActual CT:    {ct.hex()}\n"
+            f"Expected Tag: {expected_tag.hex()}\nActual Tag:   {tag.hex()}"
+        )
 
 
 # ===========================================================================
@@ -686,9 +703,7 @@ def write_minisearch_index(records: list[dict], out_path: Path, dry_run: bool):
 # ===========================================================================
 
 
-def compile_markdown_worker(
-    task: CompileTask,
-) -> tuple[Path, bool, Optional[str]]:
+def compile_markdown_worker(task: CompileTask) -> tuple[Path, bool, Optional[str]]:
     """Compiles Markdown documents with conditional WebCrypto envelope wrapping."""
     if task.dry_run:
         return task.md_path, True, None
@@ -828,6 +843,13 @@ def main():
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(levelname)s: %(message)s",
     )
+
+    # 0. Cryptographic Integrity Self-Test (Fail-Closed)
+    try:
+        verify_cryptographic_engine()
+    except RuntimeError as err:
+        logging.critical(str(err))
+        sys.exit(1)
 
     # 1. Critical Dependency Verification
     dependencies = [
@@ -1027,9 +1049,7 @@ def main():
                     if not success:
                         failed += 1
                         logging.error(
-                            "Pandoc compilation error on %s:\n%s",
-                            md_path.name,
-                            err,
+                            "Pandoc compilation error on %s:\n%s", md_path.name, err
                         )
                     elif args.verbose:
                         logging.info("Built: %s", md_path.name)
