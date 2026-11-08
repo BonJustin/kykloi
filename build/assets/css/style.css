@@ -127,7 +127,6 @@ main p > img {
     box-sizing: border-box;
 }
 
-/*
 math[display="block"] {
     font-size: 1.15em;
     margin-top: var(--pico-typography-spacing-vertical);
@@ -135,14 +134,15 @@ math[display="block"] {
     overflow-x: auto;
     display: block;
 }
-*/
 
+/*
 .katex-display {
     font-size: 1.15em;
     margin-top: var(--pico-typography-spacing-vertical);
     margin-bottom: var(--pico-typography-spacing-vertical);
     overflow-x: auto;
 }
+*/
 
 .brand_text {
     color: var(--pico-primary);
