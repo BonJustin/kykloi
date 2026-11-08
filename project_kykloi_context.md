@@ -406,7 +406,7 @@ math[display="block"] {
 */
 
 .katex-display {
-    font-size: 1.15em;
+    /* font-size: 1.15em; */
     margin-top: var(--pico-typography-spacing-vertical);
     margin-bottom: var(--pico-typography-spacing-vertical);
     overflow-x: auto;
@@ -2130,4 +2130,4 @@ dependencies = []
 
 ## query
 
-there are dead css selectors in my css. help me target them for deletion.
+analyse the project presented and assess for potential points of failure for investigation or areas of possible improvement in performance or stability.
