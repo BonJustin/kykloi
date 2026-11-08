@@ -42,50 +42,6 @@
     --pico-font-family: var(--pico-font-family-serif);
 }
 
-#title-block-header {
-    text-align: center;
-}
-
-#title-block-header .title {
-    color: var(--pico-primary);
-    margin-bottom: calc(var(--pico-typography-spacing-vertical) * 0.5);
-}
-
-#title-block-header .subtitle {
-    color: var(--pico-h2-color);
-    font-size: 1.25em;
-    font-weight: 500;
-    margin-bottom: var(--pico-typography-spacing-vertical);
-}
-
-#title-block-header .author,
-#title-block-header .date {
-    color: var(--pico-muted-color);
-    font-size: 0.875em;
-    font-style: italic;
-    margin-bottom: calc(var(--pico-typography-spacing-vertical) * 0.25);
-}
-
-#title-block-header .abstract {
-    color: var(--pico-muted-color);
-    font-style: italic;
-    font-size: 0.875em;
-    margin-bottom: var(--pico-typography-spacing-vertical);
-    max-width: 60ch;
-    margin-left: auto;
-    margin-right: auto;
-    text-align: left;
-}
-
-#title-block-header .abstract-title {
-    font-weight: bold;
-    font-size: 1em;
-    color: var(--pico-primary);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    margin-bottom: calc(var(--pico-typography-spacing-vertical) * 0.5);
-}
-
 span.smallcaps {
     font-variant: small-caps;
 }
