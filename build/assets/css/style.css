@@ -57,9 +57,7 @@ figcaption {
 }
 
 /* Remove underlines from all links by default and on hover */
-a:not([role="button"]),
-a.secondary,
-a.contrast {
+a:not([role="button"]) {
     --pico-text-decoration: none;
     --text-decoration: none;
     text-decoration: none;
@@ -129,12 +127,21 @@ main p > img {
     box-sizing: border-box;
 }
 
+/*
 math[display="block"] {
     font-size: 1.15em;
     margin-top: var(--pico-typography-spacing-vertical);
     margin-bottom: var(--pico-typography-spacing-vertical);
     overflow-x: auto;
     display: block;
+}
+*/
+
+.katex-display {
+    font-size: 1.15em;
+    margin-top: var(--pico-typography-spacing-vertical);
+    margin-bottom: var(--pico-typography-spacing-vertical);
+    overflow-x: auto;
 }
 
 .brand_text {
