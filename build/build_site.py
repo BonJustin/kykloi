@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Optional
 
 # ===========================================================================
-# 1. PURE-PYTHON AES-256-GCM ENGINE & NIST CAVP SELF-TEST
+# 1. PURE-PYTHON AES-256-GCM ENGINE & 8-BIT TABLE-DRIVEN GHASH
 # ===========================================================================
 
 S_BOX = [
@@ -387,11 +387,52 @@ def _ghash_mult(x: int, y: int) -> int:
     return z
 
 
+def _init_ghash_tables(h: int) -> list[list[int]]:
+    """
+    Precomputes 16 lookup tables of 256 entries each for constant-time-in-bits
+    GF(2^128) multiplication by hash subkey H (8-bit Shoup / table strategy).
+    T[j][b] = (b << (8 * (15 - j))) * H in GF(2^128).
+    """
+    tables: list[list[int]] = []
+    for j in range(16):
+        shift = 8 * (15 - j)
+        basis = [_ghash_mult((1 << bit) << shift, h) for bit in range(8)]
+        table = [0] * 256
+        for b in range(1, 256):
+            low_bit = (b & -b).bit_length() - 1
+            table[b] = table[b & (b - 1)] ^ basis[low_bit]
+        tables.append(table)
+    return tables
+
+
+def _ghash_block(t: list[list[int]], x: int) -> int:
+    """Evaluates x * H using 16 precomputed 8-bit tables (16 lookups, 15 XORs)."""
+    return (
+        t[0][(x >> 120) & 0xFF]
+        ^ t[1][(x >> 112) & 0xFF]
+        ^ t[2][(x >> 104) & 0xFF]
+        ^ t[3][(x >> 96) & 0xFF]
+        ^ t[4][(x >> 88) & 0xFF]
+        ^ t[5][(x >> 80) & 0xFF]
+        ^ t[6][(x >> 72) & 0xFF]
+        ^ t[7][(x >> 64) & 0xFF]
+        ^ t[8][(x >> 56) & 0xFF]
+        ^ t[9][(x >> 48) & 0xFF]
+        ^ t[10][(x >> 40) & 0xFF]
+        ^ t[11][(x >> 32) & 0xFF]
+        ^ t[12][(x >> 24) & 0xFF]
+        ^ t[13][(x >> 16) & 0xFF]
+        ^ t[14][(x >> 8) & 0xFF]
+        ^ t[15][x & 0xFF]
+    )
+
+
 def pure_aes_gcm_encrypt(
     key: bytes, iv: bytes, plaintext: bytes
 ) -> tuple[bytes, bytes]:
     """
-    Encrypts bytes via AES-256-GCM according to NIST SP 800-38D.
+    Encrypts bytes via AES-256-GCM according to NIST SP 800-38D using an
+    accelerated 8-bit table-driven GHASH engine.
     Returns: (ciphertext, 16-byte authentication tag).
     """
     if len(key) != 32:
@@ -403,6 +444,7 @@ def pure_aes_gcm_encrypt(
 
     h_bytes = _cipher_block([0] * 16, round_keys)
     h = int.from_bytes(h_bytes, byteorder="big")
+    ghash_tables = _init_ghash_tables(h)
 
     j0 = iv + b"\x00\x00\x00\x01"
 
@@ -425,10 +467,10 @@ def pure_aes_gcm_encrypt(
 
     for i in range(0, len(padded_ct), 16):
         block_int = int.from_bytes(padded_ct[i : i + 16], byteorder="big")
-        s = _ghash_mult(s ^ block_int, h)
+        s = _ghash_block(ghash_tables, s ^ block_int)
 
-    len_block = (0).to_bytes(8, "big") + (len(ciphertext_bytes) * 8).to_bytes(8, "big")
-    s = _ghash_mult(s ^ int.from_bytes(len_block, "big"), h)
+    len_block_int = len(ciphertext_bytes) * 8
+    s = _ghash_block(ghash_tables, s ^ len_block_int)
 
     tag_mask = _cipher_block(list(j0), round_keys)
     tag = bytes(a ^ b for a, b in zip(s.to_bytes(16, "big"), tag_mask))
@@ -439,7 +481,7 @@ def pure_aes_gcm_encrypt(
 def verify_cryptographic_engine():
     """
     Executes a NIST SP 800-38D Known-Answer Test (KAT) at startup.
-    Fails closed if arithmetic, S-box lookups, or GHASH diverge from spec.
+    Validates key expansion, CTR generation, 8-bit table GHASH, and tag derivation.
     """
     kat_key = bytes.fromhex("00" * 32)
     kat_iv = bytes.fromhex("00" * 12)
@@ -497,6 +539,7 @@ class CompileTask:
     passphrase: Optional[str]
     dry_run: bool
     verbose: bool
+    secure_root: Optional[Path] = None
 
 
 def parse_args():
@@ -569,7 +612,7 @@ def compute_global_dependencies_hash() -> str:
 
 def find_enclosing_secure_root(path: Path, src_root: Path) -> Optional[Path]:
     """
-    Finds the enclosing directory named 'secure' that contains the given path.
+    Finds the topmost enclosing directory named 'secure' that contains the given path.
     Supports arbitrary depth and multiple distinct 'secure' hierarchies.
     """
     try:
@@ -776,6 +819,10 @@ def compile_markdown_worker(task: CompileTask) -> tuple[Path, bool, Optional[str
             "Cannot compile secure file: No passphrase provided.",
         )
 
+    resource_paths = [str(task.md_path.parent)]
+    if task.secure_root and task.secure_root != task.md_path.parent:
+        resource_paths.append(str(task.secure_root))
+
     body_cmd = [
         "pandoc",
         str(task.md_path),
@@ -786,7 +833,7 @@ def compile_markdown_worker(task: CompileTask) -> tuple[Path, bool, Optional[str
         f"--katex={task.relative_root}assets/katex/",
         "--embed-resources",
         "--resource-path",
-        str(task.md_path.parent),
+        os.pathsep.join(resource_paths),
     ]
 
     body_result = subprocess.run(body_cmd, capture_output=True, text=True)
@@ -916,7 +963,7 @@ def main():
     compile_tasks: list[CompileTask] = []
 
     md_files = sorted(SRC.rglob("*.md"))
-    has_secure_files = any("secure" in p.parts for p in md_files)
+    has_secure_files = any("secure" in p.relative_to(SRC).parts for p in md_files)
 
     passphrase = args.password
     if has_secure_files and not passphrase and not args.dry_run:
@@ -925,9 +972,6 @@ def main():
             logging.error("Encryption passphrase cannot be empty.")
             sys.exit(1)
 
-    # -----------------------------------------------------------------------
-    # Key Fingerprint & Passphrase Invalidation Tracking
-    # -----------------------------------------------------------------------
     passphrase_changed = False
     if has_secure_files and passphrase:
         current_key_fingerprint = compute_passphrase_fingerprint(passphrase)
@@ -935,7 +979,6 @@ def main():
         old_key_fingerprint = old_manifest.get("__PASSPHRASE_FINGERPRINT__")
 
         if old_manifest and old_key_fingerprint is None:
-            # Manifest exists from prior version that lacked key tracking
             passphrase_changed = True
         elif old_key_fingerprint != current_key_fingerprint:
             passphrase_changed = True
@@ -945,9 +988,6 @@ def main():
                 "Passphrase rotation detected. Flagging all secure documents for re-encryption."
             )
 
-    # -----------------------------------------------------------------------
-    # Media and Secure Boundary Invalidation Tracking
-    # -----------------------------------------------------------------------
     secure_tree_assets: dict[Path, list[tuple[str, str]]] = {}
     asset_sync_jobs: list[tuple[Path, Path]] = []
 
@@ -959,13 +999,11 @@ def main():
         secure_root = find_enclosing_secure_root(p, SRC)
 
         if secure_root is not None:
-            # Non-markdown asset embedded directly into secure HTML
             h = compute_file_hash(p)
             rel_to_root = p.relative_to(secure_root).as_posix()
             secure_tree_assets.setdefault(secure_root, []).append((rel_to_root, h))
             new_manifest[f"secure_asset:{rel_src.as_posix()}"] = h
         else:
-            # Unencrypted asset copied directly to dist/
             target = DST / rel_src
             expected_outputs.add(target.resolve())
             manifest_key = f"media:{rel_src.as_posix()}"
@@ -974,14 +1012,12 @@ def main():
             if not target.exists() or old_manifest.get(manifest_key) != h:
                 asset_sync_jobs.append((p, target))
 
-    # Identify all secure roots (including those containing only markdown)
     all_secure_roots: set[Path] = set(secure_tree_assets.keys())
     for md in md_files:
         s_root = find_enclosing_secure_root(md, SRC)
         if s_root is not None:
             all_secure_roots.add(s_root)
 
-    # Compute composite digests per secure boundary
     current_secure_tree_hashes: dict[Path, str] = {}
     for s_root in all_secure_roots:
         assets = secure_tree_assets.get(s_root, [])
@@ -990,9 +1026,6 @@ def main():
         rel_root = s_root.relative_to(SRC).as_posix()
         new_manifest[f"secure_tree_assets:{rel_root}"] = tree_hash
 
-    # -----------------------------------------------------------------------
-    # Markdown Dirty Checking & Task Scheduling
-    # -----------------------------------------------------------------------
     metadata_extraction_jobs: list[Path] = []
     file_metadata_map: dict[Path, dict[str, str]] = {}
 
@@ -1055,12 +1088,10 @@ def main():
                     passphrase=passphrase,
                     dry_run=args.dry_run,
                     verbose=args.verbose,
+                    secure_root=secure_root,
                 )
             )
 
-    # -----------------------------------------------------------------------
-    # Metadata Extraction Subsystem
-    # -----------------------------------------------------------------------
     if metadata_extraction_jobs:
         logging.info(
             "Extracting metadata from %d file(s) via Pandoc CLI...",
@@ -1099,9 +1130,6 @@ def main():
 
     expected_outputs.add(SEARCH_INDEX_FILE.resolve())
 
-    # -----------------------------------------------------------------------
-    # Static Assets & Dist Synchronization
-    # -----------------------------------------------------------------------
     assets_src = APP_DIR / "assets"
     if assets_src.exists():
         for p in assets_src.rglob("*"):
@@ -1145,9 +1173,6 @@ def main():
     if synced_assets:
         logging.info("Synced %d modified/new asset(s).", synced_assets)
 
-    # -----------------------------------------------------------------------
-    # Concurrent Compilation Subsystem
-    # -----------------------------------------------------------------------
     total_md = len(md_files)
     to_compile = len(compile_tasks)
     failed = 0

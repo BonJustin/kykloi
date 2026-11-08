@@ -1463,6 +1463,7 @@ class CompileTask:
     passphrase: Optional[str]
     dry_run: bool
     verbose: bool
+    secure_root: Optional[Path] = None
 
 
 def parse_args():
@@ -1500,7 +1501,7 @@ def parse_args():
 
 
 # ===========================================================================
-# 4. CRYPTOGRAPHIC HASHING & ENVELOPE UTILITIES
+# 4. CRYPTOGRAPHIC HASHING, SECURE TREES & ENVELOPE UTILITIES
 # ===========================================================================
 
 
@@ -1531,6 +1532,44 @@ def compute_global_dependencies_hash() -> str:
             hasher.update(compute_file_hash(f).encode("utf-8"))
 
     return hasher.hexdigest()
+
+
+def find_enclosing_secure_root(path: Path, src_root: Path) -> Optional[Path]:
+    """
+    Finds the topmost enclosing directory named 'secure' that contains the given path.
+    Supports arbitrary depth and multiple distinct 'secure' hierarchies.
+    """
+    try:
+        rel = path.relative_to(src_root)
+    except ValueError:
+        return None
+
+    if "secure" not in rel.parts:
+        return None
+
+    idx = rel.parts.index("secure")
+    return src_root.joinpath(*rel.parts[: idx + 1])
+
+
+def compute_secure_tree_assets_hash(assets: list[tuple[str, str]]) -> str:
+    """
+    Computes a deterministic SHA-256 digest over all non-markdown assets
+    within a specific secure directory tree.
+    """
+    hasher = hashlib.sha256()
+    for rel_path_str, file_hash in sorted(assets):
+        hasher.update(rel_path_str.encode("utf-8"))
+        hasher.update(file_hash.encode("utf-8"))
+    return hasher.hexdigest()
+
+
+def compute_passphrase_fingerprint(passphrase: str) -> str:
+    """
+    Computes a non-reversible cryptographic fingerprint of the encryption key
+    to store in the manifest for dirty-checking key rotations.
+    """
+    salt = b"kykloi:key_rotation_fingerprint:v1"
+    return hashlib.sha256(salt + passphrase.encode("utf-8")).hexdigest()
 
 
 def derive_key(passphrase: str, salt: bytes) -> bytes:
@@ -1704,6 +1743,11 @@ def compile_markdown_worker(task: CompileTask) -> tuple[Path, bool, Optional[str
             "Cannot compile secure file: No passphrase provided.",
         )
 
+    # Search immediate parent first, then fallback to secure boundary root
+    resource_paths = [str(task.md_path.parent)]
+    if task.secure_root and task.secure_root != task.md_path.parent:
+        resource_paths.append(str(task.secure_root))
+
     body_cmd = [
         "pandoc",
         str(task.md_path),
@@ -1714,7 +1758,7 @@ def compile_markdown_worker(task: CompileTask) -> tuple[Path, bool, Optional[str
         f"--katex={task.relative_root}assets/katex/",
         "--embed-resources",
         "--resource-path",
-        str(task.md_path.parent),
+        os.pathsep.join(resource_paths),
     ]
 
     body_result = subprocess.run(body_cmd, capture_output=True, text=True)
@@ -1844,7 +1888,7 @@ def main():
     compile_tasks: list[CompileTask] = []
 
     md_files = sorted(SRC.rglob("*.md"))
-    has_secure_files = any("secure" in p.parts for p in md_files)
+    has_secure_files = any("secure" in p.relative_to(SRC).parts for p in md_files)
 
     passphrase = args.password
     if has_secure_files and not passphrase and not args.dry_run:
@@ -1853,6 +1897,74 @@ def main():
             logging.error("Encryption passphrase cannot be empty.")
             sys.exit(1)
 
+    # -----------------------------------------------------------------------
+    # Key Fingerprint & Passphrase Invalidation Tracking
+    # -----------------------------------------------------------------------
+    passphrase_changed = False
+    if has_secure_files and passphrase:
+        current_key_fingerprint = compute_passphrase_fingerprint(passphrase)
+        new_manifest["__PASSPHRASE_FINGERPRINT__"] = current_key_fingerprint
+        old_key_fingerprint = old_manifest.get("__PASSPHRASE_FINGERPRINT__")
+
+        if old_manifest and old_key_fingerprint is None:
+            # Transition from a manifest version lacking key tracking
+            passphrase_changed = True
+        elif old_key_fingerprint != current_key_fingerprint:
+            passphrase_changed = True
+
+        if passphrase_changed:
+            logging.info(
+                "Passphrase rotation detected. Flagging all secure documents for re-encryption."
+            )
+
+    # -----------------------------------------------------------------------
+    # Media and Secure Boundary Invalidation Tracking
+    # -----------------------------------------------------------------------
+    secure_tree_assets: dict[Path, list[tuple[str, str]]] = {}
+    asset_sync_jobs: list[tuple[Path, Path]] = []
+
+    for p in SRC.rglob("*"):
+        if not p.is_file() or p.name.startswith(".") or p.suffix.lower() == ".md":
+            continue
+
+        rel_src = p.relative_to(SRC)
+        secure_root = find_enclosing_secure_root(p, SRC)
+
+        if secure_root is not None:
+            # Non-markdown asset embedded directly into secure HTML
+            h = compute_file_hash(p)
+            rel_to_root = p.relative_to(secure_root).as_posix()
+            secure_tree_assets.setdefault(secure_root, []).append((rel_to_root, h))
+            new_manifest[f"secure_asset:{rel_src.as_posix()}"] = h
+        else:
+            # Unencrypted asset copied directly to dist/
+            target = DST / rel_src
+            expected_outputs.add(target.resolve())
+            manifest_key = f"media:{rel_src.as_posix()}"
+            h = compute_file_hash(p)
+            new_manifest[manifest_key] = h
+            if not target.exists() or old_manifest.get(manifest_key) != h:
+                asset_sync_jobs.append((p, target))
+
+    # Identify all secure roots across the repository
+    all_secure_roots: set[Path] = set(secure_tree_assets.keys())
+    for md in md_files:
+        s_root = find_enclosing_secure_root(md, SRC)
+        if s_root is not None:
+            all_secure_roots.add(s_root)
+
+    # Compute composite digests per isolated secure boundary
+    current_secure_tree_hashes: dict[Path, str] = {}
+    for s_root in all_secure_roots:
+        assets = secure_tree_assets.get(s_root, [])
+        tree_hash = compute_secure_tree_assets_hash(assets)
+        current_secure_tree_hashes[s_root] = tree_hash
+        rel_root = s_root.relative_to(SRC).as_posix()
+        new_manifest[f"secure_tree_assets:{rel_root}"] = tree_hash
+
+    # -----------------------------------------------------------------------
+    # Markdown Dirty Checking & Task Scheduling
+    # -----------------------------------------------------------------------
     metadata_extraction_jobs: list[Path] = []
     file_metadata_map: dict[Path, dict[str, str]] = {}
 
@@ -1869,15 +1981,34 @@ def main():
         depth = len(rel.parent.parts) if rel.parent != Path(".") else 0
         relative_root = ("../" * depth) if depth > 0 else ""
 
-        is_secure = "secure" in md.parts
+        is_secure = "secure" in rel.parts
+        secure_root = find_enclosing_secure_root(md, SRC) if is_secure else None
+
+        secure_assets_changed = False
+        if is_secure and secure_root is not None:
+            rel_root = secure_root.relative_to(SRC).as_posix()
+            old_tree_hash = old_manifest.get(f"secure_tree_assets:{rel_root}")
+            current_tree_hash = current_secure_tree_hashes[secure_root]
+            if old_tree_hash != current_tree_hash:
+                secure_assets_changed = True
+
+        md_content_changed = old_manifest.get(manifest_key) != current_md_hash
+
         is_dirty = (
             not out.exists()
             or global_deps_changed
-            or old_manifest.get(manifest_key) != current_md_hash
+            or md_content_changed
+            or (is_secure and (passphrase_changed or secure_assets_changed))
         )
 
         cached_meta = old_manifest.get(meta_cache_key)
-        if not is_dirty and isinstance(cached_meta, dict):
+        meta_is_dirty = (
+            global_deps_changed
+            or md_content_changed
+            or not isinstance(cached_meta, dict)
+        )
+
+        if not meta_is_dirty and isinstance(cached_meta, dict):
             file_metadata_map[md] = cached_meta
             new_manifest[meta_cache_key] = cached_meta
         else:
@@ -1896,9 +2027,13 @@ def main():
                     passphrase=passphrase,
                     dry_run=args.dry_run,
                     verbose=args.verbose,
+                    secure_root=secure_root,
                 )
             )
 
+    # -----------------------------------------------------------------------
+    # Metadata Extraction Subsystem
+    # -----------------------------------------------------------------------
     if metadata_extraction_jobs:
         logging.info(
             "Extracting metadata from %d file(s) via Pandoc CLI...",
@@ -1937,23 +2072,9 @@ def main():
 
     expected_outputs.add(SEARCH_INDEX_FILE.resolve())
 
-    asset_sync_jobs: list[tuple[Path, Path]] = []
-
-    for p in SRC.rglob("*"):
-        if (
-            p.is_file()
-            and p.suffix.lower() != ".md"
-            and not p.name.startswith(".")
-            and "secure" not in p.parts
-        ):
-            target = DST / p.relative_to(SRC)
-            expected_outputs.add(target.resolve())
-            manifest_key = f"media:{p.relative_to(SRC).as_posix()}"
-            h = compute_file_hash(p)
-            new_manifest[manifest_key] = h
-            if not target.exists() or old_manifest.get(manifest_key) != h:
-                asset_sync_jobs.append((p, target))
-
+    # -----------------------------------------------------------------------
+    # Static Assets & Dist Synchronization
+    # -----------------------------------------------------------------------
     assets_src = APP_DIR / "assets"
     if assets_src.exists():
         for p in assets_src.rglob("*"):
@@ -1997,6 +2118,9 @@ def main():
     if synced_assets:
         logging.info("Synced %d modified/new asset(s).", synced_assets)
 
+    # -----------------------------------------------------------------------
+    # Concurrent Compilation Subsystem
+    # -----------------------------------------------------------------------
     total_md = len(md_files)
     to_compile = len(compile_tasks)
     failed = 0
@@ -2045,9 +2169,6 @@ def main():
         logging.warning(
             "Build recorded failures. Manifest state will not be persisted."
         )
-
-    if failed > 0:
-        logging.error("Build completed with %d failure(s).", failed)
         sys.exit(1)
 
     logging.info(
@@ -2130,4 +2251,4 @@ dependencies = []
 
 ## query
 
-analyse the project presented and assess for potential points of failure for investigation or areas of possible improvement in performance or stability.
+i would like to implement an 8-bit ghash strategy to improve performance of media encryption. discuss. are there caveats that i should consider before implementation? provide a full revision of build_site.py for review of the recommended refactor for review.
