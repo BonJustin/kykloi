@@ -4,17 +4,269 @@
 
 **context**
 
-* the markdown/yaml frontmatter source has permacomputing and archival intent. yaml frontmatter is exclusively metadata regarding the markdown content, and is not used for display or program instruction.
-* the static site produced is also intended to be extremely resilient to toolchain or operating system change over time. it is intended to run over file or http protocols in any modern browser on devices with enough memory to perform webcrypto decryption.
-* the intermediate layer (python, pandoc) are chosen for stable and reliable long-term function, but ultimately this layer is intended to be fairly easy to refactor, replace, or redesign over multi-year horizons as necessary. to enhance durability of this layer, toolchain dependencies such as cryptography or pyyaml have been excluded in favor of less efficient python standard library custom routines to avoid c/rust dependence which would likely shorten the maintenance cycle.
+* the markdown/yaml frontmatter source has permacomputing and archival intent. the plaintext content tree is the sovereign source of truth, designed for indefinite preservation and disaster-recovery discovery using standard terminal utilities (grep, ripgrep, fzf). yaml frontmatter is exclusively metadata regarding the markdown content and is not used for display or program instruction.
+* the static site produced is intended to run in any modern browser served via a zero-dependency, local-first HTTP daemon (such as python's standard library `http.server`). reliance on the raw `file://` protocol is explicitly rejected due to erratic cross-browser sandbox restrictions regarding webcrypto (`crypto.subtle`), fetch interfaces, and worker threading.
+* runtime resource bounds are explicitly targeted for low-spec, memory-constrained hardware (e.g., raspberry pi 4, vintage laptops, low-end mobile devices). client-side memory allocation and execution models must remain stable and responsive even as repository document counts scale.
+* the intermediate layer (python, pandoc) is chosen for stable, long-term function and zero-friction portability across operating systems. to maximize toolchain lifespan and cross-platform compilation, external package dependencies (such as `cryptography`, `pyyaml`, or npm utilities) are strictly excluded in favor of python standard library routines (e.g., custom AES-GCM/GHASH engine, built-in sqlite3, manual frontmatter parsing) to eliminate fragile C/Rust build-chain dependencies.
 * the ssg functionality is only the first of multiple intended programmatic interactions with the markdown source repository.
-* ssg encryption is intentionally designed to prevent casual browsing and bot ingestion over public internet. the yaml frontmatter searchability is intentional, not a data leak, to allow the user(s) to easily find specific documents without exposing the markdown content.
-* the project is intended to be operating system agnostic hence use of the less efficient python encryption routines as opposed to openssl or similar.
+* ssg encryption is intentionally designed to prevent casual browsing and bot ingestion over public internet or ad-hoc local area networks. the searchability of yaml frontmatter (titles, dates, keywords) is an intentional architectural feature, not a data leak, allowing discovery of documents without exposing protected markdown or media bodies.
+* search indexes and compiled static views are strictly ephemeral, materialized projections of the markdown source. they can be purged, regenerated, or structurally altered at build time without compromising the underlying archive.
 
 ## `tree ~/dev/kykloi`
 
 ```bash
-replace
+/var/home/bonju/dev/kykloi
+├── build
+│   ├── assets
+│   │   ├── css
+│   │   │   ├── pico.css
+│   │   │   └── style.css
+│   │   ├── fonts
+│   │   │   ├── jetbrainsmono-variablefont_wght-webfont.woff2
+│   │   │   ├── libertinusserif-bolditalic-webfont.woff2
+│   │   │   ├── libertinusserif-bold-webfont.woff2
+│   │   │   ├── libertinusserif-italic-webfont.woff2
+│   │   │   └── libertinusserif-regular-webfont.woff2
+│   │   ├── js
+│   │   │   ├── decrypt.js
+│   │   │   ├── minisearch.min.js
+│   │   │   └── pico_search.js
+│   │   └── katex
+│   │       ├── contrib
+│   │       │   ├── auto-render.js
+│   │       │   ├── auto-render.min.js
+│   │       │   ├── auto-render.mjs
+│   │       │   ├── copy-tex.js
+│   │       │   ├── copy-tex.min.js
+│   │       │   ├── copy-tex.mjs
+│   │       │   ├── mathtex-script-type.js
+│   │       │   ├── mathtex-script-type.min.js
+│   │       │   ├── mathtex-script-type.mjs
+│   │       │   ├── mhchem.js
+│   │       │   ├── mhchem.min.js
+│   │       │   ├── mhchem.mjs
+│   │       │   ├── render-a11y-string.js
+│   │       │   ├── render-a11y-string.min.js
+│   │       │   └── render-a11y-string.mjs
+│   │       ├── fonts
+│   │       │   ├── KaTeX_AMS-Regular.ttf
+│   │       │   ├── KaTeX_AMS-Regular.woff
+│   │       │   ├── KaTeX_AMS-Regular.woff2
+│   │       │   ├── KaTeX_Caligraphic-Bold.ttf
+│   │       │   ├── KaTeX_Caligraphic-Bold.woff
+│   │       │   ├── KaTeX_Caligraphic-Bold.woff2
+│   │       │   ├── KaTeX_Caligraphic-Regular.ttf
+│   │       │   ├── KaTeX_Caligraphic-Regular.woff
+│   │       │   ├── KaTeX_Caligraphic-Regular.woff2
+│   │       │   ├── KaTeX_Fraktur-Bold.ttf
+│   │       │   ├── KaTeX_Fraktur-Bold.woff
+│   │       │   ├── KaTeX_Fraktur-Bold.woff2
+│   │       │   ├── KaTeX_Fraktur-Regular.ttf
+│   │       │   ├── KaTeX_Fraktur-Regular.woff
+│   │       │   ├── KaTeX_Fraktur-Regular.woff2
+│   │       │   ├── KaTeX_Main-BoldItalic.ttf
+│   │       │   ├── KaTeX_Main-BoldItalic.woff
+│   │       │   ├── KaTeX_Main-BoldItalic.woff2
+│   │       │   ├── KaTeX_Main-Bold.ttf
+│   │       │   ├── KaTeX_Main-Bold.woff
+│   │       │   ├── KaTeX_Main-Bold.woff2
+│   │       │   ├── KaTeX_Main-Italic.ttf
+│   │       │   ├── KaTeX_Main-Italic.woff
+│   │       │   ├── KaTeX_Main-Italic.woff2
+│   │       │   ├── KaTeX_Main-Regular.ttf
+│   │       │   ├── KaTeX_Main-Regular.woff
+│   │       │   ├── KaTeX_Main-Regular.woff2
+│   │       │   ├── KaTeX_Math-BoldItalic.ttf
+│   │       │   ├── KaTeX_Math-BoldItalic.woff
+│   │       │   ├── KaTeX_Math-BoldItalic.woff2
+│   │       │   ├── KaTeX_Math-Italic.ttf
+│   │       │   ├── KaTeX_Math-Italic.woff
+│   │       │   ├── KaTeX_Math-Italic.woff2
+│   │       │   ├── KaTeX_SansSerif-Bold.ttf
+│   │       │   ├── KaTeX_SansSerif-Bold.woff
+│   │       │   ├── KaTeX_SansSerif-Bold.woff2
+│   │       │   ├── KaTeX_SansSerif-Italic.ttf
+│   │       │   ├── KaTeX_SansSerif-Italic.woff
+│   │       │   ├── KaTeX_SansSerif-Italic.woff2
+│   │       │   ├── KaTeX_SansSerif-Regular.ttf
+│   │       │   ├── KaTeX_SansSerif-Regular.woff
+│   │       │   ├── KaTeX_SansSerif-Regular.woff2
+│   │       │   ├── KaTeX_Script-Regular.ttf
+│   │       │   ├── KaTeX_Script-Regular.woff
+│   │       │   ├── KaTeX_Script-Regular.woff2
+│   │       │   ├── KaTeX_Size1-Regular.ttf
+│   │       │   ├── KaTeX_Size1-Regular.woff
+│   │       │   ├── KaTeX_Size1-Regular.woff2
+│   │       │   ├── KaTeX_Size2-Regular.ttf
+│   │       │   ├── KaTeX_Size2-Regular.woff
+│   │       │   ├── KaTeX_Size2-Regular.woff2
+│   │       │   ├── KaTeX_Size3-Regular.ttf
+│   │       │   ├── KaTeX_Size3-Regular.woff
+│   │       │   ├── KaTeX_Size3-Regular.woff2
+│   │       │   ├── KaTeX_Size4-Regular.ttf
+│   │       │   ├── KaTeX_Size4-Regular.woff
+│   │       │   ├── KaTeX_Size4-Regular.woff2
+│   │       │   ├── KaTeX_Typewriter-Regular.ttf
+│   │       │   ├── KaTeX_Typewriter-Regular.woff
+│   │       │   └── KaTeX_Typewriter-Regular.woff2
+│   │       ├── katex.css
+│   │       ├── katex.js
+│   │       ├── katex.min.css
+│   │       ├── katex.min.js
+│   │       ├── katex.mjs
+│   │       ├── katex-swap.css
+│   │       ├── katex-swap.min.css
+│   │       └── README.md
+│   ├── build_site.py
+│   ├── pandoc_md_to_static_html.yaml
+│   ├── __pycache__
+│   │   ├── build_site_01.cpython-314.pyc
+│   │   └── build_site.cpython-314.pyc
+│   ├── root
+│   │   ├── apple-touch-icon.png
+│   │   ├── favicon-96x96.png
+│   │   ├── favicon.ico
+│   │   ├── favicon.svg
+│   │   ├── index.html
+│   │   ├── site.webmanifest
+│   │   ├── web-app-manifest-192x192.png
+│   │   └── web-app-manifest-512x512.png
+│   ├── templates
+│   │   ├── md_to_static_html.html
+│   │   └── metadata.json
+│   └── translate_links.lua
+├── content
+│   ├── media
+│   │   └── test_artemis_2.jpg
+│   ├── pandoc_markdown.md
+│   └── secure
+│       ├── 20261031165927-nested-directory-test.md
+│       └── media
+│           └── test_artemis_2.jpg
+├── dist
+│   ├── apple-touch-icon.png
+│   ├── assets
+│   │   ├── css
+│   │   │   ├── pico.css
+│   │   │   └── style.css
+│   │   ├── fonts
+│   │   │   ├── jetbrainsmono-variablefont_wght-webfont.woff2
+│   │   │   ├── libertinusserif-bolditalic-webfont.woff2
+│   │   │   ├── libertinusserif-bold-webfont.woff2
+│   │   │   ├── libertinusserif-italic-webfont.woff2
+│   │   │   └── libertinusserif-regular-webfont.woff2
+│   │   ├── js
+│   │   │   ├── decrypt_1.js
+│   │   │   ├── decrypt_2.js
+│   │   │   ├── decrypt.js
+│   │   │   ├── minisearch.min.js
+│   │   │   ├── pico_search copy.js
+│   │   │   └── pico_search.js
+│   │   └── katex
+│   │       ├── contrib
+│   │       │   ├── auto-render.js
+│   │       │   ├── auto-render.min.js
+│   │       │   ├── auto-render.mjs
+│   │       │   ├── copy-tex.js
+│   │       │   ├── copy-tex.min.js
+│   │       │   ├── copy-tex.mjs
+│   │       │   ├── mathtex-script-type.js
+│   │       │   ├── mathtex-script-type.min.js
+│   │       │   ├── mathtex-script-type.mjs
+│   │       │   ├── mhchem.js
+│   │       │   ├── mhchem.min.js
+│   │       │   ├── mhchem.mjs
+│   │       │   ├── render-a11y-string.js
+│   │       │   ├── render-a11y-string.min.js
+│   │       │   └── render-a11y-string.mjs
+│   │       ├── fonts
+│   │       │   ├── KaTeX_AMS-Regular.ttf
+│   │       │   ├── KaTeX_AMS-Regular.woff
+│   │       │   ├── KaTeX_AMS-Regular.woff2
+│   │       │   ├── KaTeX_Caligraphic-Bold.ttf
+│   │       │   ├── KaTeX_Caligraphic-Bold.woff
+│   │       │   ├── KaTeX_Caligraphic-Bold.woff2
+│   │       │   ├── KaTeX_Caligraphic-Regular.ttf
+│   │       │   ├── KaTeX_Caligraphic-Regular.woff
+│   │       │   ├── KaTeX_Caligraphic-Regular.woff2
+│   │       │   ├── KaTeX_Fraktur-Bold.ttf
+│   │       │   ├── KaTeX_Fraktur-Bold.woff
+│   │       │   ├── KaTeX_Fraktur-Bold.woff2
+│   │       │   ├── KaTeX_Fraktur-Regular.ttf
+│   │       │   ├── KaTeX_Fraktur-Regular.woff
+│   │       │   ├── KaTeX_Fraktur-Regular.woff2
+│   │       │   ├── KaTeX_Main-BoldItalic.ttf
+│   │       │   ├── KaTeX_Main-BoldItalic.woff
+│   │       │   ├── KaTeX_Main-BoldItalic.woff2
+│   │       │   ├── KaTeX_Main-Bold.ttf
+│   │       │   ├── KaTeX_Main-Bold.woff
+│   │       │   ├── KaTeX_Main-Bold.woff2
+│   │       │   ├── KaTeX_Main-Italic.ttf
+│   │       │   ├── KaTeX_Main-Italic.woff
+│   │       │   ├── KaTeX_Main-Italic.woff2
+│   │       │   ├── KaTeX_Main-Regular.ttf
+│   │       │   ├── KaTeX_Main-Regular.woff
+│   │       │   ├── KaTeX_Main-Regular.woff2
+│   │       │   ├── KaTeX_Math-BoldItalic.ttf
+│   │       │   ├── KaTeX_Math-BoldItalic.woff
+│   │       │   ├── KaTeX_Math-BoldItalic.woff2
+│   │       │   ├── KaTeX_Math-Italic.ttf
+│   │       │   ├── KaTeX_Math-Italic.woff
+│   │       │   ├── KaTeX_Math-Italic.woff2
+│   │       │   ├── KaTeX_SansSerif-Bold.ttf
+│   │       │   ├── KaTeX_SansSerif-Bold.woff
+│   │       │   ├── KaTeX_SansSerif-Bold.woff2
+│   │       │   ├── KaTeX_SansSerif-Italic.ttf
+│   │       │   ├── KaTeX_SansSerif-Italic.woff
+│   │       │   ├── KaTeX_SansSerif-Italic.woff2
+│   │       │   ├── KaTeX_SansSerif-Regular.ttf
+│   │       │   ├── KaTeX_SansSerif-Regular.woff
+│   │       │   ├── KaTeX_SansSerif-Regular.woff2
+│   │       │   ├── KaTeX_Script-Regular.ttf
+│   │       │   ├── KaTeX_Script-Regular.woff
+│   │       │   ├── KaTeX_Script-Regular.woff2
+│   │       │   ├── KaTeX_Size1-Regular.ttf
+│   │       │   ├── KaTeX_Size1-Regular.woff
+│   │       │   ├── KaTeX_Size1-Regular.woff2
+│   │       │   ├── KaTeX_Size2-Regular.ttf
+│   │       │   ├── KaTeX_Size2-Regular.woff
+│   │       │   ├── KaTeX_Size2-Regular.woff2
+│   │       │   ├── KaTeX_Size3-Regular.ttf
+│   │       │   ├── KaTeX_Size3-Regular.woff
+│   │       │   ├── KaTeX_Size3-Regular.woff2
+│   │       │   ├── KaTeX_Size4-Regular.ttf
+│   │       │   ├── KaTeX_Size4-Regular.woff
+│   │       │   ├── KaTeX_Size4-Regular.woff2
+│   │       │   ├── KaTeX_Typewriter-Regular.ttf
+│   │       │   ├── KaTeX_Typewriter-Regular.woff
+│   │       │   └── KaTeX_Typewriter-Regular.woff2
+│   │       ├── katex.css
+│   │       ├── katex.js
+│   │       ├── katex.min.css
+│   │       ├── katex.min.js
+│   │       ├── katex.mjs
+│   │       ├── katex-swap.css
+│   │       ├── katex-swap.min.css
+│   │       └── README.md
+│   ├── favicon-96x96.png
+│   ├── favicon.ico
+│   ├── favicon.svg
+│   ├── index.html
+│   ├── media
+│   │   └── test_artemis_2.jpg
+│   ├── pandoc_markdown.html
+│   ├── search_index.js
+│   ├── secure
+│   │   ├── 20261031165927-nested-directory-test.html
+│   │   └── media
+│   │       └── test_artemis_2.jpg.enc
+│   ├── site.webmanifest
+│   ├── web-app-manifest-192x192.png
+│   └── web-app-manifest-512x512.png
+├── project_kykloi_context.md
+├── pyproject.toml
+├── README.md
+└── uv.lock
 ```
 
 ## `style.css`
