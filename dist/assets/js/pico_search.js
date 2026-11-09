@@ -22,8 +22,8 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     miniSearch = new MiniSearch({
-      fields: ["title", "keywords", "date_edtf", "abstract"],
-      storeFields: ["title", "url", "date_edtf", "abstract"],
+      fields: ["title", "keywords", "date_edtf"],
+      storeFields: ["title", "url", "date_edtf"],
       tokenize: (text) =>
         text
           .toLowerCase()
@@ -34,7 +34,6 @@ document.addEventListener("DOMContentLoaded", () => {
           title: 4.0,
           keywords: 2.5,
           date_edtf: 1.5,
-          abstract: 1.0,
         },
         prefix: true,
         fuzzy: (term) => (term.length > 3 ? 0.2 : false),
@@ -69,22 +68,11 @@ document.addEventListener("DOMContentLoaded", () => {
           ? `<time style="opacity: 0.65; font-size: 0.85em; margin-left: 0.5rem; font-family: monospace;">(${item.date_edtf})</time>`
           : "";
 
-        let snippetHtml = "";
-        if (item.abstract) {
-          const maxLen = 140;
-          const cleanAbstract =
-            item.abstract.length > maxLen
-              ? `${item.abstract.slice(0, maxLen).trim()}…`
-              : item.abstract;
-          snippetHtml = `<p style="margin: 0.25rem 0 0 0; font-size: 0.85rem; color: var(--pico-muted-color); line-height: 1.35;">${cleanAbstract}</p>`;
-        }
-
         return `
           <li style="list-style: none; border-bottom: 1px solid var(--pico-muted-border-color); padding: 0.6rem 0;">
             <a href="${targetUrl}" style="text-decoration: none; display: block;">
               <span style="color: var(--pico-primary); font-weight: bold;">${title}</span>
               ${dateHtml}
-              ${snippetHtml}
             </a>
           </li>
         `;

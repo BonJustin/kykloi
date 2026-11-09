@@ -27,8 +27,10 @@
 │   │   │   ├── libertinusserif-italic-webfont.woff2
 │   │   │   └── libertinusserif-regular-webfont.woff2
 │   │   ├── js
+│   │   │   ├── decrypt copy.js
 │   │   │   ├── decrypt.js
 │   │   │   ├── minisearch.min.js
+│   │   │   ├── pico_search copy.js
 │   │   │   └── pico_search.js
 │   │   └── katex
 │   │       ├── contrib
@@ -116,6 +118,7 @@
 │   │       ├── katex-swap.css
 │   │       ├── katex-swap.min.css
 │   │       └── README.md
+│   ├── build_site copy.py
 │   ├── build_site.py
 │   ├── pandoc_md_to_static_html.yaml
 │   ├── __pycache__
@@ -155,8 +158,10 @@
 │   │   │   ├── libertinusserif-italic-webfont.woff2
 │   │   │   └── libertinusserif-regular-webfont.woff2
 │   │   ├── js
+│   │   │   ├── decrypt copy.js
 │   │   │   ├── decrypt.js
 │   │   │   ├── minisearch.min.js
+│   │   │   ├── pico_search copy.js
 │   │   │   └── pico_search.js
 │   │   └── katex
 │   │       ├── contrib
@@ -261,6 +266,7 @@
 ├── pyproject.toml
 ├── README.md
 └── uv.lock
+
 ```
 
 ## `style.css`
@@ -308,6 +314,11 @@
     --pico-font-family-serif: "Libertinus Serif", Georgia, serif;
     --pico-font-family-monospace: "JetBrains Mono", ui-monospace, monospace;
     --pico-font-family: var(--pico-font-family-serif);
+}
+
+h1 {
+    text-align: center;
+    color: var(--pico-primary);
 }
 
 span.smallcaps {
@@ -395,21 +406,13 @@ main p > img {
     box-sizing: border-box;
 }
 
-/*
-math[display="block"] {
-    font-size: 1.15em;
-    margin-top: var(--pico-typography-spacing-vertical);
-    margin-bottom: var(--pico-typography-spacing-vertical);
-    overflow-x: auto;
-    display: block;
-}
-*/
-
 .katex-display {
-    /* font-size: 1.15em; */
     margin-top: var(--pico-typography-spacing-vertical);
     margin-bottom: var(--pico-typography-spacing-vertical);
     overflow-x: auto;
+    overflow-y: hidden;
+    padding-top: 0.5em;
+    padding-bottom: 0.5em;
 }
 
 .brand_text {
@@ -459,12 +462,31 @@ document.addEventListener("DOMContentLoaded", () => {
   if (!form) return;
 
   const passwordInput = document.getElementById("kykloi-password");
+  const submitButton = form.querySelector('button[type="submit"]');
   const errorMsg = document.getElementById("kykloi-decrypt-error");
   const lockContainer = document.getElementById("kykloi-lock-container");
   const contentContainer = document.getElementById("kykloi-decrypted-content");
   const payloadEl = document.getElementById("kykloi-encrypted-payload");
 
   if (!payloadEl) return;
+
+  // Defensive Check: Ensure the browser context exposes the WebCrypto API
+  if (
+    typeof window.crypto === "undefined" ||
+    typeof window.crypto.subtle === "undefined"
+  ) {
+    console.error(
+      "[Kykloi] WebCrypto API is unavailable in this browsing context."
+    );
+    if (errorMsg) {
+      errorMsg.textContent =
+        "Decryption unavailable: WebCrypto is disabled by your browser in this context (e.g., untrusted file:// origin).";
+      errorMsg.style.display = "block";
+    }
+    if (passwordInput) passwordInput.disabled = true;
+    if (submitButton) submitButton.disabled = true;
+    return;
+  }
 
   function renderDecryptedMath(container) {
     if (typeof katex === "undefined") {
@@ -505,7 +527,6 @@ document.addEventListener("DOMContentLoaded", () => {
   function base64ToUint8Array(b64) {
     const binaryString = atob(b64);
     const len = binaryString.length;
-    // Single contiguous typed allocation
     const bytes = new Uint8Array(len);
 
     for (let i = 0; i < len; i++) {
@@ -515,63 +536,80 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   async function decryptEnvelope(password, rawText) {
-    let base64Payload = rawText.trim();
-    if (base64Payload.startsWith('"') && base64Payload.endsWith('"')) {
-      try {
-        base64Payload = JSON.parse(base64Payload);
-      } catch (e) {
-        console.warn("[Kykloi] JSON parse fallback used:", e);
+      let base64Payload = rawText.trim();
+      if (base64Payload.startsWith('"') && base64Payload.endsWith('"')) {
+        try {
+          base64Payload = JSON.parse(base64Payload);
+        } catch (e) {
+          console.warn("[Kykloi] JSON parse fallback used:", e);
+        }
       }
-    }
 
-    const bytes = base64ToUint8Array(base64Payload);
+      const bytes = base64ToUint8Array(base64Payload);
+      console.debug(`[Kykloi] Envelope received: ${bytes.length} bytes.`);
 
-    console.debug(`[Kykloi] Envelope received: ${bytes.length} bytes.`);
+      if (bytes.length < 28) {
+        throw new Error("Payload too short to contain Salt + IV headers.");
+      }
 
-    if (bytes.length < 28) {
-      throw new Error("Payload too short to contain Salt + IV headers.");
-    }
+      // Static, predictable permacomputing format: 16B Salt + 12B IV + Ciphertext
+      const salt = bytes.subarray(0, 16);
+      const iv = bytes.subarray(16, 28);
+      const ciphertext = bytes.subarray(28);
 
-    const salt = bytes.subarray(0, 16);
-    const iv = bytes.subarray(16, 28);
-    const ciphertext = bytes.subarray(28);
+      const encoder = new TextEncoder();
+      const keyMaterial = await window.crypto.subtle.importKey(
+        "raw",
+        encoder.encode(password),
+        { name: "PBKDF2" },
+        false,
+        ["deriveKey"]
+      );
 
-    const encoder = new TextEncoder();
-    const keyMaterial = await window.crypto.subtle.importKey(
-      "raw",
-      encoder.encode(password),
-      { name: "PBKDF2" },
-      false,
-      ["deriveKey"]
-    );
+      const key = await window.crypto.subtle.deriveKey(
+        {
+          name: "PBKDF2",
+          salt: salt,
+          iterations: 100000, // Matched to build_site.py
+          hash: "SHA-256",
+        },
+        keyMaterial,
+        { name: "AES-GCM", length: 256 },
+        false,
+        ["decrypt"]
+      );
 
-    const key = await window.crypto.subtle.deriveKey(
-      {
-        name: "PBKDF2",
-        salt: salt,
-        iterations: 600000,
-        hash: "SHA-256",
-      },
-      keyMaterial,
-      { name: "AES-GCM", length: 256 },
-      false,
-      ["decrypt"]
-    );
+      const decryptedBuffer = await window.crypto.subtle.decrypt(
+        { name: "AES-GCM", iv: iv },
+        key,
+        ciphertext
+      );
 
-    const decryptedBuffer = await window.crypto.subtle.decrypt(
-      { name: "AES-GCM", iv: iv },
-      key,
-      ciphertext
-    );
-
-    return new TextDecoder().decode(decryptedBuffer);
+      return new TextDecoder().decode(decryptedBuffer);
   }
 
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
-    errorMsg.style.display = "none";
+
+    if (errorMsg) {
+      errorMsg.style.display = "none";
+      // Restore standard error text in case it was previously modified
+      errorMsg.textContent =
+        "Decryption failed: Incorrect passphrase or corrupted payload.";
+    }
+
     const password = passwordInput.value;
     const rawPayload = payloadEl.textContent;
+
+    // 1. Lock the UI and provide visual feedback to prevent multiple submissions
+    const originalButtonText = submitButton ? submitButton.textContent : "";
+    if (submitButton) {
+      submitButton.disabled = true;
+      submitButton.textContent = "Decrypting...";
+    }
+    if (passwordInput) {
+      passwordInput.disabled = true;
+    }
 
     try {
       console.debug("[Kykloi] Attempting decryption...");
@@ -582,14 +620,27 @@ document.addEventListener("DOMContentLoaded", () => {
       contentContainer.style.display = "block";
 
       payloadEl.textContent = "";
-      lockContainer.remove();
+      if (lockContainer) {
+        lockContainer.remove();
+      }
 
       renderDecryptedMath(contentContainer);
     } catch (err) {
       console.error("[Kykloi Decryption Error]:", err);
-      errorMsg.style.display = "block";
-      passwordInput.value = "";
-      passwordInput.focus();
+
+      // 2. Unlock the UI and inform the user of failure
+      if (errorMsg) {
+        errorMsg.style.display = "block";
+      }
+      if (passwordInput) {
+        passwordInput.disabled = false;
+        passwordInput.value = "";
+        passwordInput.focus();
+      }
+      if (submitButton) {
+        submitButton.disabled = false;
+        submitButton.textContent = originalButtonText;
+      }
     }
   });
 });
@@ -622,8 +673,8 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     miniSearch = new MiniSearch({
-      fields: ["title", "keywords", "date_edtf", "abstract"],
-      storeFields: ["title", "url", "date_edtf", "abstract"],
+      fields: ["title", "keywords", "date_edtf"],
+      storeFields: ["title", "url", "date_edtf"],
       tokenize: (text) =>
         text
           .toLowerCase()
@@ -634,7 +685,6 @@ document.addEventListener("DOMContentLoaded", () => {
           title: 4.0,
           keywords: 2.5,
           date_edtf: 1.5,
-          abstract: 1.0,
         },
         prefix: true,
         fuzzy: (term) => (term.length > 3 ? 0.2 : false),
@@ -669,22 +719,11 @@ document.addEventListener("DOMContentLoaded", () => {
           ? `<time style="opacity: 0.65; font-size: 0.85em; margin-left: 0.5rem; font-family: monospace;">(${item.date_edtf})</time>`
           : "";
 
-        let snippetHtml = "";
-        if (item.abstract) {
-          const maxLen = 140;
-          const cleanAbstract =
-            item.abstract.length > maxLen
-              ? `${item.abstract.slice(0, maxLen).trim()}…`
-              : item.abstract;
-          snippetHtml = `<p style="margin: 0.25rem 0 0 0; font-size: 0.85rem; color: var(--pico-muted-color); line-height: 1.35;">${cleanAbstract}</p>`;
-        }
-
         return `
           <li style="list-style: none; border-bottom: 1px solid var(--pico-muted-border-color); padding: 0.6rem 0;">
             <a href="${targetUrl}" style="text-decoration: none; display: block;">
               <span style="color: var(--pico-primary); font-weight: bold;">${title}</span>
               ${dateHtml}
-              ${snippetHtml}
             </a>
           </li>
         `;
@@ -816,7 +855,7 @@ document.addEventListener("DOMContentLoaded", () => {
                             <a
                                 href="$relative_root$index.html"
                                 style="text-decoration: none"
-                                >JdF³</a
+                                >JmB²</a
                             >
                         </span>
                     </li>
@@ -903,7 +942,7 @@ document.addEventListener("DOMContentLoaded", () => {
                     </article>
                 </div>
 
-                <script id="kykloi-encrypted-payload" type="application/json">
+                <script id="kykloi-encrypted-payload" type="text/plain">
 __KYKLOI_ENCRYPTED_PAYLOAD__
                 </script>
                 $else$
@@ -980,7 +1019,7 @@ from pathlib import Path
 from typing import Optional
 
 # ===========================================================================
-# 1. PURE-PYTHON AES-256-GCM ENGINE & NIST CAVP SELF-TEST
+# 1. PURE-PYTHON AES-256-GCM ENGINE & 8-BIT TABLE-DRIVEN GHASH
 # ===========================================================================
 
 S_BOX = [
@@ -1250,7 +1289,6 @@ def _xtime(a: int) -> int:
 
 
 def _key_expansion_256(key: bytes) -> list[int]:
-    """Expands a 32-byte key into a 60-word round key list (FIPS-197)."""
     w = list(key)
     for i in range(8, 60):
         temp = w[(i - 1) * 4 : i * 4]
@@ -1265,7 +1303,6 @@ def _key_expansion_256(key: bytes) -> list[int]:
 
 
 def _cipher_block(state: list[int], round_keys: list[int]) -> bytes:
-    """Standard 14-round AES-256 block transformation."""
     for i in range(16):
         state[i] ^= round_keys[i]
 
@@ -1339,7 +1376,6 @@ def _cipher_block(state: list[int], round_keys: list[int]) -> bytes:
 
 
 def _ghash_mult(x: int, y: int) -> int:
-    """Galois Field multiplication in GF(2^128) modulo x^128 + x^7 + x^2 + x + 1."""
     r = 0xE1000000000000000000000000000000
     z = 0
     v = x
@@ -1353,25 +1389,54 @@ def _ghash_mult(x: int, y: int) -> int:
     return z
 
 
+def _init_ghash_tables(h: int) -> list[list[int]]:
+    tables: list[list[int]] = []
+    for j in range(16):
+        shift = 8 * (15 - j)
+        basis = [_ghash_mult((1 << bit) << shift, h) for bit in range(8)]
+        table = [0] * 256
+        for b in range(1, 256):
+            low_bit = (b & -b).bit_length() - 1
+            table[b] = table[b & (b - 1)] ^ basis[low_bit]
+        tables.append(table)
+    return tables
+
+
+def _ghash_block(t: list[list[int]], x: int) -> int:
+    return (
+        t[0][(x >> 120) & 0xFF]
+        ^ t[1][(x >> 112) & 0xFF]
+        ^ t[2][(x >> 104) & 0xFF]
+        ^ t[3][(x >> 96) & 0xFF]
+        ^ t[4][(x >> 88) & 0xFF]
+        ^ t[5][(x >> 80) & 0xFF]
+        ^ t[6][(x >> 72) & 0xFF]
+        ^ t[7][(x >> 64) & 0xFF]
+        ^ t[8][(x >> 56) & 0xFF]
+        ^ t[9][(x >> 48) & 0xFF]
+        ^ t[10][(x >> 40) & 0xFF]
+        ^ t[11][(x >> 32) & 0xFF]
+        ^ t[12][(x >> 24) & 0xFF]
+        ^ t[13][(x >> 16) & 0xFF]
+        ^ t[14][(x >> 8) & 0xFF]
+        ^ t[15][x & 0xFF]
+    )
+
+
 def pure_aes_gcm_encrypt(
     key: bytes, iv: bytes, plaintext: bytes
 ) -> tuple[bytes, bytes]:
-    """
-    Encrypts bytes via AES-256-GCM according to NIST SP 800-38D.
-    Returns: (ciphertext, 16-byte authentication tag).
-    """
     if len(key) != 32:
         raise ValueError("Key must be 32 bytes (256 bits).")
     if len(iv) != 12:
         raise ValueError("Initialization vector must be 12 bytes (96 bits).")
 
     round_keys = _key_expansion_256(key)
-
     h_bytes = _cipher_block([0] * 16, round_keys)
     h = int.from_bytes(h_bytes, byteorder="big")
+    ghash_tables = _init_ghash_tables(h)
 
     j0 = iv + b"\x00\x00\x00\x01"
-
     ciphertext = bytearray()
     num_blocks = (len(plaintext) + 15) // 16
 
@@ -1384,17 +1449,16 @@ def pure_aes_gcm_encrypt(
             ciphertext.append(p_b ^ k_b)
 
     ciphertext_bytes = bytes(ciphertext)
-
-    s = 0
     pad_len = (16 - (len(ciphertext_bytes) % 16)) % 16
     padded_ct = ciphertext_bytes + (b"\x00" * pad_len)
 
+    s = 0
     for i in range(0, len(padded_ct), 16):
         block_int = int.from_bytes(padded_ct[i : i + 16], byteorder="big")
-        s = _ghash_mult(s ^ block_int, h)
+        s = _ghash_block(ghash_tables, s ^ block_int)
 
-    len_block = (0).to_bytes(8, "big") + (len(ciphertext_bytes) * 8).to_bytes(8, "big")
-    s = _ghash_mult(s ^ int.from_bytes(len_block, "big"), h)
+    len_block_int = len(ciphertext_bytes) * 8
+    s = _ghash_block(ghash_tables, s ^ len_block_int)
 
     tag_mask = _cipher_block(list(j0), round_keys)
     tag = bytes(a ^ b for a, b in zip(s.to_bytes(16, "big"), tag_mask))
@@ -1403,24 +1467,16 @@ def pure_aes_gcm_encrypt(
 
 
 def verify_cryptographic_engine():
-    """
-    Executes a NIST SP 800-38D Known-Answer Test (KAT) at startup.
-    Fails closed if arithmetic, S-box lookups, or GHASH diverge from spec.
-    """
     kat_key = bytes.fromhex("00" * 32)
     kat_iv = bytes.fromhex("00" * 12)
     kat_pt = bytes.fromhex("00" * 16)
-
     expected_ct = bytes.fromhex("cea7403d4d606b6e074ec5d3baf39d18")
     expected_tag = bytes.fromhex("d0d1c8a799996bf0265b98b5d48ab919")
 
     ct, tag = pure_aes_gcm_encrypt(kat_key, kat_iv, kat_pt)
-
     if ct != expected_ct or tag != expected_tag:
         raise RuntimeError(
-            "CRITICAL: Pure-Python AES-GCM engine failed NIST KAT verification.\n"
-            f"Expected CT:  {expected_ct.hex()}\nActual CT:    {ct.hex()}\n"
-            f"Expected Tag: {expected_tag.hex()}\nActual Tag:   {tag.hex()}"
+            "CRITICAL: Pure-Python AES-GCM engine failed NIST KAT verification."
         )
 
 
@@ -1471,37 +1527,34 @@ def parse_args():
         description="Deterministic Archival Static Site Generator (Zero-Dependency Cryptography)."
     )
     p.add_argument(
-        "--clean",
-        action="store_true",
-        help="Purge destination directory and hash manifest for a complete rebuild.",
+        "--clean", action="store_true", help="Purge destination directory and manifest."
     )
+    p.add_argument("--dry-run", action="store_true", help="Simulate build pipeline.")
     p.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Simulate the build pipeline without modifying disk.",
-    )
-    p.add_argument(
-        "--verbose",
-        action="store_true",
-        help="Output granular diagnostic logs.",
+        "--verbose", action="store_true", help="Output granular diagnostic logs."
     )
     p.add_argument(
         "--workers",
         type=int,
         default=os.cpu_count() or 4,
-        help="Worker process concurrency pool size (default: CPU core count).",
+        help="Worker concurrency pool.",
     )
     p.add_argument(
         "--password",
         type=str,
         default=os.environ.get("KYKLOI_ENCRYPT_KEY"),
-        help="Passphrase for /secure/ content encryption (or set KYKLOI_ENCRYPT_KEY).",
+        help="Secure passphrase.",
+    )
+    p.add_argument(
+        "--test-frontmatter",
+        action="store_true",
+        help="Run comprehensive unit tests on the YAML scanner.",
     )
     return p.parse_args()
 
 
 # ===========================================================================
-# 4. CRYPTOGRAPHIC HASHING, SECURE TREES & ENVELOPE UTILITIES
+# 4. CRYPTOGRAPHIC HASHING & ENVELOPE UTILITIES
 # ===========================================================================
 
 
@@ -1524,38 +1577,29 @@ def compute_global_dependencies_hash() -> str:
         LUA_FILTER,
         DEFAULT_TEMPLATE,
         METADATA_TEMPLATE,
+        Path(
+            __file__
+        ).resolve(),  # Self-tracking ensures build script changes invalidate cache
     ]
-
     for f in tracked_files:
         if f.is_file():
             hasher.update(f.name.encode("utf-8"))
             hasher.update(compute_file_hash(f).encode("utf-8"))
-
     return hasher.hexdigest()
 
 
 def find_enclosing_secure_root(path: Path, src_root: Path) -> Optional[Path]:
-    """
-    Finds the topmost enclosing directory named 'secure' that contains the given path.
-    Supports arbitrary depth and multiple distinct 'secure' hierarchies.
-    """
     try:
         rel = path.relative_to(src_root)
     except ValueError:
         return None
-
     if "secure" not in rel.parts:
         return None
-
     idx = rel.parts.index("secure")
     return src_root.joinpath(*rel.parts[: idx + 1])
 
 
 def compute_secure_tree_assets_hash(assets: list[tuple[str, str]]) -> str:
-    """
-    Computes a deterministic SHA-256 digest over all non-markdown assets
-    within a specific secure directory tree.
-    """
     hasher = hashlib.sha256()
     for rel_path_str, file_hash in sorted(assets):
         hasher.update(rel_path_str.encode("utf-8"))
@@ -1564,21 +1608,17 @@ def compute_secure_tree_assets_hash(assets: list[tuple[str, str]]) -> str:
 
 
 def compute_passphrase_fingerprint(passphrase: str) -> str:
-    """
-    Computes a non-reversible cryptographic fingerprint of the encryption key
-    to store in the manifest for dirty-checking key rotations.
-    """
     salt = b"kykloi:key_rotation_fingerprint:v1"
     return hashlib.sha256(salt + passphrase.encode("utf-8")).hexdigest()
 
 
+# Iterations calibrated for permacomputing & low-power ARM responsiveness
+DEFAULT_PBKDF2_ITERATIONS = 100_000
+
+
 def derive_key(passphrase: str, salt: bytes) -> bytes:
     return hashlib.pbkdf2_hmac(
-        "sha256",
-        passphrase.encode("utf-8"),
-        salt,
-        600000,
-        dklen=32,
+        "sha256", passphrase.encode("utf-8"), salt, DEFAULT_PBKDF2_ITERATIONS, dklen=32
     )
 
 
@@ -1586,9 +1626,20 @@ def encrypt_payload(html_content: str, passphrase: str) -> str:
     salt = os.urandom(16)
     iv = os.urandom(12)
     key = derive_key(passphrase, salt)
+    pt_bytes = html_content.encode("utf-8")
 
-    ciphertext, tag = pure_aes_gcm_encrypt(key, iv, html_content.encode("utf-8"))
+    # Opportunistic acceleration via system openssl CLI if present
+    if shutil.which("openssl"):
+        try:
+            cmd = ["openssl", "enc", "-aes-256-gcm", "-K", key.hex(), "-iv", iv.hex()]
+            proc = subprocess.run(cmd, input=pt_bytes, capture_output=True, check=True)
+            envelope = salt + iv + proc.stdout
+            return base64.b64encode(envelope).decode("ascii")
+        except Exception as err:
+            logging.debug("OpenSSL accelerator fallback triggered: %s", err)
 
+    # Permacomputing Fallback: Pure-Python Engine
+    ciphertext, tag = pure_aes_gcm_encrypt(key, iv, pt_bytes)
     envelope = salt + iv + ciphertext + tag
     return base64.b64encode(envelope).decode("ascii")
 
@@ -1602,7 +1653,7 @@ def load_manifest(manifest_path: Path) -> dict:
                     return data
         except (json.JSONDecodeError, OSError) as e:
             logging.warning(
-                "Corrupt manifest encountered (%s). Initializing empty manifest.", e
+                "Corrupt manifest encountered (%s). Initializing fresh manifest.", e
             )
     return {}
 
@@ -1619,67 +1670,164 @@ def save_manifest(manifest_path: Path, manifest: dict, dry_run: bool):
 
 
 # ===========================================================================
-# 5. METADATA EXTRACTION & SEARCH INDEX GENERATION
+# 5. ZERO-DEPENDENCY IN-MEMORY YAML FRONTMATTER PARSER
 # ===========================================================================
 
 
-def extract_metadata_via_pandoc(
-    md_path: Path, template_path: Path
-) -> tuple[Path, dict[str, str]]:
-    cmd = [
-        "pandoc",
-        str(md_path),
-        "--template",
-        str(template_path),
-        "-t",
-        "plain",
-    ]
+def parse_frontmatter_robust(text: str) -> dict:
+    """
+    Zero-dependency, state-machine YAML frontmatter parser.
+    Handles:
+      - Colons in titles and quoted strings.
+      - Multiline block scalars (folded '>' and literal '|').
+      - Both list styles: inline arrays `[a, b]` and bulleted `- item`.
+      - Comment stripping and nested indent boundary tracking.
+    """
+    if not text.startswith("---"):
+        return {}
 
+    lines = text.splitlines()
+    yaml_lines = []
+    for line in lines[1:]:
+        if line.strip() in ("---", "..."):
+            break
+        yaml_lines.append(line)
+
+    result = {}
+    current_key = None
+    multiline_mode = None  # '|' or '>'
+    multiline_accumulator = []
+
+    def commit_multiline():
+        nonlocal current_key, multiline_mode, multiline_accumulator
+        if current_key and multiline_mode:
+            if multiline_mode == "|":
+                val = "\n".join(multiline_accumulator)
+            else:  # '>' folded style
+                val = " ".join(" ".join(multiline_accumulator).split())
+            result[current_key] = val
+        multiline_mode = None
+        multiline_accumulator = []
+
+    for line in yaml_lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+
+        indent = len(line) - len(line.lstrip())
+
+        # 1. Accumulate multiline blocks
+        if multiline_mode and indent > 0:
+            multiline_accumulator.append(stripped)
+            continue
+        elif multiline_mode and indent == 0:
+            commit_multiline()
+
+        # 2. Accumulate bulleted lists
+        if stripped.startswith("- ") and current_key:
+            item = stripped[2:].strip().strip("'\"")
+            if not isinstance(result.get(current_key), list):
+                result[current_key] = []
+            result[current_key].append(item)
+            continue
+
+        # 3. Key-Value Extraction
+        if ":" in stripped:
+            key, raw_val = stripped.split(":", 1)
+            key = key.strip()
+            raw_val = raw_val.strip()
+            current_key = key
+
+            # Check for folded (>) or literal (|) block scalars
+            if raw_val in ("|", ">"):
+                multiline_mode = raw_val
+                multiline_accumulator = []
+                continue
+
+            # Check for inline list [a, b, c]
+            if raw_val.startswith("[") and raw_val.endswith("]"):
+                inner = raw_val[1:-1].strip()
+                if not inner:
+                    result[key] = []
+                else:
+                    result[key] = [
+                        x.strip().strip("'\"") for x in inner.split(",") if x.strip()
+                    ]
+                continue
+
+            # Quoted or unquoted scalar
+            if (raw_val.startswith('"') and raw_val.endswith('"')) or (
+                raw_val.startswith("'") and raw_val.endswith("'")
+            ):
+                raw_val = raw_val[1:-1]
+
+            result[key] = raw_val
+
+    commit_multiline()
+    return result
+
+
+def extract_metadata_fast(md_path: Path) -> tuple[Path, dict[str, str]]:
+    """In-memory extraction executing in microseconds per file."""
     meta = {
         "title": "",
         "keywords": "",
         "date_edtf": "",
-        "abstract": "",
     }
 
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    if result.returncode != 0:
-        logging.warning(
-            "Pandoc metadata extraction failed for %s: %s",
-            md_path.name,
-            result.stderr.strip(),
-        )
-    else:
-        try:
-            raw_meta = json.loads(result.stdout.strip())
-            if isinstance(raw_meta, dict):
-                title_val = raw_meta.get("title", "")
-                meta["title"] = str(title_val).strip()
+    try:
+        with open(md_path, "r", encoding="utf-8") as f:
+            header = f.read(16384)  # Read opening 16 KB for frontmatter
 
-                date_val = raw_meta.get("date_edtf", "")
-                meta["date_edtf"] = str(date_val).strip()
+        parsed = parse_frontmatter_robust(header)
 
-                keywords_val = raw_meta.get("keywords", "")
-                if isinstance(keywords_val, list):
-                    meta["keywords"] = " ".join(str(k).strip() for k in keywords_val)
-                elif isinstance(keywords_val, str):
-                    meta["keywords"] = keywords_val.strip()
+        title_val = parsed.get("title", "")
+        meta["title"] = str(title_val).strip()
 
-                abstract_val = raw_meta.get("abstract", "")
-                if isinstance(abstract_val, str):
-                    meta["abstract"] = " ".join(abstract_val.split())
+        date_val = parsed.get("date_edtf") or parsed.get("date", "")
+        meta["date_edtf"] = str(date_val).strip()
 
-        except json.JSONDecodeError as err:
-            logging.warning(
-                "Malformed JSON from Pandoc metadata extraction on %s: %s",
-                md_path.name,
-                err,
-            )
+        keywords_val = parsed.get("keywords", "")
+        if isinstance(keywords_val, list):
+            meta["keywords"] = " ".join(str(k).strip() for k in keywords_val)
+        elif isinstance(keywords_val, str):
+            meta["keywords"] = keywords_val.strip()
+
+    except OSError as err:
+        logging.warning("Error reading %s: %s", md_path.name, err)
 
     if not meta["title"]:
         meta["title"] = md_path.stem.replace("-", " ").replace("_", " ").title()
 
     return md_path, meta
+
+
+def test_frontmatter_suite():
+    """Deterministic validation test suite verifying frontmatter edge cases."""
+    test_yaml = """---
+title: "Project Kykloi: Advanced Archival Systems"
+date_edtf: 2026-11-08
+keywords:
+  - permacomputing
+  - "offline-first"
+  - static-site
+abstract: >
+  This is a multiline folded abstract intended to verify
+  that line continuation and word spacing fold correctly into
+  a single continuous string without line breaks.
+---
+# Document content begins here
+"""
+    parsed = parse_frontmatter_robust(test_yaml)
+    assert parsed["title"] == "Project Kykloi: Advanced Archival Systems", (
+        "Title with colon failed"
+    )
+    assert parsed["date_edtf"] == "2026-11-08", "Date extraction failed"
+    assert parsed["keywords"] == ["permacomputing", "offline-first", "static-site"], (
+        "Bulleted list failed"
+    )
+    assert "single continuous string" in parsed["abstract"], "Folded abstract failed"
+    print("ALL FRONTMATTER PARSER UNIT TESTS PASSED SUCCESSFULLY.")
 
 
 def write_minisearch_index(records: list[dict], out_path: Path, dry_run: bool):
@@ -1705,9 +1853,7 @@ def compile_markdown_worker(task: CompileTask) -> tuple[Path, bool, Optional[str
 
     css_files = ["assets/css/pico.css", "assets/css/style.css"]
 
-    # ---------------------------------------------------------
     # CASE 1: Standard Unencrypted Document
-    # ---------------------------------------------------------
     if not task.is_secure:
         cmd = [
             "pandoc",
@@ -1733,9 +1879,7 @@ def compile_markdown_worker(task: CompileTask) -> tuple[Path, bool, Optional[str
             return task.md_path, False, result.stderr.strip()
         return task.md_path, True, None
 
-    # ---------------------------------------------------------
     # CASE 2: Secure Encrypted Document
-    # ---------------------------------------------------------
     if not task.passphrase:
         return (
             task.md_path,
@@ -1743,7 +1887,6 @@ def compile_markdown_worker(task: CompileTask) -> tuple[Path, bool, Optional[str
             "Cannot compile secure file: No passphrase provided.",
         )
 
-    # Search immediate parent first, then fallback to secure boundary root
     resource_paths = [str(task.md_path.parent)]
     if task.secure_root and task.secure_root != task.md_path.parent:
         resource_paths.append(str(task.secure_root))
@@ -1811,19 +1954,17 @@ def prune_orphans(dst_dir: Path, expected_files: set[Path], dry_run: bool) -> in
 
     orphans_removed = 0
     for item in list(dst_dir.rglob("*")):
-        if item.is_file():
-            if item.resolve() not in expected_files:
-                if not dry_run:
-                    item.unlink()
-                orphans_removed += 1
-                logging.debug("Pruned orphan file: %s", item)
+        if item.is_file() and item.resolve() not in expected_files:
+            if not dry_run:
+                item.unlink()
+            orphans_removed += 1
+            logging.debug("Pruned orphan file: %s", item)
 
     for dirpath in sorted(dst_dir.rglob("*"), key=lambda p: len(p.parts), reverse=True):
-        if dirpath.is_dir():
-            if not any(dirpath.iterdir()):
-                if not dry_run:
-                    dirpath.rmdir()
-                logging.debug("Pruned empty dir: %s", dirpath)
+        if dirpath.is_dir() and not any(dirpath.iterdir()):
+            if not dry_run:
+                dirpath.rmdir()
+            logging.debug("Pruned empty dir: %s", dirpath)
 
     return orphans_removed
 
@@ -1835,6 +1976,10 @@ def prune_orphans(dst_dir: Path, expected_files: set[Path], dry_run: bool) -> in
 
 def main():
     args = parse_args()
+    if args.test_frontmatter:
+        test_frontmatter_suite()
+        return
+
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(levelname)s: %(message)s",
@@ -1897,9 +2042,6 @@ def main():
             logging.error("Encryption passphrase cannot be empty.")
             sys.exit(1)
 
-    # -----------------------------------------------------------------------
-    # Key Fingerprint & Passphrase Invalidation Tracking
-    # -----------------------------------------------------------------------
     passphrase_changed = False
     if has_secure_files and passphrase:
         current_key_fingerprint = compute_passphrase_fingerprint(passphrase)
@@ -1907,19 +2049,15 @@ def main():
         old_key_fingerprint = old_manifest.get("__PASSPHRASE_FINGERPRINT__")
 
         if old_manifest and old_key_fingerprint is None:
-            # Transition from a manifest version lacking key tracking
             passphrase_changed = True
         elif old_key_fingerprint != current_key_fingerprint:
             passphrase_changed = True
 
         if passphrase_changed:
             logging.info(
-                "Passphrase rotation detected. Flagging all secure documents for re-encryption."
+                "Passphrase rotation detected. Flagging secure documents for re-encryption."
             )
 
-    # -----------------------------------------------------------------------
-    # Media and Secure Boundary Invalidation Tracking
-    # -----------------------------------------------------------------------
     secure_tree_assets: dict[Path, list[tuple[str, str]]] = {}
     asset_sync_jobs: list[tuple[Path, Path]] = []
 
@@ -1931,13 +2069,11 @@ def main():
         secure_root = find_enclosing_secure_root(p, SRC)
 
         if secure_root is not None:
-            # Non-markdown asset embedded directly into secure HTML
             h = compute_file_hash(p)
             rel_to_root = p.relative_to(secure_root).as_posix()
             secure_tree_assets.setdefault(secure_root, []).append((rel_to_root, h))
             new_manifest[f"secure_asset:{rel_src.as_posix()}"] = h
         else:
-            # Unencrypted asset copied directly to dist/
             target = DST / rel_src
             expected_outputs.add(target.resolve())
             manifest_key = f"media:{rel_src.as_posix()}"
@@ -1946,14 +2082,12 @@ def main():
             if not target.exists() or old_manifest.get(manifest_key) != h:
                 asset_sync_jobs.append((p, target))
 
-    # Identify all secure roots across the repository
     all_secure_roots: set[Path] = set(secure_tree_assets.keys())
     for md in md_files:
         s_root = find_enclosing_secure_root(md, SRC)
         if s_root is not None:
             all_secure_roots.add(s_root)
 
-    # Compute composite digests per isolated secure boundary
     current_secure_tree_hashes: dict[Path, str] = {}
     for s_root in all_secure_roots:
         assets = secure_tree_assets.get(s_root, [])
@@ -1962,9 +2096,6 @@ def main():
         rel_root = s_root.relative_to(SRC).as_posix()
         new_manifest[f"secure_tree_assets:{rel_root}"] = tree_hash
 
-    # -----------------------------------------------------------------------
-    # Markdown Dirty Checking & Task Scheduling
-    # -----------------------------------------------------------------------
     metadata_extraction_jobs: list[Path] = []
     file_metadata_map: dict[Path, dict[str, str]] = {}
 
@@ -2031,28 +2162,17 @@ def main():
                 )
             )
 
-    # -----------------------------------------------------------------------
-    # Metadata Extraction Subsystem
-    # -----------------------------------------------------------------------
+    # In-memory metadata scanning for changed documents
     if metadata_extraction_jobs:
         logging.info(
-            "Extracting metadata from %d file(s) via Pandoc CLI...",
+            "Extracting metadata from %d file(s) in-memory...",
             len(metadata_extraction_jobs),
         )
-        with concurrent.futures.ThreadPoolExecutor(
-            max_workers=args.workers
-        ) as meta_executor:
-            futures = [
-                meta_executor.submit(
-                    extract_metadata_via_pandoc, md_file, METADATA_TEMPLATE
-                )
-                for md_file in metadata_extraction_jobs
-            ]
-            for future in concurrent.futures.as_completed(futures):
-                md_path, extracted_meta = future.result()
-                file_metadata_map[md_path] = extracted_meta
-                rel = md_path.relative_to(SRC)
-                new_manifest[f"meta:{rel.as_posix()}"] = extracted_meta
+        for md_path in metadata_extraction_jobs:
+            _, extracted_meta = extract_metadata_fast(md_path)
+            file_metadata_map[md_path] = extracted_meta
+            rel = md_path.relative_to(SRC)
+            new_manifest[f"meta:{rel.as_posix()}"] = extracted_meta
 
     search_records: list[dict] = []
     for idx, md in enumerate(md_files):
@@ -2065,16 +2185,12 @@ def main():
                 "title": meta["title"],
                 "keywords": meta["keywords"],
                 "date_edtf": meta["date_edtf"],
-                "abstract": meta["abstract"],
                 "url": clean_url,
             }
         )
 
     expected_outputs.add(SEARCH_INDEX_FILE.resolve())
 
-    # -----------------------------------------------------------------------
-    # Static Assets & Dist Synchronization
-    # -----------------------------------------------------------------------
     assets_src = APP_DIR / "assets"
     if assets_src.exists():
         for p in assets_src.rglob("*"):
@@ -2102,9 +2218,7 @@ def main():
                     asset_sync_jobs.append((p, target))
 
     orphans_pruned = prune_orphans(
-        dst_dir=DST,
-        expected_files=expected_outputs,
-        dry_run=args.dry_run,
+        dst_dir=DST, expected_files=expected_outputs, dry_run=args.dry_run
     )
     if orphans_pruned:
         logging.info("Pruned %d orphaned artifact(s).", orphans_pruned)
@@ -2118,9 +2232,6 @@ def main():
     if synced_assets:
         logging.info("Synced %d modified/new asset(s).", synced_assets)
 
-    # -----------------------------------------------------------------------
-    # Concurrent Compilation Subsystem
-    # -----------------------------------------------------------------------
     total_md = len(md_files)
     to_compile = len(compile_tasks)
     failed = 0
@@ -2191,6 +2302,7 @@ writer: html
 embed-resources: false
 variables:
   document-css: false
+  title: false
 filters:
   - citeproc
 top-level-division: chapter
@@ -2248,7 +2360,3 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = []
 ```
-
-## query
-
-i would like to implement an 8-bit ghash strategy to improve performance of media encryption. discuss. are there caveats that i should consider before implementation? provide a full revision of build_site.py for review of the recommended refactor for review.

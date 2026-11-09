@@ -4,7 +4,6 @@ window.__SEARCH_DOCS__ = [
     "title": "Pandoc Markdown",
     "keywords": "pandoc markdown computer reference",
     "date_edtf": "2026-06-25T06:46:00",
-    "abstract": "",
     "url": "pandoc_markdown.html"
   },
   {
@@ -12,7 +11,6 @@ window.__SEARCH_DOCS__ = [
     "title": "Nested Dir Test",
     "keywords": "delete",
     "date_edtf": "2026-10-31T16:59:27",
-    "abstract": "",
     "url": "secure/20261031165927-nested-directory-test.html"
   }
 ];

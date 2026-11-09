@@ -42,6 +42,11 @@
     --pico-font-family: var(--pico-font-family-serif);
 }
 
+h1 {
+    text-align: center;
+    color: var(--pico-primary);
+}
+
 span.smallcaps {
     font-variant: small-caps;
 }
@@ -127,21 +132,13 @@ main p > img {
     box-sizing: border-box;
 }
 
-/*
-math[display="block"] {
-    font-size: 1.15em;
-    margin-top: var(--pico-typography-spacing-vertical);
-    margin-bottom: var(--pico-typography-spacing-vertical);
-    overflow-x: auto;
-    display: block;
-}
-*/
-
 .katex-display {
-    /* font-size: 1.15em; */
     margin-top: var(--pico-typography-spacing-vertical);
     margin-bottom: var(--pico-typography-spacing-vertical);
     overflow-x: auto;
+    overflow-y: hidden;
+    padding-top: 0.5em;
+    padding-bottom: 0.5em;
 }
 
 .brand_text {

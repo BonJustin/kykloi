@@ -3,6 +3,7 @@ writer: html
 embed-resources: false
 variables:
   document-css: false
+  title: false
 filters:
   - citeproc
 top-level-division: chapter
