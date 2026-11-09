@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import shutil
+import sqlite3
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -490,7 +491,7 @@ try:
     METADATA_TEMPLATE = APP_DIR / "templates" / "metadata.json"
     LUA_FILTER = APP_DIR / "translate_links.lua"
     MANIFEST_FILE = APP_DIR / ".build_manifest.json"
-    SEARCH_INDEX_FILE = DST / "search_index.js"
+    SEARCH_DB_FILE = DST / "search.db"
 
 except Exception as err:
     print(f"CRITICAL CONFIGURATION ERROR: {err}", file=sys.stderr)
@@ -527,7 +528,7 @@ class EncryptBlobTask:
 
 def parse_args():
     p = argparse.ArgumentParser(
-        description="Deterministic Archival Static Site Generator (Zero-Dependency Cryptography)."
+        description="Deterministic Archival Static Site Generator (Zero-Dependency Cryptography & SQLite FTS5)."
     )
     p.add_argument(
         "--clean", action="store_true", help="Purge destination directory and manifest."
@@ -657,7 +658,7 @@ def save_manifest(manifest_path: Path, manifest: dict, dry_run: bool):
 
 
 # ===========================================================================
-# 5. ZERO-DEPENDENCY YAML FRONTMATTER PARSER
+# 5. ZERO-DEPENDENCY YAML FRONTMATTER PARSER & SQLITE FTS5 COMPILER
 # ===========================================================================
 
 
@@ -766,15 +767,79 @@ def extract_metadata_fast(md_path: Path) -> tuple[Path, dict[str, str]]:
     return md_path, meta
 
 
-def write_minisearch_index(records: list[dict], out_path: Path, dry_run: bool):
+def build_sqlite_search_index(
+    records: list[dict], out_path: Path, dry_run: bool
+) -> None:
     if dry_run:
-        logging.info("[DRY RUN] Would write search index to %s", out_path)
+        logging.info("[DRY RUN] Would compile SQLite FTS5 search index to %s", out_path)
         return
+
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    payload = f"window.__SEARCH_DOCS__ = {json.dumps(records, ensure_ascii=False, indent=2)};\n"
-    with open(out_path, "w", encoding="utf-8") as f:
-        f.write(payload)
-    logging.info("MiniSearch index written with %d documents.", len(records))
+    tmp_path = out_path.with_suffix(".tmp.db")
+    if tmp_path.exists():
+        tmp_path.unlink()
+
+    try:
+        conn = sqlite3.connect(tmp_path)
+        cursor = conn.cursor()
+
+        # Optimize pragma settings for immutable static distribution
+        cursor.execute("PRAGMA page_size = 4096;")
+        cursor.execute("PRAGMA journal_mode = OFF;")
+        cursor.execute("PRAGMA synchronous = OFF;")
+
+        cursor.execute(
+            """
+            CREATE VIRTUAL TABLE docs_fts USING fts5(
+                title,
+                keywords,
+                date_edtf,
+                url UNINDEXED,
+                tokenize='porter unicode61'
+            );
+            """
+        )
+
+        cursor.executemany(
+            """
+            INSERT INTO docs_fts (title, keywords, date_edtf, url)
+            VALUES (?, ?, ?, ?);
+            """,
+            [
+                (
+                    r.get("title", ""),
+                    r.get("keywords", ""),
+                    r.get("date_edtf", ""),
+                    r.get("url", ""),
+                )
+                for r in records
+            ],
+        )
+
+        conn.commit()
+
+        # Merge B-Tree segments into a single balanced index for optimal query speed
+        cursor.execute("INSERT INTO docs_fts(docs_fts) VALUES('optimize');")
+        conn.commit()
+
+        # Reclaim all unused pages
+        cursor.execute("VACUUM;")
+        conn.close()
+
+        # Atomic move to final destination
+        tmp_path.replace(out_path)
+        logging.info(
+            "Compiled SQLite FTS5 index to %s (%d records, %d bytes).",
+            out_path.name,
+            len(records),
+            out_path.stat().st_size,
+        )
+
+    except Exception as exc:
+        if tmp_path.exists():
+            tmp_path.unlink()
+        logging.error("Failed to build SQLite search index: %s", exc)
+        raise
 
 
 # ===========================================================================
@@ -847,7 +912,6 @@ def compile_markdown_worker(task: CompileTask) -> tuple[Path, bool, Optional[str
         return task.md_path, False, f"Encryption failed: {e}"
 
     # Step 2c: Generate standalone outer envelope
-    # We pass the markdown file so Pandoc extracts its YAML frontmatter for <title>, <meta>, etc.
     envelope_cmd = [
         "pandoc",
         str(task.md_path),
@@ -1015,7 +1079,6 @@ def main():
         h = compute_file_hash(p)
 
         if is_secure_path(p, SRC):
-            # Target is dist/secure/.../filename.ext.enc
             target = DST / rel_src.with_name(rel_src.name + ".enc")
             expected_outputs.add(target.resolve())
             manifest_key = f"secure_blob:{rel_src.as_posix()}"
@@ -1037,7 +1100,6 @@ def main():
                     )
                 )
         else:
-            # Public media copied verbatim
             target = DST / rel_src
             expected_outputs.add(target.resolve())
             manifest_key = f"media:{rel_src.as_posix()}"
@@ -1126,7 +1188,8 @@ def main():
             }
         )
 
-    expected_outputs.add(SEARCH_INDEX_FILE.resolve())
+    # Register search.db as an expected output for prune_orphans tracking
+    expected_outputs.add(SEARCH_DB_FILE.resolve())
 
     # Build assets (css, fonts, js, katex)
     assets_src = APP_DIR / "assets"
@@ -1236,9 +1299,11 @@ def main():
     else:
         logging.info("All %d documents are verified current.", total_md)
 
-    # Search index is ALWAYS written if all compilations succeed
+    # 3. Compile SQLite FTS5 database and commit manifest
     if failed == 0:
-        write_minisearch_index(search_records, SEARCH_INDEX_FILE, dry_run=args.dry_run)
+        build_sqlite_search_index(search_records, SEARCH_DB_FILE, dry_run=args.dry_run)
+        if SEARCH_DB_FILE.exists() and not args.dry_run:
+            new_manifest["__SEARCH_DB_HASH__"] = compute_file_hash(SEARCH_DB_FILE)
         save_manifest(MANIFEST_FILE, new_manifest, args.dry_run)
         logging.info(
             "Build complete. (%d compiled, %d blobs encrypted, %d assets synced, %d orphans pruned)",
