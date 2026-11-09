@@ -1,5 +1,5 @@
 {
-  "__GLOBAL_DEPENDENCIES__": "05fe8d0b80e3437cb282f1bca586f46846271d3e996308ec0ce9a2e2a8ba32a2",
+  "__GLOBAL_DEPENDENCIES__": "9ff58695d2645f7d36a7ccad316a80efa81b838be3a29caf28f965f6ea5432dd",
   "__PASSPHRASE_FINGERPRINT__": "4393638cf2a7f507f3c05c7dd4466fccfe3fba6a37d520e6fa2b83bf6ecc3c09",
   "content:pandoc_markdown.md": "3914f266883b75bd3b5897dc802289022b2d2887930c4d7593b4d8a230a5a6e3",
   "content:secure/20261031165927-nested-directory-test.md": "720942513e72914bbc7130f720c9cba694c1e5559aacec161b19afb4c3b9712e",
@@ -10,8 +10,9 @@
   "functional_asset:fonts/libertinusserif-bolditalic-webfont.woff2": "8bcd96d8a8527302bd08a356a72658eaf65265b38b9ad9361a7b877ca117eb02",
   "functional_asset:fonts/libertinusserif-italic-webfont.woff2": "1fe1034e17e2a9885c59a6345164db60bd24b4619dfb2257d70ec9b49a4455bd",
   "functional_asset:fonts/libertinusserif-regular-webfont.woff2": "5de622c3da64cc6ab2aefafaf62c4e18d1fa8315994eb39bdf361b7e384883bd",
-  "functional_asset:js/decrypt copy.js": "ba8b8d5230c6a88f5c6bdca995d9bf988d2b5bbd4258bd3d81bee50dd847a8bb",
-  "functional_asset:js/decrypt.js": "5ca43203ad37008558374a5c89bdf4c2a4c5daf251f14e6e764eadde4136e5f1",
+  "functional_asset:js/decrypt.js": "ff1e0d779e1adbf552ec2d93b320dfa5414ec7ed27e79e1c0a35a7cb087d28ca",
+  "functional_asset:js/decrypt_1.js": "5ca43203ad37008558374a5c89bdf4c2a4c5daf251f14e6e764eadde4136e5f1",
+  "functional_asset:js/decrypt_2.js": "c9b252feef63691372eae2cac240026fe16846fa8aecfb42563a37d2a5091a77",
   "functional_asset:js/minisearch.min.js": "0205a8f71c82f33f56cf33176744acaeefd5282a3c910a4bfb9cda9566eb40de",
   "functional_asset:js/pico_search copy.js": "63d3a53ac528ee4cc3932fb3b8b938282ae76a6015aa55029fd6f3857d13127b",
   "functional_asset:js/pico_search.js": "8d16d22b1ccd91466ba85d91cb078b2d3fe8d57736c218b997a676a0362fb6df",
@@ -113,10 +114,9 @@
   "root_asset:favicon-96x96.png": "b90674f536d983b734e38f137349b3cdcba60be8e6fe3f0a7674aa74227ee8ff",
   "root_asset:favicon.ico": "05104d4cbd11f461ccbf5fbc296e4e097e8e9dac4f0e7240aad11a801d9f5eef",
   "root_asset:favicon.svg": "6c7c2b9eee6a5c8b1d8602b5752f701060a55e064e3420fa468f9ef0e714f593",
-  "root_asset:index.html": "aec71891a63bc7ef079199cd38686a4b540c9c1e30d02c5ccdbddd2a74ea2fc8",
+  "root_asset:index.html": "57272ba1bab9f70d876138015730e3008d7066a7041e1f757bfa28bfd5f02fd6",
   "root_asset:site.webmanifest": "6a8e197741ee4782f86a5e78aaa7cf9e50b1f86194280e1350e9c2f769ca3674",
   "root_asset:web-app-manifest-192x192.png": "ba6a3b76f7669044b4ad98c1305fe70f40ec747b33ac61498732121ff4f22841",
   "root_asset:web-app-manifest-512x512.png": "fc69648e769c50f90f4c3bdff6bd633cd2bfc7444f272b44978ba7756bf21c3a",
-  "secure_asset:secure/media/test_artemis_2.jpg": "f78ce6b60e9d016b48fda5a95c61dff93740c101362b6b541c867418fdd1af5f",
-  "secure_tree_assets:secure": "868c3902e603010d3fbcf81e66a175418582f381e78c39f4357ee009041a482d"
+  "secure_blob:secure/media/test_artemis_2.jpg": "f78ce6b60e9d016b48fda5a95c61dff93740c101362b6b541c867418fdd1af5f"
 }

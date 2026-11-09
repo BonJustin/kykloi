@@ -11,7 +11,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
   if (!payloadEl) return;
 
-  // Defensive Check: Ensure the browser context exposes the WebCrypto API
   if (
     typeof window.crypto === "undefined" ||
     typeof window.crypto.subtle === "undefined"
@@ -21,7 +20,7 @@ document.addEventListener("DOMContentLoaded", () => {
     );
     if (errorMsg) {
       errorMsg.textContent =
-        "Decryption unavailable: WebCrypto is disabled by your browser in this context (e.g., untrusted file:// origin).";
+        "Decryption unavailable: WebCrypto is disabled by your browser in this context.";
       errorMsg.style.display = "block";
     }
     if (passwordInput) passwordInput.disabled = true;
@@ -76,57 +75,126 @@ document.addEventListener("DOMContentLoaded", () => {
     return bytes;
   }
 
+  async function deriveAesKey(password, salt) {
+    const encoder = new TextEncoder();
+    const keyMaterial = await window.crypto.subtle.importKey(
+      "raw",
+      encoder.encode(password),
+      { name: "PBKDF2" },
+      false,
+      ["deriveKey"]
+    );
+
+    return await window.crypto.subtle.deriveKey(
+      {
+        name: "PBKDF2",
+        salt: salt,
+        iterations: 100000,
+        hash: "SHA-256",
+      },
+      keyMaterial,
+      { name: "AES-GCM", length: 256 },
+      false,
+      ["decrypt"]
+    );
+  }
+
   async function decryptEnvelope(password, rawText) {
-      let base64Payload = rawText.trim();
-      if (base64Payload.startsWith('"') && base64Payload.endsWith('"')) {
-        try {
-          base64Payload = JSON.parse(base64Payload);
-        } catch (e) {
-          console.warn("[Kykloi] JSON parse fallback used:", e);
+    let base64Payload = rawText.trim();
+    if (base64Payload.startsWith('"') && base64Payload.endsWith('"')) {
+      try {
+        base64Payload = JSON.parse(base64Payload);
+      } catch (e) {
+        console.warn("[Kykloi] JSON parse fallback used:", e);
+      }
+    }
+
+    const bytes = base64ToUint8Array(base64Payload);
+    if (bytes.length < 28) {
+      throw new Error("Payload too short to contain Salt + IV headers.");
+    }
+
+    const salt = bytes.subarray(0, 16);
+    const iv = bytes.subarray(16, 28);
+    const ciphertext = bytes.subarray(28);
+
+    const key = await deriveAesKey(password, salt);
+
+    const decryptedBuffer = await window.crypto.subtle.decrypt(
+      { name: "AES-GCM", iv: iv },
+      key,
+      ciphertext
+    );
+
+    return new TextDecoder().decode(decryptedBuffer);
+  }
+
+  function getMimeTypeFromUrl(url) {
+    const cleanUrl = url.split(/[?#]/)[0].replace(/\.enc$/i, "");
+    const ext = cleanUrl.split(".").pop().toLowerCase();
+    const mimeMap = {
+      jpg: "image/jpeg",
+      jpeg: "image/jpeg",
+      png: "image/png",
+      gif: "image/gif",
+      webp: "image/webp",
+      svg: "image/svg+xml",
+      bmp: "image/bmp",
+      ico: "image/x-icon",
+    };
+    return mimeMap[ext] || "application/octet-stream";
+  }
+
+  async function decryptBinaryBlob(password, arrayBuffer) {
+    const bytes = new Uint8Array(arrayBuffer);
+    if (bytes.length < 28) {
+      throw new Error("Encrypted blob too short.");
+    }
+
+    const salt = bytes.subarray(0, 16);
+    const iv = bytes.subarray(16, 28);
+    const ciphertext = bytes.subarray(28);
+
+    const key = await deriveAesKey(password, salt);
+
+    return await window.crypto.subtle.decrypt(
+      { name: "AES-GCM", iv: iv },
+      key,
+      ciphertext
+    );
+  }
+
+  async function hydrateEncryptedImages(container, password) {
+    const encryptedImgs = container.querySelectorAll(
+      'img[data-encrypted-media="true"], img[src$=".enc"]'
+    );
+
+    if (encryptedImgs.length === 0) return;
+
+    for (const img of encryptedImgs) {
+      const srcUrl = img.getAttribute("src");
+      if (!srcUrl) continue;
+
+      try {
+        const response = await fetch(srcUrl);
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status} fetching ${srcUrl}`);
         }
+
+        const buffer = await response.arrayBuffer();
+        const decryptedBuffer = await decryptBinaryBlob(password, buffer);
+
+        const mimeType = getMimeTypeFromUrl(srcUrl);
+        const blob = new Blob([decryptedBuffer], { type: mimeType });
+        const blobUrl = URL.createObjectURL(blob);
+
+        img.src = blobUrl;
+        img.removeAttribute("data-encrypted-media");
+      } catch (mediaErr) {
+        console.error(`[Kykloi] Failed to decrypt blob (${srcUrl}):`, mediaErr);
+        img.alt = `[Decryption error: ${img.alt || "image"}]`;
       }
-
-      const bytes = base64ToUint8Array(base64Payload);
-      console.debug(`[Kykloi] Envelope received: ${bytes.length} bytes.`);
-
-      if (bytes.length < 28) {
-        throw new Error("Payload too short to contain Salt + IV headers.");
-      }
-
-      // Static, predictable permacomputing format: 16B Salt + 12B IV + Ciphertext
-      const salt = bytes.subarray(0, 16);
-      const iv = bytes.subarray(16, 28);
-      const ciphertext = bytes.subarray(28);
-
-      const encoder = new TextEncoder();
-      const keyMaterial = await window.crypto.subtle.importKey(
-        "raw",
-        encoder.encode(password),
-        { name: "PBKDF2" },
-        false,
-        ["deriveKey"]
-      );
-
-      const key = await window.crypto.subtle.deriveKey(
-        {
-          name: "PBKDF2",
-          salt: salt,
-          iterations: 100000, // Matched to build_site.py
-          hash: "SHA-256",
-        },
-        keyMaterial,
-        { name: "AES-GCM", length: 256 },
-        false,
-        ["decrypt"]
-      );
-
-      const decryptedBuffer = await window.crypto.subtle.decrypt(
-        { name: "AES-GCM", iv: iv },
-        key,
-        ciphertext
-      );
-
-      return new TextDecoder().decode(decryptedBuffer);
+    }
   }
 
   form.addEventListener("submit", async (e) => {
@@ -134,7 +202,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
     if (errorMsg) {
       errorMsg.style.display = "none";
-      // Restore standard error text in case it was previously modified
       errorMsg.textContent =
         "Decryption failed: Incorrect passphrase or corrupted payload.";
     }
@@ -142,7 +209,6 @@ document.addEventListener("DOMContentLoaded", () => {
     const password = passwordInput.value;
     const rawPayload = payloadEl.textContent;
 
-    // 1. Lock the UI and provide visual feedback to prevent multiple submissions
     const originalButtonText = submitButton ? submitButton.textContent : "";
     if (submitButton) {
       submitButton.disabled = true;
@@ -153,9 +219,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     try {
-      console.debug("[Kykloi] Attempting decryption...");
       const html = await decryptEnvelope(password, rawPayload);
-      console.debug("[Kykloi] Decryption successful! Mounting document.");
 
       contentContainer.innerHTML = html;
       contentContainer.style.display = "block";
@@ -166,10 +230,12 @@ document.addEventListener("DOMContentLoaded", () => {
       }
 
       renderDecryptedMath(contentContainer);
+
+      // Decrypt and hydrate media blobs
+      hydrateEncryptedImages(contentContainer, password);
     } catch (err) {
       console.error("[Kykloi Decryption Error]:", err);
 
-      // 2. Unlock the UI and inform the user of failure
       if (errorMsg) {
         errorMsg.style.display = "block";
       }

@@ -77,56 +77,56 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   async function decryptEnvelope(password, rawText) {
-    let base64Payload = rawText.trim();
-    if (base64Payload.startsWith('"') && base64Payload.endsWith('"')) {
-      try {
-        base64Payload = JSON.parse(base64Payload);
-      } catch (e) {
-        console.warn("[Kykloi] JSON parse fallback used:", e);
+      let base64Payload = rawText.trim();
+      if (base64Payload.startsWith('"') && base64Payload.endsWith('"')) {
+        try {
+          base64Payload = JSON.parse(base64Payload);
+        } catch (e) {
+          console.warn("[Kykloi] JSON parse fallback used:", e);
+        }
       }
-    }
 
-    const bytes = base64ToUint8Array(base64Payload);
+      const bytes = base64ToUint8Array(base64Payload);
+      console.debug(`[Kykloi] Envelope received: ${bytes.length} bytes.`);
 
-    console.debug(`[Kykloi] Envelope received: ${bytes.length} bytes.`);
+      if (bytes.length < 28) {
+        throw new Error("Payload too short to contain Salt + IV headers.");
+      }
 
-    if (bytes.length < 28) {
-      throw new Error("Payload too short to contain Salt + IV headers.");
-    }
+      // Static, predictable permacomputing format: 16B Salt + 12B IV + Ciphertext
+      const salt = bytes.subarray(0, 16);
+      const iv = bytes.subarray(16, 28);
+      const ciphertext = bytes.subarray(28);
 
-    const salt = bytes.subarray(0, 16);
-    const iv = bytes.subarray(16, 28);
-    const ciphertext = bytes.subarray(28);
+      const encoder = new TextEncoder();
+      const keyMaterial = await window.crypto.subtle.importKey(
+        "raw",
+        encoder.encode(password),
+        { name: "PBKDF2" },
+        false,
+        ["deriveKey"]
+      );
 
-    const encoder = new TextEncoder();
-    const keyMaterial = await window.crypto.subtle.importKey(
-      "raw",
-      encoder.encode(password),
-      { name: "PBKDF2" },
-      false,
-      ["deriveKey"]
-    );
+      const key = await window.crypto.subtle.deriveKey(
+        {
+          name: "PBKDF2",
+          salt: salt,
+          iterations: 100000, // Matched to build_site.py
+          hash: "SHA-256",
+        },
+        keyMaterial,
+        { name: "AES-GCM", length: 256 },
+        false,
+        ["decrypt"]
+      );
 
-    const key = await window.crypto.subtle.deriveKey(
-      {
-        name: "PBKDF2",
-        salt: salt,
-        iterations: 600000,
-        hash: "SHA-256",
-      },
-      keyMaterial,
-      { name: "AES-GCM", length: 256 },
-      false,
-      ["decrypt"]
-    );
+      const decryptedBuffer = await window.crypto.subtle.decrypt(
+        { name: "AES-GCM", iv: iv },
+        key,
+        ciphertext
+      );
 
-    const decryptedBuffer = await window.crypto.subtle.decrypt(
-      { name: "AES-GCM", iv: iv },
-      key,
-      ciphertext
-    );
-
-    return new TextDecoder().decode(decryptedBuffer);
+      return new TextDecoder().decode(decryptedBuffer);
   }
 
   form.addEventListener("submit", async (e) => {
