@@ -1,16 +1,4 @@
-# project kykloi
-
-*personal archival knowlege base/notes repository.*
-
-**context**
-
-* the markdown/yaml frontmatter source has permacomputing and archival intent. the plaintext content tree is the sovereign source of truth, designed for indefinite preservation and disaster-recovery discovery using standard terminal utilities (grep, ripgrep, fzf). yaml frontmatter is exclusively metadata regarding the markdown content and is not used for display or program instruction.
-* the static site produced is intended to run in any modern browser served via a zero-dependency, local-first HTTP daemon (such as python's standard library `http.server`). reliance on the raw `file://` protocol is explicitly rejected due to erratic cross-browser sandbox restrictions regarding webcrypto (`crypto.subtle`), fetch interfaces, and worker threading.
-* runtime resource bounds are explicitly targeted for low-spec, memory-constrained hardware (e.g., raspberry pi 4, vintage laptops, low-end mobile devices). client-side memory allocation and execution models must remain stable and responsive even as repository document counts scale.
-* the intermediate layer (python, pandoc) is chosen for stable, long-term function and zero-friction portability across operating systems. to maximize toolchain lifespan and cross-platform compilation, external package dependencies (such as `cryptography`, `pyyaml`, or npm utilities) are strictly excluded in favor of python standard library routines (e.g., custom AES-GCM/GHASH engine, built-in sqlite3, manual frontmatter parsing) to eliminate fragile C/Rust build-chain dependencies.
-* the ssg functionality is only the first of multiple intended programmatic interactions with the markdown source repository.
-* ssg encryption is intentionally designed to prevent casual browsing and bot ingestion over public internet or ad-hoc local area networks. the searchability of yaml frontmatter (titles, dates, keywords) is an intentional architectural feature, not a data leak, allowing discovery of documents without exposing protected markdown or media bodies.
-* search indexes and compiled static views are strictly ephemeral, materialized projections of the markdown source. they can be purged, regenerated, or structurally altered at build time without compromising the underlying archive.
+# project kykloi context
 
 ## `tree ~/dev/kykloi`
 
@@ -30,7 +18,11 @@
 │   │   ├── js
 │   │   │   ├── decrypt.js
 │   │   │   ├── minisearch.min.js
-│   │   │   └── pico_search.js
+│   │   │   ├── pico_search.js
+│   │   │   ├── search_worker.js
+│   │   │   ├── sqlite3.js
+│   │   │   ├── sqlite3.wasm
+│   │   │   └── sqlite3-worker1.js
 │   │   └── katex
 │   │       ├── contrib
 │   │       │   ├── auto-render.js
@@ -121,6 +113,7 @@
 │   ├── pandoc_md_to_static_html.yaml
 │   ├── __pycache__
 │   │   ├── build_site_01.cpython-314.pyc
+│   │   ├── build_site.cpython-312.pyc
 │   │   └── build_site.cpython-314.pyc
 │   ├── root
 │   │   ├── apple-touch-icon.png
@@ -136,6 +129,8 @@
 │   │   └── metadata.json
 │   └── translate_links.lua
 ├── content
+│   ├── 202611
+│   │   └── 20261109130247-project_kykloi_task_list.md
 │   ├── media
 │   │   └── test_artemis_2.jpg
 │   ├── pandoc_markdown.md
@@ -144,6 +139,8 @@
 │       └── media
 │           └── test_artemis_2.jpg
 ├── dist
+│   ├── 202611
+│   │   └── 20261109130247-project_kykloi_task_list.html
 │   ├── apple-touch-icon.png
 │   ├── assets
 │   │   ├── css
@@ -156,12 +153,13 @@
 │   │   │   ├── libertinusserif-italic-webfont.woff2
 │   │   │   └── libertinusserif-regular-webfont.woff2
 │   │   ├── js
-│   │   │   ├── decrypt_1.js
-│   │   │   ├── decrypt_2.js
 │   │   │   ├── decrypt.js
 │   │   │   ├── minisearch.min.js
-│   │   │   ├── pico_search copy.js
-│   │   │   └── pico_search.js
+│   │   │   ├── pico_search.js
+│   │   │   ├── search_worker.js
+│   │   │   ├── sqlite3.js
+│   │   │   ├── sqlite3.wasm
+│   │   │   └── sqlite3-worker1.js
 │   │   └── katex
 │   │       ├── contrib
 │   │       │   ├── auto-render.js
@@ -255,7 +253,7 @@
 │   ├── media
 │   │   └── test_artemis_2.jpg
 │   ├── pandoc_markdown.html
-│   ├── search_index.js
+│   ├── search.db
 │   ├── secure
 │   │   ├── 20261031165927-nested-directory-test.html
 │   │   └── media
@@ -266,6 +264,9 @@
 ├── project_kykloi_context.md
 ├── pyproject.toml
 ├── README.md
+├── run_linux_mac.sh
+├── run_windows.bat
+├── serve.py
 └── uv.lock
 ```
 
@@ -425,32 +426,6 @@ main p > img {
 
 footer {
     color: var(--pico-muted-color);
-}
-
-/* --- Modal Search Constraints --- */
-#search-modal article {
-    max-height: 85vh;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-    padding-bottom: 0;
-}
-
-#search-modal article header {
-    flex-shrink: 0;
-    margin-bottom: var(--pico-spacing);
-}
-
-#search-modal #search-input {
-    flex-shrink: 0;
-    margin-bottom: var(--pico-spacing);
-}
-
-#search-modal #search-results {
-    overflow-y: auto;
-    flex-grow: 1;
-    margin-top: 0;
-    padding-right: 0.5rem;
 }
 ```
 
@@ -712,127 +687,552 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 ```
 
-## `pico_search.js`
+## pico_search.js
 
 ```javascript
-document.addEventListener("DOMContentLoaded", () => {
-  const searchModal = document.getElementById("search-modal");
-  const openSearchBtn = document.getElementById("open-search");
-  const closeSearchBtn = document.getElementById("close-search");
-  const searchInput = document.getElementById("search-input");
-  const searchResults = document.getElementById("search-results");
+/* pico_search.js - Kykloi SQLite3 FTS5 Search Hub Driver */
+"use strict";
 
-  const bodySearchInput = document.getElementById("body-search-input");
-  const bodySearchResults = document.getElementById("body-search-results");
+document.addEventListener("DOMContentLoaded", () => {
+  const bodyInput = document.getElementById("body-search-input");
+  const bodyResults = document.getElementById("body-search-results");
+  const navSearchBtn = document.getElementById("nav-search-btn");
+
+  // Exit immediately if this page does not contain the Search Hub input
+  if (!bodyInput || !bodyResults) return;
 
   const rawRoot = document.body.dataset.relativeRoot || "";
   const relativeRoot = rawRoot && !rawRoot.endsWith("/") ? `${rawRoot}/` : rawRoot;
 
-  let miniSearch = null;
+  const workerUrl = new URL(`${relativeRoot}assets/js/search_worker.js`, window.location.href).href;
+  const dbUrl = new URL(`${relativeRoot}search.db`, window.location.href).href;
 
-  function initMiniSearch() {
-    if (miniSearch) return;
+  let worker = null;
+  let activeSearchId = 0;
 
-    if (typeof MiniSearch === "undefined" || !window.__SEARCH_DOCS__) {
-      console.warn("Search index or MiniSearch library not loaded.");
-      return;
+  function initWorker() {
+    if (worker) return;
+
+    try {
+      worker = new Worker(workerUrl);
+
+      worker.onmessage = (e) => {
+        const { type, query, searchId, hits, hasMore, isDefault, error } = e.data || {};
+
+        if (type === "ready") {
+          // Immediately display the 50 most recent notes upon initialization
+          if (bodyInput.value.trim() === "") {
+            dispatchSearch("", bodyResults);
+          }
+          return;
+        }
+
+        if (type === "error") {
+          console.error("[Kykloi Search] Worker initialization failed:", error);
+          bodyResults.innerHTML = `
+            <li style="list-style: none; padding: 1rem 0; color: var(--pico-color-red-500); text-align: center;">
+              Search index unavailable: ${escapeHtml(error)}
+            </li>`;
+          return;
+        }
+
+        if (type === "results") {
+          if (searchId !== activeSearchId) return;
+          renderResults(hits, hasMore, query, isDefault, bodyResults);
+        }
+      };
+
+      worker.postMessage({ type: "init", dbUrl });
+    } catch (err) {
+      console.error("[Kykloi Search] Failed to create search worker:", err);
     }
-
-    miniSearch = new MiniSearch({
-      fields: ["title", "keywords", "date_edtf"],
-      storeFields: ["title", "url", "date_edtf"],
-      tokenize: (text) =>
-        text
-          .toLowerCase()
-          .split(/[\s,;:!()[\]{}"]+/)
-          .filter(Boolean),
-      searchOptions: {
-        boost: {
-          title: 4.0,
-          keywords: 2.5,
-          date_edtf: 1.5,
-        },
-        prefix: true,
-        fuzzy: (term) => (term.length > 3 ? 0.2 : false),
-        combineWith: "AND",
-      },
-    });
-
-    miniSearch.addAll(window.__SEARCH_DOCS__);
   }
 
-  function performSearch(query, resultsContainer) {
-    if (!resultsContainer) return;
-    initMiniSearch();
+  function escapeHtml(str) {
+    if (!str) return "";
+    return str
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+  }
 
-    const trimmed = query.trim();
-    if (!miniSearch || !trimmed) {
-      resultsContainer.innerHTML = "";
+  function renderResults(hits, hasMore, query, isDefault, container) {
+    if (!hits || hits.length === 0) {
+      container.innerHTML = `
+        <li style="list-style: none; padding: 1.5rem 0; text-align: center; color: var(--pico-muted-color);">
+          No documents matching "<strong>${escapeHtml(query.trim())}</strong>"
+        </li>`;
       return;
     }
 
-    const allHits = miniSearch.search(trimmed);
-    const maxDisplay = 100;
-    const hits = allHits.slice(0, maxDisplay);
+    let headerHtml = "";
+    if (isDefault) {
+      headerHtml = `
+        <li style="list-style: none; padding: 0.25rem 0 0.5rem 0; margin-bottom: 0.5rem; color: var(--pico-muted-color); font-size: 0.8rem; font-weight: bold; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 2px solid var(--pico-muted-border-color);">
+          Recent Notes (${hits.length})
+        </li>`;
+    }
 
-    let html = hits
+    let itemsHtml = hits
       .map((item) => {
         const cleanUrl = item.url.startsWith("/") ? item.url.slice(1) : item.url;
         const targetUrl = `${relativeRoot}${cleanUrl}`;
         const title = item.title || item.url;
 
         const dateHtml = item.date_edtf
-          ? `<time style="opacity: 0.65; font-size: 0.85em; margin-left: 0.5rem; font-family: monospace;">(${item.date_edtf})</time>`
+          ? `<time style="opacity: 0.65; font-size: 0.85em; margin-left: 0.5rem; font-family: monospace;">(${escapeHtml(item.date_edtf)})</time>`
           : "";
 
         return `
           <li style="list-style: none; border-bottom: 1px solid var(--pico-muted-border-color); padding: 0.6rem 0;">
             <a href="${targetUrl}" style="text-decoration: none; display: block;">
-              <span style="color: var(--pico-primary); font-weight: bold;">${title}</span>
+              <span style="color: var(--pico-primary); font-weight: bold;">${escapeHtml(title)}</span>
               ${dateHtml}
             </a>
-          </li>
-        `;
+          </li>`;
       })
       .join("");
 
-    if (allHits.length > maxDisplay) {
-      html += `
+    if (hasMore) {
+      itemsHtml += `
         <li style="list-style: none; padding: 0.75rem 0; text-align: center; color: var(--pico-muted-color); font-size: 0.85rem;">
-          Showing top ${maxDisplay} of ${allHits.length} results. Refine your query for more specific matches.
-        </li>
-      `;
+          Showing top 100 results. Refine your query for more specific matches.
+        </li>`;
     }
 
-    resultsContainer.innerHTML = html;
-    resultsContainer.scrollTop = 0;
+    container.innerHTML = headerHtml + itemsHtml;
   }
 
-  if (openSearchBtn && searchModal) {
-    openSearchBtn.addEventListener("click", (e) => {
+  function dispatchSearch(query, container) {
+    initWorker();
+    activeSearchId += 1;
+    worker.postMessage({
+      type: "search",
+      query: (query || "").trim(),
+      searchId: activeSearchId,
+    });
+  }
+
+  function debounce(fn, delayMs) {
+    let timer = null;
+    return (...args) => {
+      clearTimeout(timer);
+      timer = setTimeout(() => fn(...args), delayMs);
+    };
+  }
+
+  const debouncedSearch = debounce(dispatchSearch, 120);
+
+  bodyInput.addEventListener("input", (e) => {
+    debouncedSearch(e.target.value, bodyResults);
+  });
+
+  // Handle nav search button click on index page
+  if (navSearchBtn) {
+    navSearchBtn.addEventListener("click", (e) => {
       e.preventDefault();
-      searchModal.showModal();
-      initMiniSearch();
-      searchInput?.focus();
-    });
-
-    closeSearchBtn?.addEventListener("click", () => searchModal.close());
-
-    searchModal.addEventListener("click", (e) => {
-      if (e.target === searchModal) searchModal.close();
-    });
-
-    searchInput?.addEventListener("input", (e) => {
-      performSearch(e.target.value, searchResults);
+      bodyInput.focus();
+      bodyInput.scrollIntoView({ behavior: "smooth", block: "center" });
     });
   }
 
-  if (bodySearchInput && bodySearchResults) {
-    bodySearchInput.addEventListener("input", (e) => {
-      performSearch(e.target.value, bodySearchResults);
-    });
+  // Handle focus request if navigated from a note with ?focus=1
+  if (window.location.search.includes("focus=1")) {
+    bodyInput.focus();
   }
+
+  // Desktop default focus on load
+  if (window.innerWidth > 768) {
+    bodyInput.focus();
+  }
+
+  // Keyboard shortcuts (/ or Ctrl+K / Cmd+K to focus search on index)
+  window.addEventListener("keydown", (e) => {
+    const isModifierK = (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k";
+    const isSlash = e.key === "/" && !["INPUT", "TEXTAREA"].includes(document.activeElement?.tagName);
+
+    if (isModifierK || isSlash) {
+      e.preventDefault();
+      bodyInput.focus();
+      bodyInput.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  });
+
+  // Pre-initialize background worker
+  initWorker();
 });
+```
+
+## `search_worker.js`
+
+```javascript
+/* search_worker.js - Kykloi SQLite3 WASM FTS5 Search Worker */
+"use strict";
+
+importScripts("sqlite3.js");
+
+let sqlite3 = null;
+let db = null;
+let initPromise = null;
+
+/**
+ * Initializes the SQLite3 WASM runtime and deserializes search.db into memory.
+ */
+async function initDatabase(dbUrl) {
+  if (db) return;
+
+  if (!sqlite3) {
+    sqlite3 = await self.sqlite3InitModule({
+      print: (msg) => console.log("[Kykloi SQLite]", msg),
+      printErr: (msg) => console.error("[Kykloi SQLite Error]", msg),
+    });
+  }
+
+  const response = await fetch(dbUrl);
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status} fetching search index from ${dbUrl}`);
+  }
+
+  const arrayBuffer = await response.arrayBuffer();
+  const bytes = new Uint8Array(arrayBuffer);
+
+  const pData = sqlite3.wasm.allocFromTypedArray(bytes);
+  db = new sqlite3.oo1.DB();
+
+  const SQLITE_DESERIALIZE_FREEONCLOSE = sqlite3.capi.SQLITE_DESERIALIZE_FREEONCLOSE || 1;
+  const SQLITE_DESERIALIZE_RESIZEABLE = sqlite3.capi.SQLITE_DESERIALIZE_RESIZEABLE || 2;
+
+  const rc = sqlite3.capi.sqlite3_deserialize(
+    db.pointer,
+    "main",
+    pData,
+    bytes.byteLength,
+    bytes.byteLength,
+    SQLITE_DESERIALIZE_FREEONCLOSE | SQLITE_DESERIALIZE_RESIZEABLE
+  );
+
+  if (rc !== 0) {
+    throw new Error(`sqlite3_deserialize failed with return code: ${rc}`);
+  }
+}
+
+/**
+ * Builds candidate FTS5 queries.
+ * Supports advanced syntax (quotes, column filters, boolean operators) with a safe prefix fallback.
+ */
+function buildFtsQueries(rawQuery) {
+  const trimmed = rawQuery.trim();
+  if (!trimmed) return [];
+
+  const hasAdvancedSyntax = /["':]|\b(AND|OR|NOT)\b|^-/i.test(trimmed);
+
+  const tokens = trimmed
+    .replace(/[^\p{L}\p{N}_]+/gu, " ")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+
+  const fallbackQuery = tokens.length > 0
+    ? tokens.map((t) => `"${t.replace(/"/g, '""')}"*`).join(" ")
+    : null;
+
+  if (hasAdvancedSyntax) {
+    return [trimmed, fallbackQuery].filter(Boolean);
+  }
+
+  return [fallbackQuery].filter(Boolean);
+}
+
+/**
+ * Returns the 50 most recent documents (default view for empty query).
+ */
+function getRecentDocuments(searchId) {
+  if (!db) return;
+
+  const sql = `
+    SELECT title, url, date_edtf
+    FROM docs_fts
+    ORDER BY (date_edtf != '') DESC, date_edtf DESC, rowid DESC
+    LIMIT 50;
+  `;
+
+  const rows = [];
+  try {
+    db.exec({
+      sql,
+      rowMode: "object",
+      callback: (row) => rows.push(row),
+    });
+
+    self.postMessage({
+      type: "results",
+      query: "",
+      searchId,
+      hits: rows,
+      hasMore: false,
+      isDefault: true,
+    });
+  } catch (err) {
+    console.warn("[Kykloi Search Worker] Failed to fetch recent documents:", err);
+    self.postMessage({
+      type: "results",
+      query: "",
+      searchId,
+      hits: [],
+      hasMore: false,
+      isDefault: true,
+      error: err.message,
+    });
+  }
+}
+
+/**
+ * Executes full-text search against the docs_fts virtual table.
+ */
+function executeSearch(query, searchId) {
+  const trimmed = (query || "").trim();
+
+  // If query is empty, return the 50 most recent documents
+  if (!trimmed) {
+    getRecentDocuments(searchId);
+    return;
+  }
+
+  const candidateQueries = buildFtsQueries(trimmed);
+  if (candidateQueries.length === 0 || !db) {
+    self.postMessage({
+      type: "results",
+      query,
+      searchId,
+      hits: [],
+      hasMore: false,
+      isDefault: false,
+    });
+    return;
+  }
+
+  const sql = `
+    SELECT title, url, date_edtf
+    FROM docs_fts
+    WHERE docs_fts MATCH ?
+    ORDER BY rank
+    LIMIT 101;
+  `;
+
+  let rows = [];
+  let executionSuccess = false;
+
+  for (const ftsQuery of candidateQueries) {
+    try {
+      rows = [];
+      db.exec({
+        sql,
+        bind: [ftsQuery],
+        rowMode: "object",
+        callback: (row) => rows.push(row),
+      });
+      executionSuccess = true;
+      break;
+    } catch (err) {
+      // Loop falls back to the safe prefix query if advanced syntax threw a syntax error
+    }
+  }
+
+  if (!executionSuccess) {
+    self.postMessage({
+      type: "results",
+      query,
+      searchId,
+      hits: [],
+      hasMore: false,
+      isDefault: false,
+    });
+    return;
+  }
+
+  const hasMore = rows.length > 100;
+  const hits = hasMore ? rows.slice(0, 100) : rows;
+
+  self.postMessage({
+    type: "results",
+    query,
+    searchId,
+    hits,
+    hasMore,
+    isDefault: false,
+  });
+}
+
+self.onmessage = async (e) => {
+  const { type, dbUrl, query, searchId } = e.data || {};
+
+  switch (type) {
+    case "init":
+      if (!initPromise) {
+        initPromise = initDatabase(dbUrl)
+          .then(() => {
+            self.postMessage({ type: "ready" });
+          })
+          .catch((err) => {
+            initPromise = null;
+            self.postMessage({ type: "error", error: err.message });
+          });
+      }
+      break;
+
+    case "search":
+      if (initPromise) {
+        try {
+          await initPromise;
+          executeSearch(query || "", searchId);
+        } catch (err) {
+          self.postMessage({
+            type: "results",
+            query,
+            searchId,
+            hits: [],
+            hasMore: false,
+            isDefault: false,
+            error: err.message,
+          });
+        }
+      }
+      break;
+
+    default:
+      console.warn("[Kykloi Search Worker] Unhandled message type:", type);
+  }
+};
+```
+
+## `index.html`
+
+```html
+<!doctype html>
+<html data-theme="light" xmlns="http://www.w3.org/1999/xhtml">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="generator" content="pandoc" />
+        <meta
+            name="viewport"
+            content="width=device-width, initial-scale=1.0, user-scalable=yes"
+        />
+
+        <title>Κύκλοι</title>
+
+        <link rel="icon" type="image/x-icon" href="favicon.ico" />
+        <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+        <link
+            rel="icon"
+            type="image/png"
+            sizes="96x96"
+            href="favicon-96x96.png"
+        />
+        <link rel="apple-touch-icon" href="apple-touch-icon.png" />
+        <link rel="manifest" href="site.webmanifest" />
+
+        <link rel="stylesheet" href="assets/css/pico.css" />
+        <link rel="stylesheet" href="assets/css/style.css" />
+
+        <!-- Search Hub Driver (SQLite3 WASM FTS5) -->
+        <script src="assets/js/pico_search.js" defer></script>
+    </head>
+
+    <body data-relative-root="">
+        <header class="container site_header">
+            <nav>
+                <ul>
+                    <li>
+                        <span class="brand_text">
+                            <a href="index.html" style="text-decoration: none">JmB²</a>
+                        </span>
+                    </li>
+                </ul>
+                <ul>
+                    <li>
+                        <a href="index.html" data-tooltip="Home">
+                            <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                width="24"
+                                height="24"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="2"
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                                class="lucide lucide-house-icon lucide-house"
+                            >
+                                <path
+                                    d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"
+                                />
+                                <path
+                                    d="M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"
+                                />
+                            </svg>
+                        </a>
+                    </li>
+                    <li>
+                        <a href="#body-search-input" id="nav-search-btn" data-tooltip="Search Notes">
+                            <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                width="24"
+                                height="24"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="2"
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                                class="lucide lucide-search-icon lucide-search"
+                            >
+                                <path d="m21 21-4.34-4.34" />
+                                <circle cx="11" cy="11" r="8" />
+                            </svg>
+                        </a>
+                    </li>
+                </ul>
+            </nav>
+            <hr />
+        </header>
+
+        <main>
+            <div class="container">
+                <header id="title-block-header">
+                    <h1 class="title">Κύκλοι</h1>
+                </header>
+
+                <!-- Search Hub Input with autofocus -->
+                <input
+                    type="search"
+                    id="body-search-input"
+                    placeholder="Search titles, keywords, dates (or browse recent below)..."
+                    autocomplete="off"
+                    autocorrect="off"
+                    autocapitalize="off"
+                    spellcheck="false"
+                    autofocus
+                />
+
+                <!-- Search Results & Recent Notes Container -->
+                <ul
+                    id="body-search-results"
+                    style="list-style: none; padding-left: 0; margin-top: 1rem"
+                ></ul>
+            </div>
+        </main>
+
+        <footer class="container">
+            <hr />
+            <div class="grid">
+                <div></div>
+                <div style="text-align: right"></div>
+            </div>
+        </footer>
+    </body>
+</html>
 ```
 
 ## `md_to_static_html.html`
@@ -898,10 +1298,6 @@ document.addEventListener("DOMContentLoaded", () => {
         <link rel="stylesheet" href="$css$" />
         $endfor$
 
-        <script src="$relative_root$assets/js/minisearch.min.js" defer></script>
-        <script src="$relative_root$search_index.js" defer></script>
-        <script src="$relative_root$assets/js/pico_search.js" defer></script>
-
         $if(encrypted)$
         <script src="$relative_root$assets/js/decrypt.js" defer></script>
         <link rel="stylesheet" href="$relative_root$assets/katex/katex.min.css" />
@@ -951,7 +1347,10 @@ document.addEventListener("DOMContentLoaded", () => {
                         </a>
                     </li>
                     <li>
-                        <a href="#" id="open-search" data-tooltip="Search">
+                        <a
+                            href="$relative_root$index.html?focus=1"
+                            data-tooltip="Search Notes"
+                        >
                             <svg
                                 xmlns="http://www.w3.org/2000/svg"
                                 width="24"
@@ -987,12 +1386,21 @@ document.addEventListener("DOMContentLoaded", () => {
                         <p style="color: var(--pico-muted-color); font-size: 0.9rem;">
                             The contents of this document are encrypted. Enter the passphrase to decrypt.
                         </p>
-                        <form id="kykloi-decrypt-form">
+                        <!-- Form with complete browser/extension password save suppression -->
+                        <form id="kykloi-decrypt-form" autocomplete="off" onsubmit="return false;">
                             <fieldset role="group">
                                 <input
                                     type="password"
                                     id="kykloi-password"
+                                    name="kykloi_passphrase"
                                     placeholder="Enter passphrase..."
+                                    autocomplete="one-time-code"
+                                    autocorrect="off"
+                                    autocapitalize="off"
+                                    spellcheck="false"
+                                    data-1p-ignore="true"
+                                    data-bwignore="true"
+                                    data-lpignore="true"
                                     required
                                     autofocus
                                 />
@@ -1033,29 +1441,6 @@ __KYKLOI_ENCRYPTED_PAYLOAD__
 
             $for(include-after)$ $include-after$ $endfor$
         </footer>
-
-        <dialog id="search-modal">
-            <article style="width: 100%; max-width: 600px">
-                <header>
-                    <button
-                        aria-label="Close"
-                        rel="prev"
-                        id="close-search"
-                    ></button>
-                    <strong>Search Titles & Keywords</strong>
-                </header>
-                <input
-                    type="search"
-                    id="search-input"
-                    placeholder="Type to search..."
-                    autocomplete="off"
-                />
-                <ul
-                    id="search-results"
-                    style="list-style: none; padding-left: 0; margin-top: 1rem"
-                ></ul>
-            </article>
-        </dialog>
     </body>
 </html>
 ```
@@ -1078,6 +1463,7 @@ import json
 import logging
 import os
 import shutil
+import sqlite3
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -1561,7 +1947,7 @@ try:
     METADATA_TEMPLATE = APP_DIR / "templates" / "metadata.json"
     LUA_FILTER = APP_DIR / "translate_links.lua"
     MANIFEST_FILE = APP_DIR / ".build_manifest.json"
-    SEARCH_INDEX_FILE = DST / "search_index.js"
+    SEARCH_DB_FILE = DST / "search.db"
 
 except Exception as err:
     print(f"CRITICAL CONFIGURATION ERROR: {err}", file=sys.stderr)
@@ -1598,7 +1984,7 @@ class EncryptBlobTask:
 
 def parse_args():
     p = argparse.ArgumentParser(
-        description="Deterministic Archival Static Site Generator (Zero-Dependency Cryptography)."
+        description="Deterministic Archival Static Site Generator (Zero-Dependency Cryptography & SQLite FTS5)."
     )
     p.add_argument(
         "--clean", action="store_true", help="Purge destination directory and manifest."
@@ -1728,7 +2114,7 @@ def save_manifest(manifest_path: Path, manifest: dict, dry_run: bool):
 
 
 # ===========================================================================
-# 5. ZERO-DEPENDENCY YAML FRONTMATTER PARSER
+# 5. ZERO-DEPENDENCY YAML FRONTMATTER PARSER & SQLITE FTS5 COMPILER
 # ===========================================================================
 
 
@@ -1837,15 +2223,79 @@ def extract_metadata_fast(md_path: Path) -> tuple[Path, dict[str, str]]:
     return md_path, meta
 
 
-def write_minisearch_index(records: list[dict], out_path: Path, dry_run: bool):
+def build_sqlite_search_index(
+    records: list[dict], out_path: Path, dry_run: bool
+) -> None:
     if dry_run:
-        logging.info("[DRY RUN] Would write search index to %s", out_path)
+        logging.info("[DRY RUN] Would compile SQLite FTS5 search index to %s", out_path)
         return
+
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    payload = f"window.__SEARCH_DOCS__ = {json.dumps(records, ensure_ascii=False, indent=2)};\n"
-    with open(out_path, "w", encoding="utf-8") as f:
-        f.write(payload)
-    logging.info("MiniSearch index written with %d documents.", len(records))
+    tmp_path = out_path.with_suffix(".tmp.db")
+    if tmp_path.exists():
+        tmp_path.unlink()
+
+    try:
+        conn = sqlite3.connect(tmp_path)
+        cursor = conn.cursor()
+
+        # Optimize pragma settings for immutable static distribution
+        cursor.execute("PRAGMA page_size = 4096;")
+        cursor.execute("PRAGMA journal_mode = OFF;")
+        cursor.execute("PRAGMA synchronous = OFF;")
+
+        cursor.execute(
+            """
+            CREATE VIRTUAL TABLE docs_fts USING fts5(
+                title,
+                keywords,
+                date_edtf,
+                url UNINDEXED,
+                tokenize='porter unicode61'
+            );
+            """
+        )
+
+        cursor.executemany(
+            """
+            INSERT INTO docs_fts (title, keywords, date_edtf, url)
+            VALUES (?, ?, ?, ?);
+            """,
+            [
+                (
+                    r.get("title", ""),
+                    r.get("keywords", ""),
+                    r.get("date_edtf", ""),
+                    r.get("url", ""),
+                )
+                for r in records
+            ],
+        )
+
+        conn.commit()
+
+        # Merge B-Tree segments into a single balanced index for optimal query speed
+        cursor.execute("INSERT INTO docs_fts(docs_fts) VALUES('optimize');")
+        conn.commit()
+
+        # Reclaim all unused pages
+        cursor.execute("VACUUM;")
+        conn.close()
+
+        # Atomic move to final destination
+        tmp_path.replace(out_path)
+        logging.info(
+            "Compiled SQLite FTS5 index to %s (%d records, %d bytes).",
+            out_path.name,
+            len(records),
+            out_path.stat().st_size,
+        )
+
+    except Exception as exc:
+        if tmp_path.exists():
+            tmp_path.unlink()
+        logging.error("Failed to build SQLite search index: %s", exc)
+        raise
 
 
 # ===========================================================================
@@ -1918,7 +2368,6 @@ def compile_markdown_worker(task: CompileTask) -> tuple[Path, bool, Optional[str
         return task.md_path, False, f"Encryption failed: {e}"
 
     # Step 2c: Generate standalone outer envelope
-    # We pass the markdown file so Pandoc extracts its YAML frontmatter for <title>, <meta>, etc.
     envelope_cmd = [
         "pandoc",
         str(task.md_path),
@@ -2086,7 +2535,6 @@ def main():
         h = compute_file_hash(p)
 
         if is_secure_path(p, SRC):
-            # Target is dist/secure/.../filename.ext.enc
             target = DST / rel_src.with_name(rel_src.name + ".enc")
             expected_outputs.add(target.resolve())
             manifest_key = f"secure_blob:{rel_src.as_posix()}"
@@ -2108,7 +2556,6 @@ def main():
                     )
                 )
         else:
-            # Public media copied verbatim
             target = DST / rel_src
             expected_outputs.add(target.resolve())
             manifest_key = f"media:{rel_src.as_posix()}"
@@ -2197,7 +2644,8 @@ def main():
             }
         )
 
-    expected_outputs.add(SEARCH_INDEX_FILE.resolve())
+    # Register search.db as an expected output for prune_orphans tracking
+    expected_outputs.add(SEARCH_DB_FILE.resolve())
 
     # Build assets (css, fonts, js, katex)
     assets_src = APP_DIR / "assets"
@@ -2307,9 +2755,11 @@ def main():
     else:
         logging.info("All %d documents are verified current.", total_md)
 
-    # Search index is ALWAYS written if all compilations succeed
+    # 3. Compile SQLite FTS5 database and commit manifest
     if failed == 0:
-        write_minisearch_index(search_records, SEARCH_INDEX_FILE, dry_run=args.dry_run)
+        build_sqlite_search_index(search_records, SEARCH_DB_FILE, dry_run=args.dry_run)
+        if SEARCH_DB_FILE.exists() and not args.dry_run:
+            new_manifest["__SEARCH_DB_HASH__"] = compute_file_hash(SEARCH_DB_FILE)
         save_manifest(MANIFEST_FILE, new_manifest, args.dry_run)
         logging.info(
             "Build complete. (%d compiled, %d blobs encrypted, %d assets synced, %d orphans pruned)",
@@ -2419,3 +2869,290 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = []
 ```
+
+## `serve.py`
+
+```python
+#!/usr/bin/env python3
+"""
+serve.py - Zero-Dependency Archival HTTP Daemon with RFC 7233 Range Support.
+Part of Project Kykloi (v0.5.0).
+"""
+
+import argparse
+import http.server
+import mimetypes
+import os
+import re
+import socket
+import socketserver
+import sys
+import threading
+import time
+import urllib.parse
+import webbrowser
+from pathlib import Path
+
+# ===========================================================================
+# 1. PATH RESOLUTION & DEFENSIVE MIME REGISTRATION
+# ===========================================================================
+
+ROOT_DIR = Path(__file__).resolve().parent
+DIST_DIR = ROOT_DIR / "dist"
+
+# Hardcode MIME overrides to protect against stripped/minimal host OS registries
+mimetypes.init()
+mimetypes.add_type("application/wasm", ".wasm")
+mimetypes.add_type("font/woff2", ".woff2")
+mimetypes.add_type("application/manifest+json", ".webmanifest")
+mimetypes.add_type("application/octet-stream", ".enc")
+mimetypes.add_type("image/svg+xml", ".svg")
+mimetypes.add_type("text/css", ".css")
+mimetypes.add_type("application/javascript", ".js")
+
+
+# ===========================================================================
+# 2. RFC 7233 RANGE-CAPABLE REQUEST HANDLER
+# ===========================================================================
+
+RANGE_REGEX = re.compile(r"^bytes=(\d*)-(\d*)$")
+
+
+class KykloiHTTPRequestHandler(http.server.BaseHTTPRequestHandler):
+    """
+    HTTP handler serving strictly from the dist/ directory.
+    Implements RFC 7233 partial content (206) for media streaming/scrubbing
+    and enforces jailbreak checks against directory traversal.
+    """
+
+    server_version = "KykloiDaemon/0.5"
+
+    def translate_path(self, path: str) -> str | None:
+        """Translate a URL path into an absolute file system path inside dist/."""
+        parsed_url = urllib.parse.urlsplit(path)
+        clean_path = urllib.parse.unquote(parsed_url.path).lstrip("/")
+
+        target = (DIST_DIR / clean_path).resolve()
+
+        # Jail enforcement: Ensure resolved path lives within DIST_DIR
+        try:
+            target.relative_to(DIST_DIR.resolve())
+        except ValueError:
+            return None
+
+        if target.is_dir():
+            index_candidate = target / "index.html"
+            if index_candidate.is_file():
+                return str(index_candidate)
+
+        return str(target) if target.exists() else None
+
+    def guess_mime(self, filepath: str) -> str:
+        mime, _ = mimetypes.guess_type(filepath)
+        return mime or "application/octet-stream"
+
+    def do_HEAD(self):
+        self._handle_request(send_body=False)
+
+    def do_GET(self):
+        self._handle_request(send_body=True)
+
+    def _handle_request(self, send_body: bool):
+        filepath = self.translate_path(self.path)
+
+        if filepath is None or not os.path.isfile(filepath):
+            self.send_error(404, "File Not Found")
+            return
+
+        try:
+            file_size = os.path.getsize(filepath)
+        except OSError:
+            self.send_error(404, "File Inaccessible")
+            return
+
+        mime_type = self.guess_mime(filepath)
+        range_header = self.headers.get("Range")
+
+        # -------------------------------------------------------------
+        # CASE 1: Standard Full File Request (HTTP 200 OK)
+        # -------------------------------------------------------------
+        if not range_header:
+            self.send_response(200)
+            self.send_header("Content-Type", mime_type)
+            self.send_header("Content-Length", str(file_size))
+            self.send_header("Accept-Ranges", "bytes")
+            self.send_header("Cache-Control", "no-cache")
+            self.end_headers()
+
+            if send_body:
+                self._stream_file_slice(filepath, start=0, length=file_size)
+            return
+
+        # -------------------------------------------------------------
+        # CASE 2: RFC 7233 Range Request (HTTP 206 Partial Content)
+        # -------------------------------------------------------------
+        match = RANGE_REGEX.match(range_header.strip())
+        if not match:
+            self._send_416(file_size)
+            return
+
+        raw_start, raw_end = match.groups()
+
+        if raw_start and raw_end:
+            start = int(raw_start)
+            end = int(raw_end)
+        elif raw_start:
+            start = int(raw_start)
+            end = file_size - 1
+        elif raw_end:
+            suffix_len = int(raw_end)
+            start = max(0, file_size - suffix_len)
+            end = file_size - 1
+        else:
+            self._send_416(file_size)
+            return
+
+        # Validate range boundary bounds
+        if start > end or start >= file_size or start < 0:
+            self._send_416(file_size)
+            return
+
+        end = min(end, file_size - 1)
+        content_length = (end - start) + 1
+
+        self.send_response(206)
+        self.send_header("Content-Type", mime_type)
+        self.send_header("Content-Range", f"bytes {start}-{end}/{file_size}")
+        self.send_header("Content-Length", str(content_length))
+        self.send_header("Accept-Ranges", "bytes")
+        self.send_header("Cache-Control", "no-cache")
+        self.end_headers()
+
+        if send_body:
+            self._stream_file_slice(filepath, start=start, length=content_length)
+
+    def _send_416(self, file_size: int):
+        self.send_response(416)
+        self.send_header("Content-Range", f"bytes */{file_size}")
+        self.end_headers()
+
+    def _stream_file_slice(self, filepath: str, start: int, length: int):
+        """Stream chunks of 64 KB from disk to socket without bloating RAM."""
+        chunk_size = 65536
+        remaining = length
+        try:
+            with open(filepath, "rb") as f:
+                f.seek(start)
+                while remaining > 0:
+                    read_len = min(chunk_size, remaining)
+                    data = f.read(read_len)
+                    if not data:
+                        break
+                    self.wfile.write(data)
+                    remaining -= len(data)
+        except (BrokenPipeError, ConnectionResetError):
+            # Client closed tab or cancelled download
+            pass
+
+
+# ===========================================================================
+# 3. SERVER ORCHESTRATION & CLI
+# ===========================================================================
+
+
+class ThreadedTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
+    allow_reuse_address = True
+    daemon_threads = True
+
+
+def parse_args():
+    p = argparse.ArgumentParser(
+        description="Zero-Dependency Local HTTP Daemon for Project Kykloi."
+    )
+    p.add_argument(
+        "--host",
+        type=str,
+        default="127.0.0.1",
+        help="Network interface to bind (default: 127.0.0.1; use 0.0.0.0 for LAN).",
+    )
+    p.add_argument(
+        "--port",
+        type=int,
+        default=8000,
+        help="Preferred port number (default: 8000).",
+    )
+    p.add_argument(
+        "--browser",
+        action="store_true",
+        help="Automatically launch system browser upon startup.",
+    )
+    return p.parse_args()
+
+
+def open_browser_delayed(url: str):
+    time.sleep(0.4)
+    try:
+        webbrowser.open(url)
+    except Exception:
+        pass
+
+
+def main():
+    args = parse_args()
+
+    if not DIST_DIR.exists() or not any(DIST_DIR.iterdir()):
+        print("\n[ERROR] Compiled artifacts directory not found or empty:")
+        print(f"        {DIST_DIR}")
+        print("\nPlease build the static site first using:")
+        print("  python3 build/build_site.py\n")
+        sys.exit(1)
+
+    port = args.port
+    server = None
+    max_attempts = 15
+
+    for offset in range(max_attempts):
+        candidate_port = port + offset
+        try:
+            server = ThreadedTCPServer(
+                (args.host, candidate_port), KykloiHTTPRequestHandler
+            )
+            port = candidate_port
+            break
+        except OSError as e:
+            if e.errno in (98, 48, 10048):  # EADDRINUSE across Linux, macOS, Windows
+                continue
+            raise
+
+    if server is None:
+        print(
+            f"[FATAL] Could not bind to an open port between {port} and {port + max_attempts}."
+        )
+        sys.exit(1)
+
+    url = f"http://{args.host}:{port}/"
+    print("=" * 64)
+    print("  Project Kykloi — Archival HTTP Daemon")
+    print(f"  Root:   {DIST_DIR}")
+    print(f"  URL:    {url}")
+    print("  Status: Listening (Press Ctrl+C to stop)")
+    print("=" * 64)
+
+    if args.browser:
+        threading.Thread(target=open_browser_delayed, args=(url,), daemon=True).start()
+
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("\n[Kykloi] Shutting down daemon gracefully...")
+    finally:
+        server.server_close()
+
+
+if __name__ == "__main__":
+    main()
+```
+
+## query
+
+i have excluded the project philosophy, ethos, and history from context to try and get a realistic evaluation of what we have built to this point. if possible, in this fresh context (without considering any commentary embedded in the files provided above) give a serious evaluation of this projects philosophy, ethos, practicality, usefulness and value. then provide a brief assessment of it's durability (lifespan without significant maintenance) and performance.

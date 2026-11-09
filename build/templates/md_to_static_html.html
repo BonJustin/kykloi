@@ -58,8 +58,6 @@
         <link rel="stylesheet" href="$css$" />
         $endfor$
 
-        <script src="$relative_root$assets/js/pico_search.js" defer></script>
-
         $if(encrypted)$
         <script src="$relative_root$assets/js/decrypt.js" defer></script>
         <link rel="stylesheet" href="$relative_root$assets/katex/katex.min.css" />
@@ -109,7 +107,10 @@
                         </a>
                     </li>
                     <li>
-                        <a href="#" id="open-search" data-tooltip="Search">
+                        <a
+                            href="$relative_root$index.html?focus=1"
+                            data-tooltip="Search Notes"
+                        >
                             <svg
                                 xmlns="http://www.w3.org/2000/svg"
                                 width="24"
@@ -145,12 +146,21 @@
                         <p style="color: var(--pico-muted-color); font-size: 0.9rem;">
                             The contents of this document are encrypted. Enter the passphrase to decrypt.
                         </p>
-                        <form id="kykloi-decrypt-form">
+                        <!-- Form with complete browser/extension password save suppression -->
+                        <form id="kykloi-decrypt-form" autocomplete="off" onsubmit="return false;">
                             <fieldset role="group">
                                 <input
                                     type="password"
                                     id="kykloi-password"
+                                    name="kykloi_passphrase"
                                     placeholder="Enter passphrase..."
+                                    autocomplete="one-time-code"
+                                    autocorrect="off"
+                                    autocapitalize="off"
+                                    spellcheck="false"
+                                    data-1p-ignore="true"
+                                    data-bwignore="true"
+                                    data-lpignore="true"
                                     required
                                     autofocus
                                 />
@@ -191,28 +201,5 @@ __KYKLOI_ENCRYPTED_PAYLOAD__
 
             $for(include-after)$ $include-after$ $endfor$
         </footer>
-
-        <dialog id="search-modal">
-            <article style="width: 100%; max-width: 600px">
-                <header>
-                    <button
-                        aria-label="Close"
-                        rel="prev"
-                        id="close-search"
-                    ></button>
-                    <strong>Search Titles & Keywords</strong>
-                </header>
-                <input
-                    type="search"
-                    id="search-input"
-                    placeholder="Type to search..."
-                    autocomplete="off"
-                />
-                <ul
-                    id="search-results"
-                    style="list-style: none; padding-left: 0; margin-top: 1rem"
-                ></ul>
-            </article>
-        </dialog>
     </body>
 </html>

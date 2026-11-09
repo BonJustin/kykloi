@@ -43,8 +43,6 @@
                 <link rel="stylesheet" href="assets/css/pico.css" />
                 <link rel="stylesheet" href="assets/css/style.css" />
         
-        <script src="assets/js/pico_search.js" defer></script>
-
         
          
     </head>
@@ -88,7 +86,10 @@
                         </a>
                     </li>
                     <li>
-                        <a href="#" id="open-search" data-tooltip="Search">
+                        <a
+                            href="index.html?focus=1"
+                            data-tooltip="Search Notes"
+                        >
                             <svg
                                 xmlns="http://www.w3.org/2000/svg"
                                 width="24"
@@ -286,28 +287,5 @@ if x &gt; y {
 
             
         </footer>
-
-        <dialog id="search-modal">
-            <article style="width: 100%; max-width: 600px">
-                <header>
-                    <button
-                        aria-label="Close"
-                        rel="prev"
-                        id="close-search"
-                    ></button>
-                    <strong>Search Titles & Keywords</strong>
-                </header>
-                <input
-                    type="search"
-                    id="search-input"
-                    placeholder="Type to search..."
-                    autocomplete="off"
-                />
-                <ul
-                    id="search-results"
-                    style="list-style: none; padding-left: 0; margin-top: 1rem"
-                ></ul>
-            </article>
-        </dialog>
     </body>
 </html>

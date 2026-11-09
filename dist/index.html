@@ -24,8 +24,7 @@
         <link rel="stylesheet" href="assets/css/pico.css" />
         <link rel="stylesheet" href="assets/css/style.css" />
 
-        <script src="assets/js/minisearch.min.js" defer></script>
-        <script src="search_index.js" defer></script>
+        <!-- Search Hub Driver (SQLite3 WASM FTS5) -->
         <script src="assets/js/pico_search.js" defer></script>
     </head>
 
@@ -64,7 +63,7 @@
                         </a>
                     </li>
                     <li>
-                        <a href="#" id="open-search" data-tooltip="Search">
+                        <a href="#body-search-input" id="nav-search-btn" data-tooltip="Search Notes">
                             <svg
                                 xmlns="http://www.w3.org/2000/svg"
                                 width="24"
@@ -93,13 +92,19 @@
                     <h1 class="title">Κύκλοι</h1>
                 </header>
 
-                <!-- In-Page Search Interface -->
+                <!-- Search Hub Input with autofocus -->
                 <input
                     type="search"
                     id="body-search-input"
-                    placeholder="Search notes..."
+                    placeholder="Search titles, keywords, dates (or browse recent below)..."
                     autocomplete="off"
+                    autocorrect="off"
+                    autocapitalize="off"
+                    spellcheck="false"
+                    autofocus
                 />
+
+                <!-- Search Results & Recent Notes Container -->
                 <ul
                     id="body-search-results"
                     style="list-style: none; padding-left: 0; margin-top: 1rem"
@@ -114,28 +119,5 @@
                 <div style="text-align: right"></div>
             </div>
         </footer>
-
-        <dialog id="search-modal">
-            <article style="width: 100%; max-width: 600px">
-                <header>
-                    <button
-                        aria-label="Close"
-                        rel="prev"
-                        id="close-search"
-                    ></button>
-                    <strong>Search Titles & Keywords</strong>
-                </header>
-                <input
-                    type="search"
-                    id="search-input"
-                    placeholder="Type to search..."
-                    autocomplete="off"
-                />
-                <ul
-                    id="search-results"
-                    style="list-style: none; padding-left: 0; margin-top: 1rem"
-                ></ul>
-            </article>
-        </dialog>
     </body>
 </html>
