@@ -10,9 +10,13 @@ function Link(el)
     return el
   end
 
-  local path, rest = el.target:match("^(.-)%.md([#?].*)$")
+  -- Decode URL to inspect extension if encoded
+  local target = el.target
+
+  -- Separate path from anchor or query
+  local path, rest = target:match("^(.-)%.md([#?].*)$")
   if not path then
-    path = el.target:match("^(.-)%.md$")
+    path = target:match("^(.-)%.md$")
     rest = ""
   end
 
@@ -28,14 +32,21 @@ function Image(el)
     return el
   end
 
-  -- Skip absolute URLs or protocols or existing data URIs
+  -- Skip absolute URLs, protocols, or existing data URIs
   if el.src:match("^%a+://") or el.src:match("^//") or el.src:match("^data:") then
     return el
   end
 
-  -- Append .enc if it doesn't already have it
-  if not el.src:match("%.enc$") then
-    el.src = el.src .. ".enc"
+  -- Extract clean base URL ignoring anchors or query parameters
+  local base_src, suffix = el.src:match("^(.-)(%?.*)$")
+  if not base_src then
+    base_src = el.src
+    suffix = ""
+  end
+
+  -- Append .enc if not already present
+  if not base_src:match("%.enc$") then
+    el.src = base_src .. ".enc" .. suffix
   end
 
   el.attributes["data-encrypted-media"] = "true"

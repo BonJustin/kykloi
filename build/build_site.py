@@ -14,6 +14,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
+try:
+    from migrate_wikilinks import is_junk_path, run_migration_pipeline
+except ImportError:
+    sys.path.append(str(Path(__file__).resolve().parent))
+    from migrate_wikilinks import is_junk_path, run_migration_pipeline
+
 # ===========================================================================
 # 1. PURE-PYTHON AES-256-GCM ENGINE & 8-BIT TABLE-DRIVEN GHASH
 # ===========================================================================
@@ -762,7 +768,12 @@ def extract_metadata_fast(md_path: Path) -> tuple[Path, dict[str, str]]:
         logging.warning("Error reading %s: %s", md_path.name, err)
 
     if not meta["title"]:
-        meta["title"] = md_path.stem.replace("-", " ").replace("_", " ").title()
+        clean_stem = md_path.stem
+        # Strip timestamp prefix if present
+        parts = clean_stem.split(maxsplit=1)
+        if len(parts) > 1 and parts[0].isdigit() and len(parts[0]) in (8, 12, 14):
+            clean_stem = parts[1]
+        meta["title"] = clean_stem.replace("-", " ").replace("_", " ").title()
 
     return md_path, meta
 
@@ -783,7 +794,6 @@ def build_sqlite_search_index(
         conn = sqlite3.connect(tmp_path)
         cursor = conn.cursor()
 
-        # Optimize pragma settings for immutable static distribution
         cursor.execute("PRAGMA page_size = 4096;")
         cursor.execute("PRAGMA journal_mode = OFF;")
         cursor.execute("PRAGMA synchronous = OFF;")
@@ -817,16 +827,11 @@ def build_sqlite_search_index(
         )
 
         conn.commit()
-
-        # Merge B-Tree segments into a single balanced index for optimal query speed
         cursor.execute("INSERT INTO docs_fts(docs_fts) VALUES('optimize');")
         conn.commit()
-
-        # Reclaim all unused pages
         cursor.execute("VACUUM;")
         conn.close()
 
-        # Atomic move to final destination
         tmp_path.replace(out_path)
         logging.info(
             "Compiled SQLite FTS5 index to %s (%d records, %d bytes).",
@@ -887,11 +892,9 @@ def compile_markdown_worker(task: CompileTask) -> tuple[Path, bool, Optional[str
             "Cannot compile secure file: No passphrase provided.",
         )
 
-    # Signal the Lua filter via environment variable to append .enc to images
     env = os.environ.copy()
     env["KYKLOI_SECURE_BUILD"] = "1"
 
-    # Step 2a: Compile inner body snippet (no full HTML layout)
     body_cmd = [
         "pandoc",
         str(task.md_path),
@@ -905,13 +908,11 @@ def compile_markdown_worker(task: CompileTask) -> tuple[Path, bool, Optional[str
     if body_result.returncode != 0:
         return task.md_path, False, f"Body error: {body_result.stderr.strip()}"
 
-    # Step 2b: Encrypt inner body
     try:
         ciphertext_b64 = encrypt_payload(body_result.stdout, task.passphrase)
     except Exception as e:
         return task.md_path, False, f"Encryption failed: {e}"
 
-    # Step 2c: Generate standalone outer envelope
     envelope_cmd = [
         "pandoc",
         str(task.md_path),
@@ -935,7 +936,6 @@ def compile_markdown_worker(task: CompileTask) -> tuple[Path, bool, Optional[str
             f"Envelope error: {envelope_result.stderr.strip()}",
         )
 
-    # Step 2d: Inject payload and write to disk
     try:
         final_html = envelope_result.stdout.replace(
             "__KYKLOI_ENCRYPTED_PAYLOAD__", ciphertext_b64
@@ -1016,6 +1016,19 @@ def main():
             logging.error("Configuration error: %s missing at %s", desc, path)
             sys.exit(1)
 
+    # -----------------------------------------------------------------------
+    # STAGE 0: AUTOMATED WIKILINK MIGRATION & REPOSITORY NORMALIZATION
+    # -----------------------------------------------------------------------
+    migrated_files, migrated_links = run_migration_pipeline(
+        src_root=SRC, dry_run=args.dry_run, verbose=args.verbose
+    )
+    if migrated_files > 0:
+        logging.info(
+            "Auto-migrated %d wikilink(s) across %d file(s) to CommonMark.",
+            migrated_links,
+            migrated_files,
+        )
+
     if args.clean:
         if DST.exists():
             logging.info("Flag --clean active: Purging %s", DST)
@@ -1044,10 +1057,13 @@ def main():
     compile_tasks: list[CompileTask] = []
     encrypt_blob_tasks: list[EncryptBlobTask] = []
 
-    md_files = sorted(SRC.rglob("*.md"))
-    has_secure_files = any(
-        is_secure_path(p, SRC) for p in SRC.rglob("*") if p.is_file()
-    )
+    # Filter out all editor workspace junk and non-content files
+    all_content_files = [
+        p for p in SRC.rglob("*") if p.is_file() and not is_junk_path(p)
+    ]
+    md_files = sorted([p for p in all_content_files if p.suffix.lower() == ".md"])
+
+    has_secure_files = any(is_secure_path(p, SRC) for p in all_content_files)
 
     passphrase = args.password
     if has_secure_files and not passphrase and not args.dry_run:
@@ -1071,8 +1087,8 @@ def main():
     asset_sync_jobs: list[tuple[Path, Path]] = []
 
     # Map content media (public vs secure)
-    for p in SRC.rglob("*"):
-        if not p.is_file() or p.name.startswith(".") or p.suffix.lower() == ".md":
+    for p in all_content_files:
+        if p.suffix.lower() == ".md":
             continue
 
         rel_src = p.relative_to(SRC)
@@ -1188,14 +1204,13 @@ def main():
             }
         )
 
-    # Register search.db as an expected output for prune_orphans tracking
     expected_outputs.add(SEARCH_DB_FILE.resolve())
 
-    # Build assets (css, fonts, js, katex)
+    # Functional assets
     assets_src = APP_DIR / "assets"
     if assets_src.exists():
         for p in assets_src.rglob("*"):
-            if p.is_file() and not p.name.startswith("."):
+            if p.is_file() and not is_junk_path(p):
                 target = DST / "assets" / p.relative_to(assets_src)
                 expected_outputs.add(target.resolve())
                 manifest_key = (
@@ -1210,7 +1225,7 @@ def main():
     root_src = APP_DIR / "root"
     if root_src.exists():
         for p in root_src.rglob("*"):
-            if p.is_file() and not p.name.startswith("."):
+            if p.is_file() and not is_junk_path(p):
                 target = DST / p.relative_to(root_src)
                 expected_outputs.add(target.resolve())
                 manifest_key = f"root_asset:{p.relative_to(root_src).as_posix()}"
