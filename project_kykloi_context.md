@@ -1,278 +1,12 @@
-# project kykloi context
-
 ## `tree ~/dev/kykloi`
 
-```bash
-/var/home/bonju/dev/kykloi
-├── build
-│   ├── assets
-│   │   ├── css
-│   │   │   ├── pico.css
-│   │   │   └── style.css
-│   │   ├── fonts
-│   │   │   ├── jetbrainsmono-variablefont_wght-webfont.woff2
-│   │   │   ├── libertinusserif-bolditalic-webfont.woff2
-│   │   │   ├── libertinusserif-bold-webfont.woff2
-│   │   │   ├── libertinusserif-italic-webfont.woff2
-│   │   │   └── libertinusserif-regular-webfont.woff2
-│   │   ├── js
-│   │   │   ├── decrypt.js
-│   │   │   ├── minisearch.min.js
-│   │   │   ├── pico_search.js
-│   │   │   ├── search_worker.js
-│   │   │   ├── sqlite3.js
-│   │   │   ├── sqlite3.wasm
-│   │   │   └── sqlite3-worker1.js
-│   │   └── katex
-│   │       ├── contrib
-│   │       │   ├── auto-render.js
-│   │       │   ├── auto-render.min.js
-│   │       │   ├── auto-render.mjs
-│   │       │   ├── copy-tex.js
-│   │       │   ├── copy-tex.min.js
-│   │       │   ├── copy-tex.mjs
-│   │       │   ├── mathtex-script-type.js
-│   │       │   ├── mathtex-script-type.min.js
-│   │       │   ├── mathtex-script-type.mjs
-│   │       │   ├── mhchem.js
-│   │       │   ├── mhchem.min.js
-│   │       │   ├── mhchem.mjs
-│   │       │   ├── render-a11y-string.js
-│   │       │   ├── render-a11y-string.min.js
-│   │       │   └── render-a11y-string.mjs
-│   │       ├── fonts
-│   │       │   ├── KaTeX_AMS-Regular.ttf
-│   │       │   ├── KaTeX_AMS-Regular.woff
-│   │       │   ├── KaTeX_AMS-Regular.woff2
-│   │       │   ├── KaTeX_Caligraphic-Bold.ttf
-│   │       │   ├── KaTeX_Caligraphic-Bold.woff
-│   │       │   ├── KaTeX_Caligraphic-Bold.woff2
-│   │       │   ├── KaTeX_Caligraphic-Regular.ttf
-│   │       │   ├── KaTeX_Caligraphic-Regular.woff
-│   │       │   ├── KaTeX_Caligraphic-Regular.woff2
-│   │       │   ├── KaTeX_Fraktur-Bold.ttf
-│   │       │   ├── KaTeX_Fraktur-Bold.woff
-│   │       │   ├── KaTeX_Fraktur-Bold.woff2
-│   │       │   ├── KaTeX_Fraktur-Regular.ttf
-│   │       │   ├── KaTeX_Fraktur-Regular.woff
-│   │       │   ├── KaTeX_Fraktur-Regular.woff2
-│   │       │   ├── KaTeX_Main-BoldItalic.ttf
-│   │       │   ├── KaTeX_Main-BoldItalic.woff
-│   │       │   ├── KaTeX_Main-BoldItalic.woff2
-│   │       │   ├── KaTeX_Main-Bold.ttf
-│   │       │   ├── KaTeX_Main-Bold.woff
-│   │       │   ├── KaTeX_Main-Bold.woff2
-│   │       │   ├── KaTeX_Main-Italic.ttf
-│   │       │   ├── KaTeX_Main-Italic.woff
-│   │       │   ├── KaTeX_Main-Italic.woff2
-│   │       │   ├── KaTeX_Main-Regular.ttf
-│   │       │   ├── KaTeX_Main-Regular.woff
-│   │       │   ├── KaTeX_Main-Regular.woff2
-│   │       │   ├── KaTeX_Math-BoldItalic.ttf
-│   │       │   ├── KaTeX_Math-BoldItalic.woff
-│   │       │   ├── KaTeX_Math-BoldItalic.woff2
-│   │       │   ├── KaTeX_Math-Italic.ttf
-│   │       │   ├── KaTeX_Math-Italic.woff
-│   │       │   ├── KaTeX_Math-Italic.woff2
-│   │       │   ├── KaTeX_SansSerif-Bold.ttf
-│   │       │   ├── KaTeX_SansSerif-Bold.woff
-│   │       │   ├── KaTeX_SansSerif-Bold.woff2
-│   │       │   ├── KaTeX_SansSerif-Italic.ttf
-│   │       │   ├── KaTeX_SansSerif-Italic.woff
-│   │       │   ├── KaTeX_SansSerif-Italic.woff2
-│   │       │   ├── KaTeX_SansSerif-Regular.ttf
-│   │       │   ├── KaTeX_SansSerif-Regular.woff
-│   │       │   ├── KaTeX_SansSerif-Regular.woff2
-│   │       │   ├── KaTeX_Script-Regular.ttf
-│   │       │   ├── KaTeX_Script-Regular.woff
-│   │       │   ├── KaTeX_Script-Regular.woff2
-│   │       │   ├── KaTeX_Size1-Regular.ttf
-│   │       │   ├── KaTeX_Size1-Regular.woff
-│   │       │   ├── KaTeX_Size1-Regular.woff2
-│   │       │   ├── KaTeX_Size2-Regular.ttf
-│   │       │   ├── KaTeX_Size2-Regular.woff
-│   │       │   ├── KaTeX_Size2-Regular.woff2
-│   │       │   ├── KaTeX_Size3-Regular.ttf
-│   │       │   ├── KaTeX_Size3-Regular.woff
-│   │       │   ├── KaTeX_Size3-Regular.woff2
-│   │       │   ├── KaTeX_Size4-Regular.ttf
-│   │       │   ├── KaTeX_Size4-Regular.woff
-│   │       │   ├── KaTeX_Size4-Regular.woff2
-│   │       │   ├── KaTeX_Typewriter-Regular.ttf
-│   │       │   ├── KaTeX_Typewriter-Regular.woff
-│   │       │   └── KaTeX_Typewriter-Regular.woff2
-│   │       ├── katex.css
-│   │       ├── katex.js
-│   │       ├── katex.min.css
-│   │       ├── katex.min.js
-│   │       ├── katex.mjs
-│   │       ├── katex-swap.css
-│   │       ├── katex-swap.min.css
-│   │       └── README.md
-│   ├── build_site.py
-│   ├── pandoc_md_to_static_html.yaml
-│   ├── __pycache__
-│   │   ├── build_site_01.cpython-314.pyc
-│   │   ├── build_site.cpython-312.pyc
-│   │   └── build_site.cpython-314.pyc
-│   ├── root
-│   │   ├── apple-touch-icon.png
-│   │   ├── favicon-96x96.png
-│   │   ├── favicon.ico
-│   │   ├── favicon.svg
-│   │   ├── index.html
-│   │   ├── site.webmanifest
-│   │   ├── web-app-manifest-192x192.png
-│   │   └── web-app-manifest-512x512.png
-│   ├── templates
-│   │   ├── md_to_static_html.html
-│   │   └── metadata.json
-│   └── translate_links.lua
-├── content
-│   ├── 202611
-│   │   └── 20261109130247-project_kykloi_task_list.md
-│   ├── media
-│   │   └── test_artemis_2.jpg
-│   ├── pandoc_markdown.md
-│   └── secure
-│       ├── 20261031165927-nested-directory-test.md
-│       └── media
-│           └── test_artemis_2.jpg
-├── dist
-│   ├── 202611
-│   │   └── 20261109130247-project_kykloi_task_list.html
-│   ├── apple-touch-icon.png
-│   ├── assets
-│   │   ├── css
-│   │   │   ├── pico.css
-│   │   │   └── style.css
-│   │   ├── fonts
-│   │   │   ├── jetbrainsmono-variablefont_wght-webfont.woff2
-│   │   │   ├── libertinusserif-bolditalic-webfont.woff2
-│   │   │   ├── libertinusserif-bold-webfont.woff2
-│   │   │   ├── libertinusserif-italic-webfont.woff2
-│   │   │   └── libertinusserif-regular-webfont.woff2
-│   │   ├── js
-│   │   │   ├── decrypt.js
-│   │   │   ├── minisearch.min.js
-│   │   │   ├── pico_search.js
-│   │   │   ├── search_worker.js
-│   │   │   ├── sqlite3.js
-│   │   │   ├── sqlite3.wasm
-│   │   │   └── sqlite3-worker1.js
-│   │   └── katex
-│   │       ├── contrib
-│   │       │   ├── auto-render.js
-│   │       │   ├── auto-render.min.js
-│   │       │   ├── auto-render.mjs
-│   │       │   ├── copy-tex.js
-│   │       │   ├── copy-tex.min.js
-│   │       │   ├── copy-tex.mjs
-│   │       │   ├── mathtex-script-type.js
-│   │       │   ├── mathtex-script-type.min.js
-│   │       │   ├── mathtex-script-type.mjs
-│   │       │   ├── mhchem.js
-│   │       │   ├── mhchem.min.js
-│   │       │   ├── mhchem.mjs
-│   │       │   ├── render-a11y-string.js
-│   │       │   ├── render-a11y-string.min.js
-│   │       │   └── render-a11y-string.mjs
-│   │       ├── fonts
-│   │       │   ├── KaTeX_AMS-Regular.ttf
-│   │       │   ├── KaTeX_AMS-Regular.woff
-│   │       │   ├── KaTeX_AMS-Regular.woff2
-│   │       │   ├── KaTeX_Caligraphic-Bold.ttf
-│   │       │   ├── KaTeX_Caligraphic-Bold.woff
-│   │       │   ├── KaTeX_Caligraphic-Bold.woff2
-│   │       │   ├── KaTeX_Caligraphic-Regular.ttf
-│   │       │   ├── KaTeX_Caligraphic-Regular.woff
-│   │       │   ├── KaTeX_Caligraphic-Regular.woff2
-│   │       │   ├── KaTeX_Fraktur-Bold.ttf
-│   │       │   ├── KaTeX_Fraktur-Bold.woff
-│   │       │   ├── KaTeX_Fraktur-Bold.woff2
-│   │       │   ├── KaTeX_Fraktur-Regular.ttf
-│   │       │   ├── KaTeX_Fraktur-Regular.woff
-│   │       │   ├── KaTeX_Fraktur-Regular.woff2
-│   │       │   ├── KaTeX_Main-BoldItalic.ttf
-│   │       │   ├── KaTeX_Main-BoldItalic.woff
-│   │       │   ├── KaTeX_Main-BoldItalic.woff2
-│   │       │   ├── KaTeX_Main-Bold.ttf
-│   │       │   ├── KaTeX_Main-Bold.woff
-│   │       │   ├── KaTeX_Main-Bold.woff2
-│   │       │   ├── KaTeX_Main-Italic.ttf
-│   │       │   ├── KaTeX_Main-Italic.woff
-│   │       │   ├── KaTeX_Main-Italic.woff2
-│   │       │   ├── KaTeX_Main-Regular.ttf
-│   │       │   ├── KaTeX_Main-Regular.woff
-│   │       │   ├── KaTeX_Main-Regular.woff2
-│   │       │   ├── KaTeX_Math-BoldItalic.ttf
-│   │       │   ├── KaTeX_Math-BoldItalic.woff
-│   │       │   ├── KaTeX_Math-BoldItalic.woff2
-│   │       │   ├── KaTeX_Math-Italic.ttf
-│   │       │   ├── KaTeX_Math-Italic.woff
-│   │       │   ├── KaTeX_Math-Italic.woff2
-│   │       │   ├── KaTeX_SansSerif-Bold.ttf
-│   │       │   ├── KaTeX_SansSerif-Bold.woff
-│   │       │   ├── KaTeX_SansSerif-Bold.woff2
-│   │       │   ├── KaTeX_SansSerif-Italic.ttf
-│   │       │   ├── KaTeX_SansSerif-Italic.woff
-│   │       │   ├── KaTeX_SansSerif-Italic.woff2
-│   │       │   ├── KaTeX_SansSerif-Regular.ttf
-│   │       │   ├── KaTeX_SansSerif-Regular.woff
-│   │       │   ├── KaTeX_SansSerif-Regular.woff2
-│   │       │   ├── KaTeX_Script-Regular.ttf
-│   │       │   ├── KaTeX_Script-Regular.woff
-│   │       │   ├── KaTeX_Script-Regular.woff2
-│   │       │   ├── KaTeX_Size1-Regular.ttf
-│   │       │   ├── KaTeX_Size1-Regular.woff
-│   │       │   ├── KaTeX_Size1-Regular.woff2
-│   │       │   ├── KaTeX_Size2-Regular.ttf
-│   │       │   ├── KaTeX_Size2-Regular.woff
-│   │       │   ├── KaTeX_Size2-Regular.woff2
-│   │       │   ├── KaTeX_Size3-Regular.ttf
-│   │       │   ├── KaTeX_Size3-Regular.woff
-│   │       │   ├── KaTeX_Size3-Regular.woff2
-│   │       │   ├── KaTeX_Size4-Regular.ttf
-│   │       │   ├── KaTeX_Size4-Regular.woff
-│   │       │   ├── KaTeX_Size4-Regular.woff2
-│   │       │   ├── KaTeX_Typewriter-Regular.ttf
-│   │       │   ├── KaTeX_Typewriter-Regular.woff
-│   │       │   └── KaTeX_Typewriter-Regular.woff2
-│   │       ├── katex.css
-│   │       ├── katex.js
-│   │       ├── katex.min.css
-│   │       ├── katex.min.js
-│   │       ├── katex.mjs
-│   │       ├── katex-swap.css
-│   │       ├── katex-swap.min.css
-│   │       └── README.md
-│   ├── favicon-96x96.png
-│   ├── favicon.ico
-│   ├── favicon.svg
-│   ├── index.html
-│   ├── media
-│   │   └── test_artemis_2.jpg
-│   ├── pandoc_markdown.html
-│   ├── search.db
-│   ├── secure
-│   │   ├── 20261031165927-nested-directory-test.html
-│   │   └── media
-│   │       └── test_artemis_2.jpg.enc
-│   ├── site.webmanifest
-│   ├── web-app-manifest-192x192.png
-│   └── web-app-manifest-512x512.png
-├── project_kykloi_context.md
-├── pyproject.toml
-├── README.md
-├── run_linux_mac.sh
-├── run_windows.bat
-├── serve.py
-└── uv.lock
+```
+*add tree*
 ```
 
 ## `style.css`
 
-```css
+```
 /* --- Libertinus Serif --- */
 @font-face {
     font-family: 'Libertinus Serif';
@@ -431,7 +165,7 @@ footer {
 
 ## `decrypt.js`
 
-```javascript
+```
 document.addEventListener("DOMContentLoaded", () => {
   const form = document.getElementById("kykloi-decrypt-form");
   if (!form) return;
@@ -687,9 +421,9 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 ```
 
-## pico_search.js
+## `pico_search.js`
 
-```javascript
+```
 /* pico_search.js - Kykloi SQLite3 FTS5 Search Hub Driver */
 "use strict";
 
@@ -867,7 +601,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
 ## `search_worker.js`
 
-```javascript
+```
 /* search_worker.js - Kykloi SQLite3 WASM FTS5 Search Worker */
 "use strict";
 
@@ -1109,7 +843,7 @@ self.onmessage = async (e) => {
 
 ## `index.html`
 
-```html
+```
 <!doctype html>
 <html data-theme="light" xmlns="http://www.w3.org/1999/xhtml">
     <head>
@@ -1237,7 +971,7 @@ self.onmessage = async (e) => {
 
 ## `md_to_static_html.html`
 
-```html
+```
 <!doctype html>
 <html
     data-theme="light"
@@ -1447,13 +1181,13 @@ __KYKLOI_ENCRYPTED_PAYLOAD__
 
 ## `metadata.json`
 
-```json
+```
 $meta-json$
 ```
 
 ## `build_site.py`
 
-```python
+```
 import argparse
 import base64
 import concurrent.futures
@@ -2779,9 +2513,200 @@ if __name__ == "__main__":
     main()
 ```
 
+## `migrate_wikilinks.py`
+
+```
+#!/usr/bin/env python3
+"""
+migrate_wikilinks.py - Permanently convert Obsidian/Zettlr wikilinks to deterministic relative CommonMark links.
+Context-aware parser that protects KaTeX math ($$, $, \\[), code blocks, inline code, and YAML frontmatter.
+Includes Zettlr ID prefix mapping support.
+Part of Project Kykloi.
+"""
+
+import argparse
+import os
+import re
+import sys
+from pathlib import Path
+
+ID_PREFIX_PATTERN = re.compile(r"^(\d{14}|\d{12}|\d{8})(?:[-_].*)?$")
+
+
+def build_inventory(src_root: Path) -> dict[str, Path]:
+    """Indexes all files in content/ by relative path, stem, filename, and Zettelkasten ID prefix."""
+    inventory: dict[str, Path] = {}
+    for p in src_root.rglob("*"):
+        if p.is_file() and not p.name.startswith("."):
+            rel = p.relative_to(src_root)
+            posix_rel = rel.as_posix()
+
+            inventory[posix_rel] = rel
+            inventory[p.name] = rel
+            if p.suffix.lower() == ".md":
+                inventory[p.stem] = rel
+                inventory[rel.with_suffix("").as_posix()] = rel
+
+                m = ID_PREFIX_PATTERN.match(p.stem)
+                if m:
+                    id_prefix = m.group(1)
+                    inventory[id_prefix] = rel
+
+    return inventory
+
+
+def calculate_relative_url(source_file: Path, target_rel: Path) -> str:
+    source_dir = source_file.parent
+    rel_path = os.path.relpath(target_rel, start=source_dir)
+    return Path(rel_path).as_posix()
+
+
+# Matches ![[target|alt]] or ![[target]]
+WIKI_IMAGE_PATTERN = re.compile(r"!\[\[\s*([^\]\|\n]+?)(?:\|([^\]\n]+))?\s*\]\]")
+
+# Matches [[target|text]] or [[target]]
+WIKI_LINK_PATTERN = re.compile(r"\[\[\s*([^\]\|\n]+?)(?:\|([^\]\n]+))?\s*\]\]")
+
+# Tokenizer regex to carve out protected blocks from Markdown content
+PROTECTED_ZONES_PATTERN = re.compile(
+    r"("
+    r"^---[\s\S]*?^---|"  # YAML Frontmatter
+    r"```[\s\S]*?```|"  # Fenced code blocks (backticks)
+    r"~~~[\s\S]*?~~~|"  # Fenced code blocks (tildes)
+    r"\$\$(?:\\.|[^\\])*?\$\$|"  # Display math $$ ... $$
+    r"\\\[[\s\S]*?\\\]|"  # Display math \[ ... \]
+    r"`[^`\n]+`|"  # Inline code
+    r"\$(?:\\.|[^\$\\\n])+\$|"  # Inline math $ ... $
+    r"\\\([\s\S]*?\\\)"  # Inline math \( ... \)
+    r")",
+    re.MULTILINE,
+)
+
+
+def convert_file_content(
+    file_path: Path,
+    content: str,
+    inventory: dict[str, Path],
+    src_root: Path,
+) -> tuple[str, int]:
+    doc_rel = file_path.relative_to(src_root)
+    replacements = 0
+
+    def replace_image(match: re.Match) -> str:
+        nonlocal replacements
+        raw_target = match.group(1).strip()
+        alt_text = match.group(2).strip() if match.group(2) else ""
+
+        target_file = inventory.get(raw_target) or inventory.get(Path(raw_target).name)
+        if target_file:
+            rel_link = calculate_relative_url(doc_rel, target_file)
+            replacements += 1
+            return f"![{alt_text or target_file.name}]({rel_link})"
+        return match.group(0)
+
+    def replace_link(match: re.Match) -> str:
+        nonlocal replacements
+        raw_target = match.group(1).strip()
+        label = match.group(2).strip() if match.group(2) else ""
+
+        anchor = ""
+        target_name = raw_target
+        if "#" in raw_target:
+            target_name, anchor = raw_target.split("#", 1)
+            anchor = "#" + anchor.strip()
+
+        target_file = inventory.get(target_name) or inventory.get(
+            Path(target_name).name
+        )
+        if target_file:
+            rel_link = calculate_relative_url(doc_rel, target_file)
+            display = (
+                label
+                if label
+                else target_file.stem.replace("-", " ").replace("_", " ").title()
+            )
+            replacements += 1
+            return f"[{display}]({rel_link}{anchor})"
+
+        return match.group(0)
+
+    tokens = PROTECTED_ZONES_PATTERN.split(content)
+    output_segments: list[str] = []
+
+    for idx, segment in enumerate(tokens):
+        if idx % 2 == 1:
+            output_segments.append(segment)
+        else:
+            subbed = WIKI_IMAGE_PATTERN.sub(replace_image, segment)
+            subbed = WIKI_LINK_PATTERN.sub(replace_link, subbed)
+            output_segments.append(subbed)
+
+    return "".join(output_segments), replacements
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Migrate Obsidian/Zettlr wikilinks to deterministic standard Markdown links (KaTeX/Code safe)."
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Display changes without writing them to disk.",
+    )
+    args = parser.parse_args()
+
+    project_root = Path(__file__).resolve().parent.parent
+    src_root = project_root / "content"
+
+    if not src_root.exists():
+        print(f"Error: content directory does not exist at {src_root}", file=sys.stderr)
+        sys.exit(1)
+
+    inventory = build_inventory(src_root)
+    md_files = sorted(src_root.rglob("*.md"))
+
+    total_files_modified = 0
+    total_links_converted = 0
+
+    for md in md_files:
+        try:
+            with open(md, "r", encoding="utf-8") as f:
+                content = f.read()
+        except OSError as e:
+            print(f"Skipping unreadable file {md}: {e}", file=sys.stderr)
+            continue
+
+        new_content, count = convert_file_content(md, content, inventory, src_root)
+
+        if count > 0:
+            total_files_modified += 1
+            total_links_converted += count
+            rel_path = md.relative_to(src_root)
+
+            if args.dry_run:
+                print(f"[DRY-RUN] {rel_path}: {count} wikilink(s) to convert.")
+            else:
+                with open(md, "w", encoding="utf-8") as f:
+                    f.write(new_content)
+                print(f"Converted {count} wikilink(s) in {rel_path}.")
+
+    if args.dry_run:
+        print(
+            f"\nDry run complete: Found {total_links_converted} wikilink(s) across {total_files_modified} file(s)."
+        )
+    else:
+        print(
+            f"\nMigration complete: Converted {total_links_converted} wikilink(s) across {total_files_modified} file(s)."
+        )
+
+
+if __name__ == "__main__":
+    main()
+```
+
 ## `pandoc_md_to_static_html.yaml`
 
-```yaml
+```
 reader: markdown
 writer: html
 embed-resources: false
@@ -2812,7 +2737,7 @@ fail-if-warnings: false
 
 ## `translate_links.lua`
 
-```lua
+```
 -- translate_links.lua
 -- 1. Rewrites relative markdown links (.md) to HTML (.html)
 -- 2. If KYKLOI_SECURE_BUILD is active, rewrites image sources to append .enc
@@ -2860,7 +2785,7 @@ end
 
 ## `pyproject.toml`
 
-```toml
+```
 [project]
 name = "kykloi"
 version = "0.4.0"
@@ -2869,312 +2794,3 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = []
 ```
-
-## `serve.py`
-
-```python
-#!/usr/bin/env python3
-"""
-serve.py - Zero-Dependency Archival HTTP Daemon with RFC 7233 Range Support.
-Part of Project Kykloi (v0.5.0).
-"""
-
-import argparse
-import http.server
-import mimetypes
-import os
-import re
-import socket
-import socketserver
-import sys
-import threading
-import time
-import urllib.parse
-import webbrowser
-from pathlib import Path
-
-# ===========================================================================
-# 1. PATH RESOLUTION & DEFENSIVE MIME REGISTRATION
-# ===========================================================================
-
-ROOT_DIR = Path(__file__).resolve().parent
-DIST_DIR = ROOT_DIR / "dist"
-
-# Hardcode MIME overrides to protect against stripped/minimal host OS registries
-mimetypes.init()
-mimetypes.add_type("application/wasm", ".wasm")
-mimetypes.add_type("font/woff2", ".woff2")
-mimetypes.add_type("application/manifest+json", ".webmanifest")
-mimetypes.add_type("application/octet-stream", ".enc")
-mimetypes.add_type("image/svg+xml", ".svg")
-mimetypes.add_type("text/css", ".css")
-mimetypes.add_type("application/javascript", ".js")
-
-
-# ===========================================================================
-# 2. RFC 7233 RANGE-CAPABLE REQUEST HANDLER
-# ===========================================================================
-
-RANGE_REGEX = re.compile(r"^bytes=(\d*)-(\d*)$")
-
-
-class KykloiHTTPRequestHandler(http.server.BaseHTTPRequestHandler):
-    """
-    HTTP handler serving strictly from the dist/ directory.
-    Implements RFC 7233 partial content (206) for media streaming/scrubbing
-    and enforces jailbreak checks against directory traversal.
-    """
-
-    server_version = "KykloiDaemon/0.5"
-
-    def translate_path(self, path: str) -> str | None:
-        """Translate a URL path into an absolute file system path inside dist/."""
-        parsed_url = urllib.parse.urlsplit(path)
-        clean_path = urllib.parse.unquote(parsed_url.path).lstrip("/")
-
-        target = (DIST_DIR / clean_path).resolve()
-
-        # Jail enforcement: Ensure resolved path lives within DIST_DIR
-        try:
-            target.relative_to(DIST_DIR.resolve())
-        except ValueError:
-            return None
-
-        if target.is_dir():
-            index_candidate = target / "index.html"
-            if index_candidate.is_file():
-                return str(index_candidate)
-
-        return str(target) if target.exists() else None
-
-    def guess_mime(self, filepath: str) -> str:
-        mime, _ = mimetypes.guess_type(filepath)
-        return mime or "application/octet-stream"
-
-    def do_HEAD(self):
-        self._handle_request(send_body=False)
-
-    def do_GET(self):
-        self._handle_request(send_body=True)
-
-    def _handle_request(self, send_body: bool):
-        filepath = self.translate_path(self.path)
-
-        if filepath is None or not os.path.isfile(filepath):
-            self.send_error(404, "File Not Found")
-            return
-
-        try:
-            file_size = os.path.getsize(filepath)
-        except OSError:
-            self.send_error(404, "File Inaccessible")
-            return
-
-        mime_type = self.guess_mime(filepath)
-        range_header = self.headers.get("Range")
-
-        # -------------------------------------------------------------
-        # CASE 1: Standard Full File Request (HTTP 200 OK)
-        # -------------------------------------------------------------
-        if not range_header:
-            self.send_response(200)
-            self.send_header("Content-Type", mime_type)
-            self.send_header("Content-Length", str(file_size))
-            self.send_header("Accept-Ranges", "bytes")
-            self.send_header("Cache-Control", "no-cache")
-            self.end_headers()
-
-            if send_body:
-                self._stream_file_slice(filepath, start=0, length=file_size)
-            return
-
-        # -------------------------------------------------------------
-        # CASE 2: RFC 7233 Range Request (HTTP 206 Partial Content)
-        # -------------------------------------------------------------
-        match = RANGE_REGEX.match(range_header.strip())
-        if not match:
-            self._send_416(file_size)
-            return
-
-        raw_start, raw_end = match.groups()
-
-        if raw_start and raw_end:
-            start = int(raw_start)
-            end = int(raw_end)
-        elif raw_start:
-            start = int(raw_start)
-            end = file_size - 1
-        elif raw_end:
-            suffix_len = int(raw_end)
-            start = max(0, file_size - suffix_len)
-            end = file_size - 1
-        else:
-            self._send_416(file_size)
-            return
-
-        # Validate range boundary bounds
-        if start > end or start >= file_size or start < 0:
-            self._send_416(file_size)
-            return
-
-        end = min(end, file_size - 1)
-        content_length = (end - start) + 1
-
-        self.send_response(206)
-        self.send_header("Content-Type", mime_type)
-        self.send_header("Content-Range", f"bytes {start}-{end}/{file_size}")
-        self.send_header("Content-Length", str(content_length))
-        self.send_header("Accept-Ranges", "bytes")
-        self.send_header("Cache-Control", "no-cache")
-        self.end_headers()
-
-        if send_body:
-            self._stream_file_slice(filepath, start=start, length=content_length)
-
-    def _send_416(self, file_size: int):
-        self.send_response(416)
-        self.send_header("Content-Range", f"bytes */{file_size}")
-        self.end_headers()
-
-    def _stream_file_slice(self, filepath: str, start: int, length: int):
-        """Stream chunks of 64 KB from disk to socket without bloating RAM."""
-        chunk_size = 65536
-        remaining = length
-        try:
-            with open(filepath, "rb") as f:
-                f.seek(start)
-                while remaining > 0:
-                    read_len = min(chunk_size, remaining)
-                    data = f.read(read_len)
-                    if not data:
-                        break
-                    self.wfile.write(data)
-                    remaining -= len(data)
-        except (BrokenPipeError, ConnectionResetError):
-            # Client closed tab or cancelled download
-            pass
-
-
-# ===========================================================================
-# 3. SERVER ORCHESTRATION & CLI
-# ===========================================================================
-
-
-class ThreadedTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
-    allow_reuse_address = True
-    daemon_threads = True
-
-
-def parse_args():
-    p = argparse.ArgumentParser(
-        description="Zero-Dependency Local HTTP Daemon for Project Kykloi."
-    )
-    p.add_argument(
-        "--host",
-        type=str,
-        default="127.0.0.1",
-        help="Network interface to bind (default: 127.0.0.1; use 0.0.0.0 for LAN).",
-    )
-    p.add_argument(
-        "--port",
-        type=int,
-        default=8000,
-        help="Preferred port number (default: 8000).",
-    )
-    p.add_argument(
-        "--browser",
-        action="store_true",
-        help="Automatically launch system browser upon startup.",
-    )
-    return p.parse_args()
-
-
-def open_browser_delayed(url: str):
-    time.sleep(0.4)
-    try:
-        webbrowser.open(url)
-    except Exception:
-        pass
-
-
-def main():
-    args = parse_args()
-
-    if not DIST_DIR.exists() or not any(DIST_DIR.iterdir()):
-        print("\n[ERROR] Compiled artifacts directory not found or empty:")
-        print(f"        {DIST_DIR}")
-        print("\nPlease build the static site first using:")
-        print("  python3 build/build_site.py\n")
-        sys.exit(1)
-
-    port = args.port
-    server = None
-    max_attempts = 15
-
-    for offset in range(max_attempts):
-        candidate_port = port + offset
-        try:
-            server = ThreadedTCPServer(
-                (args.host, candidate_port), KykloiHTTPRequestHandler
-            )
-            port = candidate_port
-            break
-        except OSError as e:
-            if e.errno in (98, 48, 10048):  # EADDRINUSE across Linux, macOS, Windows
-                continue
-            raise
-
-    if server is None:
-        print(
-            f"[FATAL] Could not bind to an open port between {port} and {port + max_attempts}."
-        )
-        sys.exit(1)
-
-    url = f"http://{args.host}:{port}/"
-    print("=" * 64)
-    print("  Project Kykloi — Archival HTTP Daemon")
-    print(f"  Root:   {DIST_DIR}")
-    print(f"  URL:    {url}")
-    print("  Status: Listening (Press Ctrl+C to stop)")
-    print("=" * 64)
-
-    if args.browser:
-        threading.Thread(target=open_browser_delayed, args=(url,), daemon=True).start()
-
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        print("\n[Kykloi] Shutting down daemon gracefully...")
-    finally:
-        server.server_close()
-
-
-if __name__ == "__main__":
-    main()
-```
-
-## context regarding architecture
-
-1. Primary Layer: Canonical Corpus (Source of Truth)
-
-    Medium: Plain-text CommonMark/Pandoc Markdown with UTF-8 encoding.
-
-    Semantics: In-band YAML frontmatter adhering to EDTF (Extended Date/Time Format) and relative link syntax.
-
-    Durability Expectation: Indefinite (Centuries). Decoupled from software runtimes; readable via standard terminal primitives, POSIX utilities, and basic text editors.
-
-2. Secondary Layer: Translational Engine (Pipeline & Mint)
-
-    Medium: Python Standard Library (≥ 3.12), Pandoc native CLI, Lua filter script.
-
-    Function: State-manifested incremental compilation, relative link translation, SQLite FTS5 database synthesis, and pure-Python AES-256-GCM cryptographic packaging.
-
-    Durability Expectation: Decade Scale (5–15 Years). Subject to operational environment changes (Python minor/major deprecations, operating system ABIs, Pandoc CLI argument evolution). Requires intentional re-establishment when migrating host environments.
-
-3. Tertiary Layer: Preserved Presentation & Retrieval (Rendered Target)
-
-    Medium: W3C Semantic HTML5, CSS3 (Pico CSS), Baseline ES6+ (Web Workers), WebAssembly, SQLite3 binary container, W3C WebCrypto API.
-
-    Function: Zero-knowledge client-side decryption, background thread full-text search, math rendering (KaTeX), and self-contained hypertext navigation.
-
-    Durability Expectation: Multi-Decade Scale (25–50+ Years). Backed by the historical backwards-compatibility commitments of web browser vendors and archival data standards (SQLite preservation standard). Does not require Layer 2 to exist in order to function indefinitely.
