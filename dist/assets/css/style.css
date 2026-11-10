@@ -152,36 +152,3 @@ main p > img {
 footer {
     color: var(--pico-muted-color);
 }
-
-/* --- Task Lists (Semantic Form Inputs) --- */
-ul.task-list {
-    list-style-type: none;
-    padding-inline-start: 0.25rem;
-}
-
-ul.task-list li {
-    list-style-type: none;
-}
-
-ul.task-list li input[type="checkbox"] {
-    margin-right: 0.5rem;
-    vertical-align: middle;
-}
-
-/* --- Semantic Callouts (<aside>) --- */
-main aside {
-    margin-top: var(--pico-typography-spacing-vertical);
-    margin-bottom: var(--pico-typography-spacing-vertical);
-    padding: calc(var(--pico-spacing) * 0.75) var(--pico-spacing);
-    border-left: 4px solid var(--pico-primary);
-    border-radius: var(--pico-border-radius);
-    background-color: var(--pico-card-background-color);
-}
-
-main aside header {
-    margin-bottom: calc(var(--pico-spacing) * 0.5);
-    padding-bottom: 0;
-    border-bottom: none;
-    font-size: 0.95rem;
-    letter-spacing: 0.02em;
-}

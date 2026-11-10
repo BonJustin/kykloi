@@ -1,25 +1,20 @@
 {
-  "__GLOBAL_DEPENDENCIES__": "c285325cc6473afb74e0e18594b2f08da625dcbe0fae32af593be7d73f3a9309",
+  "__GLOBAL_DEPENDENCIES__": "0eea06a23b7487695884b74d00216bd0bdd6a7b2e16e67b4e322af8244c54cc1",
   "__PASSPHRASE_FINGERPRINT__": "4393638cf2a7f507f3c05c7dd4466fccfe3fba6a37d520e6fa2b83bf6ecc3c09",
-  "__SEARCH_DB_HASH__": "cc93fe0ae9db0e69d2e620075f54dedcaa4a2130c2c1677018cb8cf60b4ba6ba",
-  "content:202611/20261109130247-project_kykloi_task_list.md": "0f6c74df69781f3110e9cb11cd5371a41da4fce486ac86ec3bbac9ac11bbcc78",
+  "__SEARCH_DB_HASH__": "2ea540a510edb627a5239972dad0ca1e031f1276b28e357528493d8fb6b69ffa",
+  "content:202611/20261109130247-project_kykloi_task_list.md": "cedf8e8093cfac8ddff7c36448e3cd6aeb86079d7969f8d008a06aff1c891948",
   "content:202611/20261109171348-geminis_codebase_impression.md": "5a8fc462cfd3e85a685122df9e4228dd17071a0bd32bcf8bebb906add41fc484",
   "content:pandoc_markdown.md": "3914f266883b75bd3b5897dc802289022b2d2887930c4d7593b4d8a230a5a6e3",
   "content:secure/20261031165927-nested-directory-test.md": "720942513e72914bbc7130f720c9cba694c1e5559aacec161b19afb4c3b9712e",
-  "content:secure/secure-media-gallery.md": "44be1ab217f8d5812b759f676f5533e4ca9d0fae278109fbc6e412457d425461",
-  "content:secure/secure-vault-notes.md": "c7bf0beb1ef573748a3b214e81d20dccc4a3bcf394bbd83d86d32e484cf98d08",
-  "content:tests/commonmark-syntax.md": "dd3632511c02b6a802ec58ff51e471213afbf265bfdf45bc4149baa68d5cef8a",
-  "content:tests/edge-cases-and-math.md": "f53c5ba0e3b0eb23d6744212aaff38bb2c89be02452d461a619f333560e498ca",
-  "content:tests/obsidian-features.md": "9b2794a5e7cb220f1341477fa8afa5cce1ef533bac5846bb61f983f84fc39d6b",
-  "content:tests/zettlr-features.md": "d75eb1114603f3b70acbb9fa5d6d8c0463d4096737b610fd66cb3d75dbb8aad7",
   "functional_asset:css/pico.css": "55dae2996f4f2dc108cea27ffecd3ad8eaf0063fc96fa8d92306ed76a3ad33ec",
-  "functional_asset:css/style.css": "60cd7a2b1602b6e164f4de0a1e293d5a0650e27d01180b39fa049d999f6c03f3",
+  "functional_asset:css/style.css": "7d71605fd91ee26ecd02ce315bfe826b2808ab4a353d635b729b4f17cddb11d1",
   "functional_asset:fonts/jetbrainsmono-variablefont_wght-webfont.woff2": "57fece1fee103c30bacaa0c60833b381ddad665a3f09dfa10fa8f52f9c0ad53b",
   "functional_asset:fonts/libertinusserif-bold-webfont.woff2": "ac923d95e80bf36862a1cdb0570de795354307812f06413d748fd5d2485cdfeb",
   "functional_asset:fonts/libertinusserif-bolditalic-webfont.woff2": "8bcd96d8a8527302bd08a356a72658eaf65265b38b9ad9361a7b877ca117eb02",
   "functional_asset:fonts/libertinusserif-italic-webfont.woff2": "1fe1034e17e2a9885c59a6345164db60bd24b4619dfb2257d70ec9b49a4455bd",
   "functional_asset:fonts/libertinusserif-regular-webfont.woff2": "5de622c3da64cc6ab2aefafaf62c4e18d1fa8315994eb39bdf361b7e384883bd",
   "functional_asset:js/decrypt.js": "ff1e0d779e1adbf552ec2d93b320dfa5414ec7ed27e79e1c0a35a7cb087d28ca",
+  "functional_asset:js/minisearch.min.js": "0205a8f71c82f33f56cf33176744acaeefd5282a3c910a4bfb9cda9566eb40de",
   "functional_asset:js/pico_search.js": "2fa33f0df3f95e00643f8542c49e144be74f5b893db9a0afd575a6a7d14f3802",
   "functional_asset:js/search_worker.js": "611aba8e04af1e35cbbc23412cd23641b06e8d8e4dfdd8ae3b61f5190453fc6b",
   "functional_asset:js/sqlite3-worker1.js": "1bed25837f00f7b68943cfcabed62dfd202cae863a72af24a0d6487d7d7b0e61",
@@ -128,36 +123,6 @@
     "date_edtf": "2026-10-31T16:59:27",
     "keywords": "delete",
     "title": "Nested Dir Test"
-  },
-  "meta:secure/secure-media-gallery.md": {
-    "date_edtf": "2026-12-01T08:45:00",
-    "keywords": "media, encrypted-blobs, webcrypto, hydration, secure",
-    "title": "Secure Media Gallery & Dynamic Blob Hydration"
-  },
-  "meta:secure/secure-vault-notes.md": {
-    "date_edtf": "2026-12-01T08:30:00",
-    "keywords": "encryption confidential webcrypto pbkdf2 secure-notes",
-    "title": "Confidential Vault & Key Derivation Log"
-  },
-  "meta:tests/commonmark-syntax.md": {
-    "date_edtf": "2026-12-01",
-    "keywords": "commonmark, tables, codeblocks, protected-zones, escaping",
-    "title": "Comprehensive CommonMark Structural Syntax"
-  },
-  "meta:tests/edge-cases-and-math.md": {
-    "date_edtf": "2026-12-01",
-    "keywords": "katex, mathematics, latex, calculus, chemistry, mhchem",
-    "title": "Mathematical Typesetting & Edge-Case Escapes"
-  },
-  "meta:tests/obsidian-features.md": {
-    "date_edtf": "2026-12-01",
-    "keywords": "obsidian callouts wikilinks admonitions highlights",
-    "title": "Obsidian Feature & Callout Verification"
-  },
-  "meta:tests/zettlr-features.md": {
-    "date_edtf": "2026-12-01T09:15:00",
-    "keywords": "zettlr, zettelkasten, footnotes, academic, cross-referencing",
-    "title": "Zettlr Conventions & Academic Notation"
   },
   "root_asset:apple-touch-icon.png": "f5e4cdace52bbe32d9c03854146b863d98bac7c6ae4548c5ee4001a361d4beef",
   "root_asset:favicon-96x96.png": "b90674f536d983b734e38f137349b3cdcba60be8e6fe3f0a7674aa74227ee8ff",
