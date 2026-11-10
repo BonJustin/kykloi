@@ -15,3 +15,7 @@ keywords: ["kykloi", "pandoc", "python"]
 * Wikilink support.
 * Scaling of full db rewrites with large repositories.
 * Rename `index.html` to `search.html` and replace `index.html` with a custom, fixed introductory landing page.
+* Documentation, code commentary, and CLI --help flags.
+* Zettlr conpatibility.
+* Test and refine citation capability.
+* Import and test mchem KaTeX support.

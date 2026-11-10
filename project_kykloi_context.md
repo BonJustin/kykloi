@@ -3153,6 +3153,28 @@ if __name__ == "__main__":
     main()
 ```
 
-## query
+## context regarding architecture
 
-i have excluded the project philosophy, ethos, and history from context to try and get a realistic evaluation of what we have built to this point. if possible, in this fresh context (without considering any commentary embedded in the files provided above) give a serious evaluation of this projects philosophy, ethos, practicality, usefulness and value. then provide a brief assessment of it's durability (lifespan without significant maintenance) and performance.
+1. Primary Layer: Canonical Corpus (Source of Truth)
+
+    Medium: Plain-text CommonMark/Pandoc Markdown with UTF-8 encoding.
+
+    Semantics: In-band YAML frontmatter adhering to EDTF (Extended Date/Time Format) and relative link syntax.
+
+    Durability Expectation: Indefinite (Centuries). Decoupled from software runtimes; readable via standard terminal primitives, POSIX utilities, and basic text editors.
+
+2. Secondary Layer: Translational Engine (Pipeline & Mint)
+
+    Medium: Python Standard Library (≥ 3.12), Pandoc native CLI, Lua filter script.
+
+    Function: State-manifested incremental compilation, relative link translation, SQLite FTS5 database synthesis, and pure-Python AES-256-GCM cryptographic packaging.
+
+    Durability Expectation: Decade Scale (5–15 Years). Subject to operational environment changes (Python minor/major deprecations, operating system ABIs, Pandoc CLI argument evolution). Requires intentional re-establishment when migrating host environments.
+
+3. Tertiary Layer: Preserved Presentation & Retrieval (Rendered Target)
+
+    Medium: W3C Semantic HTML5, CSS3 (Pico CSS), Baseline ES6+ (Web Workers), WebAssembly, SQLite3 binary container, W3C WebCrypto API.
+
+    Function: Zero-knowledge client-side decryption, background thread full-text search, math rendering (KaTeX), and self-contained hypertext navigation.
+
+    Durability Expectation: Multi-Decade Scale (25–50+ Years). Backed by the historical backwards-compatibility commitments of web browser vendors and archival data standards (SQLite preservation standard). Does not require Layer 2 to exist in order to function indefinitely.
