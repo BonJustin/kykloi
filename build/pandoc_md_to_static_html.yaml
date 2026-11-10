@@ -1,4 +1,4 @@
-reader: markdown
+reader: markdown+mark+task_lists
 writer: html
 embed-resources: false
 variables:

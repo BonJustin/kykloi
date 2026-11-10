@@ -427,6 +427,39 @@ main p > img {
 footer {
     color: var(--pico-muted-color);
 }
+
+/* --- Task Lists (Semantic Form Inputs) --- */
+ul.task-list {
+    list-style-type: none;
+    padding-inline-start: 0.25rem;
+}
+
+ul.task-list li {
+    list-style-type: none;
+}
+
+ul.task-list li input[type="checkbox"] {
+    margin-right: 0.5rem;
+    vertical-align: middle;
+}
+
+/* --- Semantic Callouts (<aside>) --- */
+main aside {
+    margin-top: var(--pico-typography-spacing-vertical);
+    margin-bottom: var(--pico-typography-spacing-vertical);
+    padding: calc(var(--pico-spacing) * 0.75) var(--pico-spacing);
+    border-left: 4px solid var(--pico-primary);
+    border-radius: var(--pico-border-radius);
+    background-color: var(--pico-card-background-color);
+}
+
+main aside header {
+    margin-bottom: calc(var(--pico-spacing) * 0.5);
+    padding-bottom: 0;
+    border-bottom: none;
+    font-size: 0.95rem;
+    letter-spacing: 0.02em;
+}
 ```
 
 ## `decrypt.js`
@@ -2801,6 +2834,7 @@ if __name__ == "__main__":
 migrate_wikilinks.py - High-Performance CommonMark Link Normalizer.
 Converts Obsidian, Zettlr, Logseq, and Foam wikilinks into standards-compliant CommonMark.
 Handles spaces, anchors, block IDs, frontmatter IDs, and Zettelkasten timestamp prefixes.
+Strips non-standard image dimension specifiers (|300, |300x200) to maintain archival purity.
 Protects KaTeX blocks, code fences, inline code, and YAML frontmatter.
 Filters all editor caches, workspaces, OS trash, and swap files.
 Part of Project Kykloi.
@@ -2818,11 +2852,14 @@ ID_PREFIX_PATTERN = re.compile(r"^(\d{14}|\d{12}|\d{8})(?:[-_\s].*)?$")
 # Matches Zettlr frontmatter ID: "id: 20240101120000" or "id: '20240101120000'"
 FRONTMATTER_ID_PATTERN = re.compile(r"^id:\s*['\"]?(\d{8,14})['\"]?", re.MULTILINE)
 
-# Match ![[target#anchor|alt]] or ![[target]]
+# Match ![[target#anchor|alt_or_dimensions]] or ![[target]]
 WIKI_IMAGE_PATTERN = re.compile(r"!\[\[\s*([^\]\|\n]+?)(?:\|([^\]\n]*))?\s*\]\]")
 
 # Match [[target#anchor|label]] or [[target]]
 WIKI_LINK_PATTERN = re.compile(r"\[\[\s*([^\]\|\n]+?)(?:\|([^\]\n]*))?\s*\]\]")
+
+# Matches virtual resizing dimensions like "300" or "300x200"
+DIMENSION_PATTERN = re.compile(r"^\d+(?:x\d+)?$")
 
 # Carve out protected syntactic blocks from Markdown content
 PROTECTED_ZONES_PATTERN = re.compile(
@@ -2872,7 +2909,6 @@ def is_junk_path(path: Path) -> bool:
     Determines if a given path is an OS artifact, editor workspace file,
     VCS metadata, lock/swap file, or deleted note in .trash/.
     """
-    # Check directory parts for blacklisted directories or hidden directory prefixes
     for part in path.parts[:-1]:
         part_lower = part.lower()
         if part_lower in JUNK_DIRS or part.startswith("."):
@@ -2881,15 +2917,12 @@ def is_junk_path(path: Path) -> bool:
     name = path.name
     name_lower = name.lower()
 
-    # Exact filename match
     if name_lower in JUNK_EXACT_FILES:
         return True
 
-    # Hidden files and OS temporary artifacts
     if name.startswith(".") or name.startswith("._"):
         return True
 
-    # Backup, swap, and temporary editor lock files
     if (
         name.endswith("~")
         or name.endswith(".swp")
@@ -2948,12 +2981,10 @@ def build_inventory(src_root: Path) -> dict[str, Path]:
             inventory[no_ext_rel] = rel
             inventory[no_ext_rel.lower()] = rel
 
-            # Filename-based ZK ID (e.g., 20240101120000-topic.md)
             m = ID_PREFIX_PATTERN.match(stem)
             if m:
                 inventory[m.group(1)] = rel
 
-            # Frontmatter-based ID
             f_id = extract_frontmatter_id(p)
             if f_id:
                 inventory[f_id] = rel
@@ -2999,16 +3030,13 @@ def resolve_target(
     if not target:
         return None, anchor
 
-    # 1. Direct dictionary match
     if target in inventory:
         return inventory[target], anchor
 
-    # 2. Case-insensitive lookup
     target_lower = target.lower()
     if target_lower in inventory:
         return inventory[target_lower], anchor
 
-    # 3. Basename lookup
     base_name = Path(target).name
     if base_name in inventory:
         return inventory[base_name], anchor
@@ -3017,7 +3045,6 @@ def resolve_target(
     if base_lower in inventory:
         return inventory[base_lower], anchor
 
-    # 4. Leading Zettelkasten ID probe
     zk_match = ID_PREFIX_PATTERN.match(base_name)
     if zk_match:
         zk_id = zk_match.group(1)
@@ -3025,6 +3052,28 @@ def resolve_target(
             return inventory[zk_id], anchor
 
     return None, anchor
+
+
+def clean_image_alt_text(meta_text: str) -> str:
+    """
+    Strips non-standard virtual dimension suffixes (|300, |300x200, ,300)
+    to preserve pure CommonMark syntax without non-standard attribute extensions.
+    """
+    meta = meta_text.strip()
+    if not meta:
+        return ""
+
+    if DIMENSION_PATTERN.match(meta):
+        return ""
+
+    for separator in (",", "|"):
+        if separator in meta:
+            parts = meta.rsplit(separator, 1)
+            tail = parts[1].strip()
+            if DIMENSION_PATTERN.match(tail):
+                return parts[0].strip()
+
+    return meta
 
 
 def convert_file_content(
@@ -3037,13 +3086,16 @@ def convert_file_content(
     def replace_image(match: re.Match) -> str:
         nonlocal replacements
         raw_target = match.group(1).strip()
-        alt_text = match.group(2).strip() if match.group(2) else ""
+        meta_param = match.group(2).strip() if match.group(2) else ""
 
         target_file, _ = resolve_target(raw_target, inventory)
         if target_file:
             encoded_url = format_commonmark_url(doc_rel, target_file)
             replacements += 1
+
+            alt_text = clean_image_alt_text(meta_param)
             display = alt_text or target_file.name
+
             return f"![{display}]({encoded_url})"
 
         return match.group(0)
@@ -3165,7 +3217,7 @@ if __name__ == "__main__":
 ## `pandoc_md_to_static_html.yaml`
 
 ```
-reader: markdown
+reader: markdown+mark+task_lists
 writer: html
 embed-resources: false
 variables:
@@ -3199,6 +3251,7 @@ fail-if-warnings: false
 -- translate_links.lua
 -- 1. Rewrites relative markdown links (.md) to HTML (.html)
 -- 2. If KYKLOI_SECURE_BUILD is active, rewrites image sources to append .enc
+-- 3. Transforms Obsidian/GitHub callouts (> [!TYPE]) into semantic HTML5 <aside> tags (Zero CSS classes injected)
 
 local is_secure = os.getenv("KYKLOI_SECURE_BUILD") == "1"
 
@@ -3208,13 +3261,10 @@ function Link(el)
     return el
   end
 
-  -- Decode URL to inspect extension if encoded
-  local target = el.target
-
   -- Separate path from anchor or query
-  local path, rest = target:match("^(.-)%.md([#?].*)$")
+  local path, rest = el.target:match("^(.-)%.md([#?].*)$")
   if not path then
-    path = target:match("^(.-)%.md$")
+    path = el.target:match("^(.-)%.md$")
     rest = ""
   end
 
@@ -3250,6 +3300,64 @@ function Image(el)
   el.attributes["data-encrypted-media"] = "true"
   return el
 end
+
+function BlockQuote(el)
+  if #el.content == 0 then
+    return el
+  end
+
+  local first_block = el.content[1]
+  if first_block.t ~= "Para" or #first_block.content == 0 then
+    return el
+  end
+
+  local first_inline = first_block.content[1]
+  if first_inline.t ~= "Str" then
+    return el
+  end
+
+  -- Match [!TYPE]
+  local callout_type = first_inline.text:match("^%!%[([%a%-_]+)%]")
+  if not callout_type then
+    return el
+  end
+
+  -- Extract optional custom title from subsequent inlines in the first paragraph
+  local title_inlines = {}
+  local content_blocks = {}
+
+  for i = 2, #first_block.content do
+    table.insert(title_inlines, first_block.content[i])
+  end
+
+  local callout_title = ""
+  if #title_inlines > 0 then
+    callout_title = pandoc.utils.stringify(title_inlines):gsub("^%s+", "")
+  end
+  if callout_title == "" then
+    callout_title = callout_type:gsub("^%l", string.upper)
+  end
+
+  -- Collect remaining body blocks
+  for i = 2, #el.content do
+    table.insert(content_blocks, el.content[i])
+  end
+
+  -- Render as purely semantic HTML5 <aside> with <header> (No CSS classes)
+  local header_html = string.format("<header><strong>%s</strong></header>", pandoc.utils.stringify(callout_title))
+
+  local aside_blocks = {
+    pandoc.RawBlock("html", "<aside>"),
+    pandoc.RawBlock("html", header_html)
+  }
+
+  for _, b in ipairs(content_blocks) do
+    table.insert(aside_blocks, b)
+  end
+
+  table.insert(aside_blocks, pandoc.RawBlock("html", "</aside>"))
+  return aside_blocks
+end
 ```
 
 ## `pyproject.toml`
@@ -3263,3 +3371,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = []
 ```
+
+## initial query to prime the context for analysis
+
+i have excluded the project philosophy, ethos, and history from context to try and get a realistic evaluation of what has been built to this point. if possible give a serious evaluation of this projects philosophy, ethos, practicality, usefulness and value. then provide a brief assessment of it's archival durability, performance and permacomputing potential.
