@@ -29,13 +29,13 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function renderDecryptedMath(container) {
-    if (typeof katex === "undefined") {
-      console.warn("[Kykloi] KaTeX engine not available in global scope.");
+    if (typeof window.katex === "undefined") {
       return;
     }
 
-    const mathElements = container.querySelectorAll(".math");
-    mathElements.forEach((el) => {
+    const mathElements = container.getElementsByClassName("math");
+    for (let i = 0; i < mathElements.length; i++) {
+      const el = mathElements[i];
       let tex = el.textContent.trim();
 
       if (tex.startsWith("\\(") && tex.endsWith("\\)")) {
@@ -54,14 +54,15 @@ document.addEventListener("DOMContentLoaded", () => {
         el.tagName === "DIV";
 
       try {
-        katex.render(tex, el, {
+        window.katex.render(tex, el, {
           displayMode: isDisplay,
           throwOnError: false,
+          fleqn: false,
         });
       } catch (kErr) {
         console.error("[Kykloi KaTeX Error]:", kErr);
       }
-    });
+    }
   }
 
   function base64ToUint8Array(b64) {
@@ -229,6 +230,7 @@ document.addEventListener("DOMContentLoaded", () => {
         lockContainer.remove();
       }
 
+      // Render math only if KaTeX was conditionally loaded for this page
       renderDecryptedMath(contentContainer);
 
       // Decrypt and hydrate media blobs

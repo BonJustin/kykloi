@@ -14,12 +14,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-try:
-    from migrate_wikilinks import is_junk_path, run_migration_pipeline
-except ImportError:
-    sys.path.append(str(Path(__file__).resolve().parent))
-    from migrate_wikilinks import is_junk_path, run_migration_pipeline
-
 # ===========================================================================
 # 1. PURE-PYTHON AES-256-GCM ENGINE & 8-BIT TABLE-DRIVEN GHASH
 # ===========================================================================
@@ -483,8 +477,36 @@ def verify_cryptographic_engine():
 
 
 # ===========================================================================
-# 2. GLOBAL PATH INITIALIZATION & VALIDATION
+# 2. GLOBAL PATH INITIALIZATION & HYGIENE
 # ===========================================================================
+
+JUNK_DIR_NAMES = {
+    ".obsidian",
+    ".trash",
+    ".zettlr",
+    ".logseq",
+    "logseq",
+    ".git",
+    ".vscode",
+    ".idea",
+}
+
+JUNK_FILE_EXTENSIONS = {
+    ".ztr-directory",
+    ".ds_store",
+    "thumbs.db",
+    "desktop.ini",
+}
+
+
+def is_junk_path(path: Path) -> bool:
+    for part in path.parts:
+        if part.lower() in JUNK_DIR_NAMES or part.startswith("."):
+            return True
+    if path.name.lower() in JUNK_FILE_EXTENSIONS:
+        return True
+    return False
+
 
 try:
     PROJECT_ROOT = Path(__file__).parent.resolve().parent
@@ -494,7 +516,6 @@ try:
 
     DEFAULTS_YAML = APP_DIR / "pandoc_md_to_static_html.yaml"
     DEFAULT_TEMPLATE = APP_DIR / "templates" / "md_to_static_html.html"
-    METADATA_TEMPLATE = APP_DIR / "templates" / "metadata.json"
     LUA_FILTER = APP_DIR / "translate_links.lua"
     MANIFEST_FILE = APP_DIR / ".build_manifest.json"
     SEARCH_DB_FILE = DST / "search.db"
@@ -581,7 +602,6 @@ def compute_global_dependencies_hash() -> str:
         DEFAULTS_YAML,
         LUA_FILTER,
         DEFAULT_TEMPLATE,
-        METADATA_TEMPLATE,
         Path(__file__).resolve(),
     ]
     for f in tracked_files:
@@ -664,7 +684,7 @@ def save_manifest(manifest_path: Path, manifest: dict, dry_run: bool):
 
 
 # ===========================================================================
-# 5. ZERO-DEPENDENCY YAML FRONTMATTER PARSER & SQLITE FTS5 COMPILER
+# 5. YAML FRONTMATTER PARSER & METADATA-ONLY SQLITE FTS5 COMPILER
 # ===========================================================================
 
 
@@ -769,7 +789,6 @@ def extract_metadata_fast(md_path: Path) -> tuple[Path, dict[str, str]]:
 
     if not meta["title"]:
         clean_stem = md_path.stem
-        # Strip timestamp prefix if present
         parts = clean_stem.split(maxsplit=1)
         if len(parts) > 1 and parts[0].isdigit() and len(parts[0]) in (8, 12, 14):
             clean_stem = parts[1]
@@ -913,6 +932,7 @@ def compile_markdown_worker(task: CompileTask) -> tuple[Path, bool, Optional[str
     except Exception as e:
         return task.md_path, False, f"Encryption failed: {e}"
 
+    # Consistent --katex flag ensures Pandoc populates $math$ only if document contains math
     envelope_cmd = [
         "pandoc",
         str(task.md_path),
@@ -920,6 +940,7 @@ def compile_markdown_worker(task: CompileTask) -> tuple[Path, bool, Optional[str
         str(task.defaults_yaml),
         "--template",
         str(task.template_path),
+        f"--katex={task.relative_root}assets/katex/",
         "-V",
         f"relative_root={task.relative_root}",
         "-V",
@@ -1008,26 +1029,12 @@ def main():
         (SRC, "Source directory"),
         (DEFAULTS_YAML, "Pandoc defaults configuration"),
         (DEFAULT_TEMPLATE, "Content HTML template"),
-        (METADATA_TEMPLATE, "Metadata JSON template"),
         (LUA_FILTER, "Lua link translation filter"),
     ]
     for path, desc in dependencies:
         if not path.exists():
             logging.error("Configuration error: %s missing at %s", desc, path)
             sys.exit(1)
-
-    # -----------------------------------------------------------------------
-    # STAGE 0: AUTOMATED WIKILINK MIGRATION & REPOSITORY NORMALIZATION
-    # -----------------------------------------------------------------------
-    migrated_files, migrated_links = run_migration_pipeline(
-        src_root=SRC, dry_run=args.dry_run, verbose=args.verbose
-    )
-    if migrated_files > 0:
-        logging.info(
-            "Auto-migrated %d wikilink(s) across %d file(s) to CommonMark.",
-            migrated_links,
-            migrated_files,
-        )
 
     if args.clean:
         if DST.exists():
@@ -1057,7 +1064,6 @@ def main():
     compile_tasks: list[CompileTask] = []
     encrypt_blob_tasks: list[EncryptBlobTask] = []
 
-    # Filter out all editor workspace junk and non-content files
     all_content_files = [
         p for p in SRC.rglob("*") if p.is_file() and not is_junk_path(p)
     ]
@@ -1086,7 +1092,6 @@ def main():
 
     asset_sync_jobs: list[tuple[Path, Path]] = []
 
-    # Map content media (public vs secure)
     for p in all_content_files:
         if p.suffix.lower() == ".md":
             continue
