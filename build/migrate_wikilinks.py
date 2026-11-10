@@ -3,7 +3,6 @@
 migrate_wikilinks.py - High-Performance CommonMark Link Normalizer.
 Converts Obsidian, Zettlr, Logseq, and Foam wikilinks into standards-compliant CommonMark.
 Handles spaces, anchors, block IDs, frontmatter IDs, and Zettelkasten timestamp prefixes.
-Strips non-standard image dimension specifiers (|300, |300x200) to maintain archival purity.
 Protects KaTeX blocks, code fences, inline code, and YAML frontmatter.
 Filters all editor caches, workspaces, OS trash, and swap files.
 Part of Project Kykloi.
@@ -21,14 +20,11 @@ ID_PREFIX_PATTERN = re.compile(r"^(\d{14}|\d{12}|\d{8})(?:[-_\s].*)?$")
 # Matches Zettlr frontmatter ID: "id: 20240101120000" or "id: '20240101120000'"
 FRONTMATTER_ID_PATTERN = re.compile(r"^id:\s*['\"]?(\d{8,14})['\"]?", re.MULTILINE)
 
-# Match ![[target#anchor|alt_or_dimensions]] or ![[target]]
+# Match ![[target#anchor|alt]] or ![[target]]
 WIKI_IMAGE_PATTERN = re.compile(r"!\[\[\s*([^\]\|\n]+?)(?:\|([^\]\n]*))?\s*\]\]")
 
 # Match [[target#anchor|label]] or [[target]]
 WIKI_LINK_PATTERN = re.compile(r"\[\[\s*([^\]\|\n]+?)(?:\|([^\]\n]*))?\s*\]\]")
-
-# Matches virtual resizing dimensions like "300" or "300x200"
-DIMENSION_PATTERN = re.compile(r"^\d+(?:x\d+)?$")
 
 # Carve out protected syntactic blocks from Markdown content
 PROTECTED_ZONES_PATTERN = re.compile(
@@ -78,6 +74,7 @@ def is_junk_path(path: Path) -> bool:
     Determines if a given path is an OS artifact, editor workspace file,
     VCS metadata, lock/swap file, or deleted note in .trash/.
     """
+    # Check directory parts for blacklisted directories or hidden directory prefixes
     for part in path.parts[:-1]:
         part_lower = part.lower()
         if part_lower in JUNK_DIRS or part.startswith("."):
@@ -86,12 +83,15 @@ def is_junk_path(path: Path) -> bool:
     name = path.name
     name_lower = name.lower()
 
+    # Exact filename match
     if name_lower in JUNK_EXACT_FILES:
         return True
 
+    # Hidden files and OS temporary artifacts
     if name.startswith(".") or name.startswith("._"):
         return True
 
+    # Backup, swap, and temporary editor lock files
     if (
         name.endswith("~")
         or name.endswith(".swp")
@@ -150,10 +150,12 @@ def build_inventory(src_root: Path) -> dict[str, Path]:
             inventory[no_ext_rel] = rel
             inventory[no_ext_rel.lower()] = rel
 
+            # Filename-based ZK ID (e.g., 20240101120000-topic.md)
             m = ID_PREFIX_PATTERN.match(stem)
             if m:
                 inventory[m.group(1)] = rel
 
+            # Frontmatter-based ID
             f_id = extract_frontmatter_id(p)
             if f_id:
                 inventory[f_id] = rel
@@ -199,13 +201,16 @@ def resolve_target(
     if not target:
         return None, anchor
 
+    # 1. Direct dictionary match
     if target in inventory:
         return inventory[target], anchor
 
+    # 2. Case-insensitive lookup
     target_lower = target.lower()
     if target_lower in inventory:
         return inventory[target_lower], anchor
 
+    # 3. Basename lookup
     base_name = Path(target).name
     if base_name in inventory:
         return inventory[base_name], anchor
@@ -214,6 +219,7 @@ def resolve_target(
     if base_lower in inventory:
         return inventory[base_lower], anchor
 
+    # 4. Leading Zettelkasten ID probe
     zk_match = ID_PREFIX_PATTERN.match(base_name)
     if zk_match:
         zk_id = zk_match.group(1)
@@ -221,28 +227,6 @@ def resolve_target(
             return inventory[zk_id], anchor
 
     return None, anchor
-
-
-def clean_image_alt_text(meta_text: str) -> str:
-    """
-    Strips non-standard virtual dimension suffixes (|300, |300x200, ,300)
-    to preserve pure CommonMark syntax without non-standard attribute extensions.
-    """
-    meta = meta_text.strip()
-    if not meta:
-        return ""
-
-    if DIMENSION_PATTERN.match(meta):
-        return ""
-
-    for separator in (",", "|"):
-        if separator in meta:
-            parts = meta.rsplit(separator, 1)
-            tail = parts[1].strip()
-            if DIMENSION_PATTERN.match(tail):
-                return parts[0].strip()
-
-    return meta
 
 
 def convert_file_content(
@@ -255,16 +239,13 @@ def convert_file_content(
     def replace_image(match: re.Match) -> str:
         nonlocal replacements
         raw_target = match.group(1).strip()
-        meta_param = match.group(2).strip() if match.group(2) else ""
+        alt_text = match.group(2).strip() if match.group(2) else ""
 
         target_file, _ = resolve_target(raw_target, inventory)
         if target_file:
             encoded_url = format_commonmark_url(doc_rel, target_file)
             replacements += 1
-
-            alt_text = clean_image_alt_text(meta_param)
             display = alt_text or target_file.name
-
             return f"![{display}]({encoded_url})"
 
         return match.group(0)

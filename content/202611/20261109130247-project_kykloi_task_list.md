@@ -11,10 +11,11 @@ keywords: ["kykloi", "pandoc", "python"]
 * Consider how the http daemon can be started/stopped without CLI invocation.
 * Test on USB drive.
 * Seperation of `content/` from `kykloi/` root to prevent non-technical overwhelm?
-* Use with Zettlr, Obsidian, Logseq, VSCode, etc as editors.
-* ~~Wikilink support.~~
+* Use with Zettlr.
+* Wikilink support.
 * Scaling of full db rewrites with large repositories.
 * Rename `index.html` to `search.html` and replace `index.html` with a custom, fixed introductory landing page.
 * Documentation, code commentary, and CLI --help flags.
+* Zettlr conpatibility.
 * Test and refine citation capability.
 * Import and test mchem KaTeX support.
