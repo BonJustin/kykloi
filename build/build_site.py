@@ -769,7 +769,6 @@ def extract_metadata_fast(md_path: Path) -> tuple[Path, dict[str, str]]:
 
     if not meta["title"]:
         clean_stem = md_path.stem
-        # Strip timestamp prefix if present
         parts = clean_stem.split(maxsplit=1)
         if len(parts) > 1 and parts[0].isdigit() and len(parts[0]) in (8, 12, 14):
             clean_stem = parts[1]
@@ -1057,7 +1056,7 @@ def main():
     compile_tasks: list[CompileTask] = []
     encrypt_blob_tasks: list[EncryptBlobTask] = []
 
-    # Filter out all editor workspace junk and non-content files
+    # Clean ingestion: Exclude all editor workspaces, .trash/, and OS artifacts
     all_content_files = [
         p for p in SRC.rglob("*") if p.is_file() and not is_junk_path(p)
     ]

@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
-migrate_wikilinks.py - Robust, Zero-Dependency CommonMark Link Normalizer.
+migrate_wikilinks.py - High-Performance CommonMark Link Normalizer.
 Converts Obsidian, Zettlr, Logseq, and Foam wikilinks into standards-compliant CommonMark.
 Handles spaces, anchors, block IDs, frontmatter IDs, and Zettelkasten timestamp prefixes.
 Protects KaTeX blocks, code fences, inline code, and YAML frontmatter.
+Filters all editor caches, workspaces, OS trash, and swap files.
 Part of Project Kykloi.
 """
 
@@ -40,7 +41,8 @@ PROTECTED_ZONES_PATTERN = re.compile(
     re.MULTILINE,
 )
 
-JUNK_DIR_NAMES = {
+# Disallowed directory names (exact match, case-insensitive)
+JUNK_DIRS = {
     ".obsidian",
     ".trash",
     ".zettlr",
@@ -49,22 +51,56 @@ JUNK_DIR_NAMES = {
     ".git",
     ".vscode",
     ".idea",
+    ".foam",
+    ".dendron",
+    ".sync",
+    "node_modules",
 }
 
-JUNK_FILE_EXTENSIONS = {
-    ".ztr-directory",
+# Disallowed filenames (exact match, case-insensitive)
+JUNK_EXACT_FILES = {
     ".ds_store",
     "thumbs.db",
     "desktop.ini",
+    "ehthumbs.db",
+    ".gitignore",
+    ".gitattributes",
+    ".ztr-directory",
 }
 
 
 def is_junk_path(path: Path) -> bool:
-    for part in path.parts:
-        if part.lower() in JUNK_DIR_NAMES or part.startswith("."):
+    """
+    Determines if a given path is an OS artifact, editor workspace file,
+    VCS metadata, lock/swap file, or deleted note in .trash/.
+    """
+    # Check directory parts for blacklisted directories or hidden directory prefixes
+    for part in path.parts[:-1]:
+        part_lower = part.lower()
+        if part_lower in JUNK_DIRS or part.startswith("."):
             return True
-    if path.name.lower() in JUNK_FILE_EXTENSIONS:
+
+    name = path.name
+    name_lower = name.lower()
+
+    # Exact filename match
+    if name_lower in JUNK_EXACT_FILES:
         return True
+
+    # Hidden files and OS temporary artifacts
+    if name.startswith(".") or name.startswith("._"):
+        return True
+
+    # Backup, swap, and temporary editor lock files
+    if (
+        name.endswith("~")
+        or name.endswith(".swp")
+        or name.endswith(".swo")
+        or name.startswith("~$")
+        or (name.startswith(".#") and name.endswith("#"))
+    ):
+        return True
+
     return False
 
 
@@ -87,7 +123,7 @@ def extract_frontmatter_id(path: Path) -> str | None:
 
 def build_inventory(src_root: Path) -> dict[str, Path]:
     """
-    Constructs an exhaustive dictionary of target lookups:
+    Constructs an exhaustive dictionary of target lookups from clean files:
     - Relative POSIX path without extension: 'folder/Note'
     - Exact filename: 'Note.md', 'Image.png'
     - File stem (case-sensitive and lowercase): 'Note'
@@ -136,11 +172,9 @@ def format_commonmark_url(source_rel: Path, target_rel: Path, anchor: str = "") 
     rel_path_str = os.path.relpath(target_rel, start=source_dir)
     posix_path = Path(rel_path_str).as_posix()
 
-    # Percent-encode destination path (preserve forward slashes)
     encoded_path = urllib.parse.quote(posix_path, safe="/#%")
 
     if anchor:
-        # Encode or slugify anchor
         clean_anchor = anchor.strip()
         if not clean_anchor.startswith("#"):
             clean_anchor = "#" + clean_anchor
@@ -154,8 +188,7 @@ def resolve_target(
     raw_target: str, inventory: dict[str, Path]
 ) -> tuple[Path | None, str]:
     """
-    Resolves targets containing anchors, paths, or ZK IDs.
-    Returns: (Matched Path or None, Extracted Anchor)
+    Resolves targets containing anchors, paths, or ZK IDs against clean inventory.
     """
     target = raw_target.strip()
     anchor = ""
@@ -166,10 +199,9 @@ def resolve_target(
         anchor = "#" + anchor.strip()
 
     if not target:
-        # Pure internal document anchor: [[#Heading]]
         return None, anchor
 
-    # 1. Direct dictionary match (exact path, stem, or filename)
+    # 1. Direct dictionary match
     if target in inventory:
         return inventory[target], anchor
 
@@ -178,7 +210,7 @@ def resolve_target(
     if target_lower in inventory:
         return inventory[target_lower], anchor
 
-    # 3. Basename lookup (e.g. user wrote [[folder/sub/Note]] but note was moved)
+    # 3. Basename lookup
     base_name = Path(target).name
     if base_name in inventory:
         return inventory[base_name], anchor
@@ -187,7 +219,7 @@ def resolve_target(
     if base_lower in inventory:
         return inventory[base_lower], anchor
 
-    # 4. Leading Zettelkasten ID probe (e.g. Zettlr [[20240101120000 Note Title]])
+    # 4. Leading Zettelkasten ID probe
     zk_match = ID_PREFIX_PATTERN.match(base_name)
     if zk_match:
         zk_id = zk_match.group(1)
@@ -239,7 +271,6 @@ def convert_file_content(
             return f"[{display}]({encoded_url})"
 
         if not target_file and anchor:
-            # Self-referencing heading link: [[#Introduction]]
             replacements += 1
             display = explicit_label or anchor.lstrip("#")
             clean_anchor = urllib.parse.quote(anchor, safe="#-_")
@@ -272,7 +303,6 @@ def run_migration_pipeline(
         if is_junk_path(p):
             continue
         try:
-            # Microsecond byte check before full parsing
             with open(p, "rb") as f:
                 if b"[[" in f.read():
                     md_candidates.append(p)
