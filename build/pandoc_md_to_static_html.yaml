@@ -1,11 +1,8 @@
 reader: markdown
-writer: html
+writer: html5
 embed-resources: false
 variables:
   document-css: false
-  title: false
-filters:
-  - citeproc
 top-level-division: chapter
 wrap: none
 columns: 78

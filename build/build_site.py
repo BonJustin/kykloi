@@ -6,6 +6,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import shutil
 import sqlite3
 import subprocess
@@ -15,7 +16,7 @@ from pathlib import Path
 from typing import Optional
 
 # ===========================================================================
-# 1. PURE-PYTHON AES-256-GCM ENGINE & 8-BIT TABLE-DRIVEN GHASH
+# 1. PURE-PYTHON AES-256-GCM ENGINE & TABLE-DRIVEN GHASH
 # ===========================================================================
 
 S_BOX = [
@@ -298,12 +299,13 @@ def _key_expansion_256(key: bytes) -> list[int]:
     return w
 
 
-def _cipher_block(state: list[int], round_keys: list[int]) -> bytes:
+def _cipher_block(state_in: bytes | list[int], round_keys: list[int]) -> bytes:
+    state = list(state_in)
     for i in range(16):
         state[i] ^= round_keys[i]
 
     for r in range(1, 14):
-        rk_offset = r * 16
+        rk = r * 16
         s0, s1, s2, s3 = (
             S_BOX[state[0]],
             S_BOX[state[5]],
@@ -329,44 +331,44 @@ def _cipher_block(state: list[int], round_keys: list[int]) -> bytes:
             S_BOX[state[11]],
         )
 
-        state[0] = _xtime(s0 ^ s1) ^ s1 ^ s2 ^ s3 ^ round_keys[rk_offset]
-        state[1] = _xtime(s1 ^ s2) ^ s2 ^ s3 ^ s0 ^ round_keys[rk_offset + 1]
-        state[2] = _xtime(s2 ^ s3) ^ s3 ^ s0 ^ s1 ^ round_keys[rk_offset + 2]
-        state[3] = _xtime(s3 ^ s0) ^ s0 ^ s1 ^ s2 ^ round_keys[rk_offset + 3]
+        state[0] = _xtime(s0 ^ s1) ^ s1 ^ s2 ^ s3 ^ round_keys[rk]
+        state[1] = _xtime(s1 ^ s2) ^ s2 ^ s3 ^ s0 ^ round_keys[rk + 1]
+        state[2] = _xtime(s2 ^ s3) ^ s3 ^ s0 ^ s1 ^ round_keys[rk + 2]
+        state[3] = _xtime(s3 ^ s0) ^ s0 ^ s1 ^ s2 ^ round_keys[rk + 3]
 
-        state[4] = _xtime(s4 ^ s5) ^ s5 ^ s6 ^ s7 ^ round_keys[rk_offset + 4]
-        state[5] = _xtime(s5 ^ s6) ^ s6 ^ s7 ^ s4 ^ round_keys[rk_offset + 5]
-        state[6] = _xtime(s6 ^ s7) ^ s7 ^ s4 ^ s5 ^ round_keys[rk_offset + 6]
-        state[7] = _xtime(s7 ^ s4) ^ s4 ^ s5 ^ s6 ^ round_keys[rk_offset + 7]
+        state[4] = _xtime(s4 ^ s5) ^ s5 ^ s6 ^ s7 ^ round_keys[rk + 4]
+        state[5] = _xtime(s5 ^ s6) ^ s6 ^ s7 ^ s4 ^ round_keys[rk + 5]
+        state[6] = _xtime(s6 ^ s7) ^ s7 ^ s4 ^ s5 ^ round_keys[rk + 6]
+        state[7] = _xtime(s7 ^ s4) ^ s4 ^ s5 ^ s6 ^ round_keys[rk + 7]
 
-        state[8] = _xtime(s8 ^ s9) ^ s9 ^ s10 ^ s11 ^ round_keys[rk_offset + 8]
-        state[9] = _xtime(s9 ^ s10) ^ s10 ^ s11 ^ s8 ^ round_keys[rk_offset + 9]
-        state[10] = _xtime(s10 ^ s11) ^ s11 ^ s8 ^ s9 ^ round_keys[rk_offset + 10]
-        state[11] = _xtime(s11 ^ s8) ^ s8 ^ s9 ^ s10 ^ round_keys[rk_offset + 11]
+        state[8] = _xtime(s8 ^ s9) ^ s9 ^ s10 ^ s11 ^ round_keys[rk + 8]
+        state[9] = _xtime(s9 ^ s10) ^ s10 ^ s11 ^ s8 ^ round_keys[rk + 9]
+        state[10] = _xtime(s10 ^ s11) ^ s11 ^ s8 ^ s9 ^ round_keys[rk + 10]
+        state[11] = _xtime(s11 ^ s8) ^ s8 ^ s9 ^ s10 ^ round_keys[rk + 11]
 
-        state[12] = _xtime(s12 ^ s13) ^ s13 ^ s14 ^ s15 ^ round_keys[rk_offset + 12]
-        state[13] = _xtime(s13 ^ s14) ^ s14 ^ s15 ^ s12 ^ round_keys[rk_offset + 13]
-        state[14] = _xtime(s14 ^ s15) ^ s15 ^ s12 ^ s13 ^ round_keys[rk_offset + 14]
-        state[15] = _xtime(s15 ^ s12) ^ s12 ^ s13 ^ s14 ^ round_keys[rk_offset + 15]
+        state[12] = _xtime(s12 ^ s13) ^ s13 ^ s14 ^ s15 ^ round_keys[rk + 12]
+        state[13] = _xtime(s13 ^ s14) ^ s14 ^ s15 ^ s12 ^ round_keys[rk + 13]
+        state[14] = _xtime(s14 ^ s15) ^ s15 ^ s12 ^ s13 ^ round_keys[rk + 14]
+        state[15] = _xtime(s15 ^ s12) ^ s12 ^ s13 ^ s14 ^ round_keys[rk + 15]
 
-    rk_offset = 224
+    rk = 224
     out = bytearray(16)
-    out[0] = S_BOX[state[0]] ^ round_keys[rk_offset]
-    out[1] = S_BOX[state[5]] ^ round_keys[rk_offset + 1]
-    out[2] = S_BOX[state[10]] ^ round_keys[rk_offset + 2]
-    out[3] = S_BOX[state[15]] ^ round_keys[rk_offset + 3]
-    out[4] = S_BOX[state[4]] ^ round_keys[rk_offset + 4]
-    out[5] = S_BOX[state[9]] ^ round_keys[rk_offset + 5]
-    out[6] = S_BOX[state[14]] ^ round_keys[rk_offset + 6]
-    out[7] = S_BOX[state[3]] ^ round_keys[rk_offset + 7]
-    out[8] = S_BOX[state[8]] ^ round_keys[rk_offset + 8]
-    out[9] = S_BOX[state[13]] ^ round_keys[rk_offset + 9]
-    out[10] = S_BOX[state[2]] ^ round_keys[rk_offset + 10]
-    out[11] = S_BOX[state[7]] ^ round_keys[rk_offset + 11]
-    out[12] = S_BOX[state[12]] ^ round_keys[rk_offset + 12]
-    out[13] = S_BOX[state[1]] ^ round_keys[rk_offset + 13]
-    out[14] = S_BOX[state[6]] ^ round_keys[rk_offset + 14]
-    out[15] = S_BOX[state[11]] ^ round_keys[rk_offset + 15]
+    out[0] = S_BOX[state[0]] ^ round_keys[rk]
+    out[1] = S_BOX[state[5]] ^ round_keys[rk + 1]
+    out[2] = S_BOX[state[10]] ^ round_keys[rk + 2]
+    out[3] = S_BOX[state[15]] ^ round_keys[rk + 3]
+    out[4] = S_BOX[state[4]] ^ round_keys[rk + 4]
+    out[5] = S_BOX[state[9]] ^ round_keys[rk + 5]
+    out[6] = S_BOX[state[14]] ^ round_keys[rk + 6]
+    out[7] = S_BOX[state[3]] ^ round_keys[rk + 7]
+    out[8] = S_BOX[state[8]] ^ round_keys[rk + 8]
+    out[9] = S_BOX[state[13]] ^ round_keys[rk + 9]
+    out[10] = S_BOX[state[2]] ^ round_keys[rk + 10]
+    out[11] = S_BOX[state[7]] ^ round_keys[rk + 11]
+    out[12] = S_BOX[state[12]] ^ round_keys[rk + 12]
+    out[13] = S_BOX[state[1]] ^ round_keys[rk + 13]
+    out[14] = S_BOX[state[6]] ^ round_keys[rk + 14]
+    out[15] = S_BOX[state[11]] ^ round_keys[rk + 15]
 
     return bytes(out)
 
@@ -422,13 +424,11 @@ def _ghash_block(t: list[list[int]], x: int) -> int:
 def pure_aes_gcm_encrypt(
     key: bytes, iv: bytes, plaintext: bytes
 ) -> tuple[bytes, bytes]:
-    if len(key) != 32:
-        raise ValueError("Key must be 32 bytes (256 bits).")
-    if len(iv) != 12:
-        raise ValueError("Initialization vector must be 12 bytes (96 bits).")
+    if len(key) != 32 or len(iv) != 12:
+        raise ValueError("Key must be 32 bytes and IV must be 12 bytes.")
 
     round_keys = _key_expansion_256(key)
-    h_bytes = _cipher_block([0] * 16, round_keys)
+    h_bytes = _cipher_block(bytes(16), round_keys)
     h = int.from_bytes(h_bytes, byteorder="big")
     ghash_tables = _init_ghash_tables(h)
 
@@ -437,9 +437,9 @@ def pure_aes_gcm_encrypt(
     num_blocks = (len(plaintext) + 15) // 16
 
     for i in range(num_blocks):
-        ctr_val = (1 + 1 + i) & 0xFFFFFFFF
+        ctr_val = (2 + i) & 0xFFFFFFFF
         ctr_block = iv + ctr_val.to_bytes(4, byteorder="big")
-        keystream = _cipher_block(list(ctr_block), round_keys)
+        keystream = _cipher_block(ctr_block, round_keys)
         chunk = plaintext[i * 16 : (i + 1) * 16]
         for p_b, k_b in zip(chunk, keystream):
             ciphertext.append(p_b ^ k_b)
@@ -456,7 +456,7 @@ def pure_aes_gcm_encrypt(
     len_block_int = len(ciphertext_bytes) * 8
     s = _ghash_block(ghash_tables, s ^ len_block_int)
 
-    tag_mask = _cipher_block(list(j0), round_keys)
+    tag_mask = _cipher_block(j0, round_keys)
     tag = bytes(a ^ b for a, b in zip(s.to_bytes(16, "big"), tag_mask))
 
     return ciphertext_bytes, tag
@@ -471,13 +471,11 @@ def verify_cryptographic_engine():
 
     ct, tag = pure_aes_gcm_encrypt(kat_key, kat_iv, kat_pt)
     if ct != expected_ct or tag != expected_tag:
-        raise RuntimeError(
-            "CRITICAL: Pure-Python AES-GCM engine failed NIST KAT verification."
-        )
+        raise RuntimeError("CRITICAL: NIST KAT verification failed for AES-GCM engine.")
 
 
 # ===========================================================================
-# 2. GLOBAL PATH INITIALIZATION & HYGIENE
+# 2. PATHS & HYGIENE
 # ===========================================================================
 
 JUNK_DIR_NAMES = {
@@ -491,43 +489,30 @@ JUNK_DIR_NAMES = {
     ".idea",
 }
 
-JUNK_FILE_EXTENSIONS = {
-    ".ztr-directory",
-    ".ds_store",
-    "thumbs.db",
-    "desktop.ini",
-}
+JUNK_FILE_EXTENSIONS = {".ztr-directory", ".ds_store", "thumbs.db", "desktop.ini"}
 
 
 def is_junk_path(path: Path) -> bool:
     for part in path.parts:
         if part.lower() in JUNK_DIR_NAMES or part.startswith("."):
             return True
-    if path.name.lower() in JUNK_FILE_EXTENSIONS:
-        return True
-    return False
+    return path.name.lower() in JUNK_FILE_EXTENSIONS
 
 
-try:
-    PROJECT_ROOT = Path(__file__).parent.resolve().parent
-    SRC = PROJECT_ROOT / "content"
-    DST = PROJECT_ROOT / "dist"
-    APP_DIR = PROJECT_ROOT / "build"
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+SRC = PROJECT_ROOT / "content"
+DST = PROJECT_ROOT / "dist"
+APP_DIR = PROJECT_ROOT / "build"
 
-    DEFAULTS_YAML = APP_DIR / "pandoc_md_to_static_html.yaml"
-    DEFAULT_TEMPLATE = APP_DIR / "templates" / "md_to_static_html.html"
-    LUA_FILTER = APP_DIR / "translate_links.lua"
-    MANIFEST_FILE = APP_DIR / ".build_manifest.json"
-    SEARCH_DB_FILE = DST / "search.db"
+DEFAULTS_YAML = APP_DIR / "pandoc_md_to_static_html.yaml"
+DEFAULT_TEMPLATE = APP_DIR / "templates" / "md_to_static_html.html"
+LUA_FILTER = APP_DIR / "translate_links.lua"
+MANIFEST_FILE = APP_DIR / ".build_manifest.json"
+SEARCH_DB_FILE = DST / "search.db"
 
-except Exception as err:
-    print(f"CRITICAL CONFIGURATION ERROR: {err}", file=sys.stderr)
-    sys.exit(1)
-
-
-# ===========================================================================
-# 3. DATA STRUCTURES & ARGUMENT PARSING
-# ===========================================================================
+CITATION_PATTERN = re.compile(
+    r"(?:\[@[a-zA-Z0-9_:.#$%&-]+|(?<!\w)@[a-zA-Z0-9_:.#$%&-]+)"
+)
 
 
 @dataclass(frozen=True)
@@ -538,10 +523,10 @@ class CompileTask:
     relative_root: str
     defaults_yaml: Path
     lua_filter: Path
+    bibliography_path: Optional[Path]
     is_secure: bool
     passphrase: Optional[str]
     dry_run: bool
-    verbose: bool
 
 
 @dataclass(frozen=True)
@@ -550,7 +535,6 @@ class EncryptBlobTask:
     dst_path: Path
     passphrase: str
     dry_run: bool
-    verbose: bool
 
 
 def parse_args():
@@ -580,7 +564,7 @@ def parse_args():
 
 
 # ===========================================================================
-# 4. CRYPTOGRAPHIC UTILITIES
+# 3. CRYPTOGRAPHIC UTILITIES
 # ===========================================================================
 
 
@@ -591,20 +575,17 @@ def compute_file_hash(path: Path) -> str:
             while chunk := f.read(65536):
                 hasher.update(chunk)
         return hasher.hexdigest()
-    except (FileNotFoundError, PermissionError) as e:
-        logging.warning("Unable to hash %s: %s", path, e)
+    except OSError:
         return ""
 
 
-def compute_global_dependencies_hash() -> str:
+def compute_global_dependencies_hash(bibliography_file: Optional[Path] = None) -> str:
     hasher = hashlib.sha256()
-    tracked_files: list[Path] = [
-        DEFAULTS_YAML,
-        LUA_FILTER,
-        DEFAULT_TEMPLATE,
-        Path(__file__).resolve(),
-    ]
-    for f in tracked_files:
+    tracked = [DEFAULTS_YAML, LUA_FILTER, DEFAULT_TEMPLATE, Path(__file__).resolve()]
+    if bibliography_file and bibliography_file.is_file():
+        tracked.append(bibliography_file)
+
+    for f in tracked:
         if f.is_file():
             hasher.update(f.name.encode("utf-8"))
             hasher.update(compute_file_hash(f).encode("utf-8"))
@@ -614,9 +595,9 @@ def compute_global_dependencies_hash() -> str:
 def is_secure_path(path: Path, src_root: Path) -> bool:
     try:
         rel = path.relative_to(src_root)
+        return "secure" in rel.parts
     except ValueError:
         return False
-    return "secure" in rel.parts
 
 
 def compute_passphrase_fingerprint(passphrase: str) -> str:
@@ -624,12 +605,9 @@ def compute_passphrase_fingerprint(passphrase: str) -> str:
     return hashlib.sha256(salt + passphrase.encode("utf-8")).hexdigest()
 
 
-DEFAULT_PBKDF2_ITERATIONS = 100_000
-
-
 def derive_key(passphrase: str, salt: bytes) -> bytes:
     return hashlib.pbkdf2_hmac(
-        "sha256", passphrase.encode("utf-8"), salt, DEFAULT_PBKDF2_ITERATIONS, dklen=32
+        "sha256", passphrase.encode("utf-8"), salt, 100_000, dklen=32
     )
 
 
@@ -638,7 +616,6 @@ def encrypt_payload(html_content: str, passphrase: str) -> str:
     iv = os.urandom(12)
     key = derive_key(passphrase, salt)
     pt_bytes = html_content.encode("utf-8")
-
     ciphertext, tag = pure_aes_gcm_encrypt(key, iv, pt_bytes)
     envelope = salt + iv + ciphertext + tag
     return base64.b64encode(envelope).decode("ascii")
@@ -651,7 +628,6 @@ def encrypt_binary_file(src_path: Path, dst_path: Path, passphrase: str) -> None
     salt = os.urandom(16)
     iv = os.urandom(12)
     key = derive_key(passphrase, salt)
-
     ciphertext, tag = pure_aes_gcm_encrypt(key, iv, plaintext)
     envelope = salt + iv + ciphertext + tag
 
@@ -667,24 +643,21 @@ def load_manifest(manifest_path: Path) -> dict:
                 data = json.load(f)
                 if isinstance(data, dict):
                     return data
-        except (json.JSONDecodeError, OSError) as e:
-            logging.warning("Corrupt manifest encountered: %s", e)
+        except (json.JSONDecodeError, OSError):
+            pass
     return {}
 
 
 def save_manifest(manifest_path: Path, manifest: dict, dry_run: bool):
     if dry_run:
         return
-    try:
-        manifest_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(manifest_path, "w", encoding="utf-8") as f:
-            json.dump(manifest, f, indent=2, sort_keys=True)
-    except OSError as e:
-        logging.error("Failed to commit manifest: %s", e)
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(manifest_path, "w", encoding="utf-8") as f:
+        json.dump(manifest, f, indent=2, sort_keys=True)
 
 
 # ===========================================================================
-# 5. YAML FRONTMATTER PARSER & METADATA-ONLY SQLITE FTS5 COMPILER
+# 4. FRONTMATTER & METADATA-ONLY SQLITE FTS5
 # ===========================================================================
 
 
@@ -707,10 +680,11 @@ def parse_frontmatter_robust(text: str) -> dict:
     def commit_multiline():
         nonlocal current_key, multiline_mode, multiline_accumulator
         if current_key and multiline_mode:
-            if multiline_mode == "|":
-                val = "\n".join(multiline_accumulator)
-            else:
-                val = " ".join(" ".join(multiline_accumulator).split())
+            val = (
+                "\n".join(multiline_accumulator)
+                if multiline_mode == "|"
+                else " ".join(" ".join(multiline_accumulator).split())
+            )
             result[current_key] = val
         multiline_mode = None
         multiline_accumulator = []
@@ -766,13 +740,14 @@ def parse_frontmatter_robust(text: str) -> dict:
     return result
 
 
-def extract_metadata_fast(md_path: Path) -> tuple[Path, dict[str, str]]:
+def extract_metadata_fast(md_path: Path) -> tuple[Path, dict[str, str], bool]:
     meta = {"title": "", "keywords": "", "date_edtf": ""}
+    has_citations = False
     try:
         with open(md_path, "r", encoding="utf-8") as f:
-            header = f.read(16384)
+            full_content = f.read()
 
-        parsed = parse_frontmatter_robust(header)
+        parsed = parse_frontmatter_robust(full_content[:16384])
         meta["title"] = str(parsed.get("title", "")).strip()
         meta["date_edtf"] = str(
             parsed.get("date_edtf") or parsed.get("date", "")
@@ -784,6 +759,8 @@ def extract_metadata_fast(md_path: Path) -> tuple[Path, dict[str, str]]:
         elif isinstance(keywords_val, str):
             meta["keywords"] = keywords_val.strip()
 
+        has_citations = bool(CITATION_PATTERN.search(full_content))
+
     except OSError as err:
         logging.warning("Error reading %s: %s", md_path.name, err)
 
@@ -794,14 +771,13 @@ def extract_metadata_fast(md_path: Path) -> tuple[Path, dict[str, str]]:
             clean_stem = parts[1]
         meta["title"] = clean_stem.replace("-", " ").replace("_", " ").title()
 
-    return md_path, meta
+    return md_path, meta, has_citations
 
 
 def build_sqlite_search_index(
     records: list[dict], out_path: Path, dry_run: bool
 ) -> None:
     if dry_run:
-        logging.info("[DRY RUN] Would compile SQLite FTS5 search index to %s", out_path)
         return
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -812,7 +788,6 @@ def build_sqlite_search_index(
     try:
         conn = sqlite3.connect(tmp_path)
         cursor = conn.cursor()
-
         cursor.execute("PRAGMA page_size = 4096;")
         cursor.execute("PRAGMA journal_mode = OFF;")
         cursor.execute("PRAGMA synchronous = OFF;")
@@ -853,21 +828,19 @@ def build_sqlite_search_index(
 
         tmp_path.replace(out_path)
         logging.info(
-            "Compiled SQLite FTS5 index to %s (%d records, %d bytes).",
-            out_path.name,
+            "Compiled SQLite FTS5 index (%d records, %d bytes).",
             len(records),
             out_path.stat().st_size,
         )
 
-    except Exception as exc:
+    except Exception:
         if tmp_path.exists():
             tmp_path.unlink()
-        logging.error("Failed to build SQLite search index: %s", exc)
         raise
 
 
 # ===========================================================================
-# 6. WORKER SUBSYSTEM
+# 5. COMPILATION WORKERS
 # ===========================================================================
 
 
@@ -877,7 +850,6 @@ def compile_markdown_worker(task: CompileTask) -> tuple[Path, bool, Optional[str
 
     css_files = ["assets/css/pico.css", "assets/css/style.css"]
 
-    # CASE 1: Standard Unencrypted Document
     if not task.is_secure:
         cmd = [
             "pandoc",
@@ -894,16 +866,23 @@ def compile_markdown_worker(task: CompileTask) -> tuple[Path, bool, Optional[str
             "-o",
             str(task.out_path),
         ]
+        if task.bibliography_path:
+            cmd.extend(
+                [
+                    "--citeproc",
+                    f"--bibliography={str(task.bibliography_path.resolve())}",
+                ]
+            )
+
         for css in css_files:
             cmd.extend(["--css", f"{task.relative_root}{css}"])
 
         task.out_path.parent.mkdir(parents=True, exist_ok=True)
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        if result.returncode != 0:
-            return task.md_path, False, result.stderr.strip()
+        res = subprocess.run(cmd, capture_output=True, text=True)
+        if res.returncode != 0:
+            return task.md_path, False, res.stderr.strip()
         return task.md_path, True, None
 
-    # CASE 2: Secure Encrypted Document
     if not task.passphrase:
         return (
             task.md_path,
@@ -923,16 +902,20 @@ def compile_markdown_worker(task: CompileTask) -> tuple[Path, bool, Optional[str
         str(task.lua_filter),
         f"--katex={task.relative_root}assets/katex/",
     ]
-    body_result = subprocess.run(body_cmd, capture_output=True, text=True, env=env)
-    if body_result.returncode != 0:
-        return task.md_path, False, f"Body error: {body_result.stderr.strip()}"
+    if task.bibliography_path:
+        body_cmd.extend(
+            ["--citeproc", f"--bibliography={str(task.bibliography_path.resolve())}"]
+        )
+
+    body_res = subprocess.run(body_cmd, capture_output=True, text=True, env=env)
+    if body_res.returncode != 0:
+        return task.md_path, False, f"Body compilation error: {body_res.stderr.strip()}"
 
     try:
-        ciphertext_b64 = encrypt_payload(body_result.stdout, task.passphrase)
+        ciphertext_b64 = encrypt_payload(body_res.stdout, task.passphrase)
     except Exception as e:
         return task.md_path, False, f"Encryption failed: {e}"
 
-    # Consistent --katex flag ensures Pandoc populates $math$ only if document contains math
     envelope_cmd = [
         "pandoc",
         str(task.md_path),
@@ -949,16 +932,16 @@ def compile_markdown_worker(task: CompileTask) -> tuple[Path, bool, Optional[str
     for css in css_files:
         envelope_cmd.extend(["--css", f"{task.relative_root}{css}"])
 
-    envelope_result = subprocess.run(envelope_cmd, capture_output=True, text=True)
-    if envelope_result.returncode != 0:
+    envelope_res = subprocess.run(envelope_cmd, capture_output=True, text=True)
+    if envelope_res.returncode != 0:
         return (
             task.md_path,
             False,
-            f"Envelope error: {envelope_result.stderr.strip()}",
+            f"Envelope generation error: {envelope_res.stderr.strip()}",
         )
 
     try:
-        final_html = envelope_result.stdout.replace(
+        final_html = envelope_res.stdout.replace(
             "__KYKLOI_ENCRYPTED_PAYLOAD__", ciphertext_b64
         )
         task.out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -981,11 +964,6 @@ def encrypt_blob_worker(task: EncryptBlobTask) -> tuple[Path, bool, Optional[str
         return task.src_path, False, str(exc)
 
 
-# ===========================================================================
-# 7. ORPHAN PRUNING
-# ===========================================================================
-
-
 def prune_orphans(dst_dir: Path, expected_files: set[Path], dry_run: bool) -> int:
     if not dst_dir.exists():
         return 0
@@ -996,20 +974,26 @@ def prune_orphans(dst_dir: Path, expected_files: set[Path], dry_run: bool) -> in
             if not dry_run:
                 item.unlink()
             orphans_removed += 1
-            logging.debug("Pruned orphan file: %s", item)
 
     for dirpath in sorted(dst_dir.rglob("*"), key=lambda p: len(p.parts), reverse=True):
         if dirpath.is_dir() and not any(dirpath.iterdir()):
             if not dry_run:
                 dirpath.rmdir()
-            logging.debug("Pruned empty dir: %s", dirpath)
 
     return orphans_removed
 
 
 # ===========================================================================
-# 8. PIPELINE ORCHESTRATION
+# 6. PIPELINE ORCHESTRATION
 # ===========================================================================
+
+
+def find_vault_bibliography(src_root: Path) -> Optional[Path]:
+    for candidate in ["references.bib", "library.bib", "bibliography.bib"]:
+        p = src_root / candidate
+        if p.is_file():
+            return p
+    return None
 
 
 def main():
@@ -1025,40 +1009,36 @@ def main():
         logging.critical(str(err))
         sys.exit(1)
 
-    dependencies = [
+    for path, desc in [
         (SRC, "Source directory"),
         (DEFAULTS_YAML, "Pandoc defaults configuration"),
-        (DEFAULT_TEMPLATE, "Content HTML template"),
+        (DEFAULT_TEMPLATE, "Content template"),
         (LUA_FILTER, "Lua link translation filter"),
-    ]
-    for path, desc in dependencies:
+    ]:
         if not path.exists():
             logging.error("Configuration error: %s missing at %s", desc, path)
             sys.exit(1)
 
     if args.clean:
-        if DST.exists():
-            logging.info("Flag --clean active: Purging %s", DST)
-            if not args.dry_run:
-                shutil.rmtree(DST)
-        if MANIFEST_FILE.exists():
-            logging.info("Flag --clean active: Removing manifest %s", MANIFEST_FILE)
-            if not args.dry_run:
-                MANIFEST_FILE.unlink()
+        if DST.exists() and not args.dry_run:
+            shutil.rmtree(DST)
+        if MANIFEST_FILE.exists() and not args.dry_run:
+            MANIFEST_FILE.unlink()
 
     DST.mkdir(parents=True, exist_ok=True)
 
     old_manifest = load_manifest(MANIFEST_FILE)
     new_manifest: dict = {}
 
-    current_global_hash = compute_global_dependencies_hash()
+    central_bib = find_vault_bibliography(SRC)
+    current_global_hash = compute_global_dependencies_hash(central_bib)
     new_manifest["__GLOBAL_DEPENDENCIES__"] = current_global_hash
     global_deps_changed = (
         old_manifest.get("__GLOBAL_DEPENDENCIES__") != current_global_hash
     )
 
     if global_deps_changed:
-        logging.info("Global dependencies/templates modified. Rebuilding all outputs.")
+        logging.info("Core templates/configurations modified. Recompiling site.")
 
     expected_outputs: set[Path] = set()
     compile_tasks: list[CompileTask] = []
@@ -1075,7 +1055,7 @@ def main():
     if has_secure_files and not passphrase and not args.dry_run:
         passphrase = getpass.getpass("Enter passphrase for /secure/ notes: ")
         if not passphrase:
-            logging.error("Encryption passphrase cannot be empty.")
+            logging.error("Passphrase required for secure notes.")
             sys.exit(1)
 
     passphrase_changed = False
@@ -1083,12 +1063,9 @@ def main():
         current_key_fingerprint = compute_passphrase_fingerprint(passphrase)
         new_manifest["__PASSPHRASE_FINGERPRINT__"] = current_key_fingerprint
         old_key_fingerprint = old_manifest.get("__PASSPHRASE_FINGERPRINT__")
-
         if old_manifest and old_key_fingerprint != current_key_fingerprint:
             passphrase_changed = True
-            logging.info(
-                "Passphrase rotation detected. Re-encrypting secure documents & media."
-            )
+            logging.info("Passphrase rotation detected. Re-encrypting payloads.")
 
     asset_sync_jobs: list[tuple[Path, Path]] = []
 
@@ -1105,19 +1082,17 @@ def main():
             manifest_key = f"secure_blob:{rel_src.as_posix()}"
             new_manifest[manifest_key] = h
 
-            is_dirty = (
+            if (
                 not target.exists()
                 or passphrase_changed
                 or old_manifest.get(manifest_key) != h
-            )
-            if is_dirty:
+            ):
                 encrypt_blob_tasks.append(
                     EncryptBlobTask(
                         src_path=p,
                         dst_path=target,
                         passphrase=passphrase or "",
                         dry_run=args.dry_run,
-                        verbose=args.verbose,
                     )
                 )
         else:
@@ -1130,6 +1105,7 @@ def main():
 
     metadata_extraction_jobs: list[Path] = []
     file_metadata_map: dict[Path, dict[str, str]] = {}
+    doc_has_citations_map: dict[Path, bool] = {}
 
     for md in md_files:
         rel = md.relative_to(SRC)
@@ -1163,6 +1139,7 @@ def main():
 
         if not meta_is_dirty and isinstance(cached_meta, dict):
             file_metadata_map[md] = cached_meta
+            doc_has_citations_map[md] = cached_meta.get("__has_citations__", False)
             new_manifest[meta_cache_key] = cached_meta
         else:
             metadata_extraction_jobs.append(md)
@@ -1176,23 +1153,44 @@ def main():
                     relative_root=relative_root,
                     defaults_yaml=DEFAULTS_YAML,
                     lua_filter=LUA_FILTER,
+                    bibliography_path=None,
                     is_secure=is_secure,
                     passphrase=passphrase,
                     dry_run=args.dry_run,
-                    verbose=args.verbose,
                 )
             )
 
     if metadata_extraction_jobs:
-        logging.info(
-            "Extracting metadata from %d file(s) in-memory...",
-            len(metadata_extraction_jobs),
-        )
         for md_path in metadata_extraction_jobs:
-            _, extracted_meta = extract_metadata_fast(md_path)
+            _, extracted_meta, has_cites = extract_metadata_fast(md_path)
+            extracted_meta["__has_citations__"] = has_cites
             file_metadata_map[md_path] = extracted_meta
+            doc_has_citations_map[md_path] = has_cites
             rel = md_path.relative_to(SRC)
             new_manifest[f"meta:{rel.as_posix()}"] = extracted_meta
+
+    final_compile_tasks: list[CompileTask] = []
+    for t in compile_tasks:
+        needs_bib = (
+            central_bib
+            if (central_bib and doc_has_citations_map.get(t.md_path, False))
+            else None
+        )
+        final_compile_tasks.append(
+            CompileTask(
+                md_path=t.md_path,
+                out_path=t.out_path,
+                template_path=t.template_path,
+                relative_root=t.relative_root,
+                defaults_yaml=t.defaults_yaml,
+                lua_filter=t.lua_filter,
+                bibliography_path=needs_bib,
+                is_secure=t.is_secure,
+                passphrase=t.passphrase,
+                dry_run=t.dry_run,
+            )
+        )
+    compile_tasks = final_compile_tasks
 
     search_records: list[dict] = []
     for idx, md in enumerate(md_files):
@@ -1211,29 +1209,20 @@ def main():
 
     expected_outputs.add(SEARCH_DB_FILE.resolve())
 
-    # Functional assets
-    assets_src = APP_DIR / "assets"
-    if assets_src.exists():
-        for p in assets_src.rglob("*"):
+    # Static Assets
+    for folder_name, manifest_prefix in [
+        ("assets", "functional_asset"),
+        ("root", "root_asset"),
+    ]:
+        src_dir = APP_DIR / folder_name
+        if not src_dir.exists():
+            continue
+        for p in src_dir.rglob("*"):
             if p.is_file() and not is_junk_path(p):
-                target = DST / "assets" / p.relative_to(assets_src)
+                rel_p = p.relative_to(src_dir)
+                target = DST / ("assets" / rel_p if folder_name == "assets" else rel_p)
                 expected_outputs.add(target.resolve())
-                manifest_key = (
-                    f"functional_asset:{p.relative_to(assets_src).as_posix()}"
-                )
-                h = compute_file_hash(p)
-                new_manifest[manifest_key] = h
-                if not target.exists() or old_manifest.get(manifest_key) != h:
-                    asset_sync_jobs.append((p, target))
-
-    # Root assets
-    root_src = APP_DIR / "root"
-    if root_src.exists():
-        for p in root_src.rglob("*"):
-            if p.is_file() and not is_junk_path(p):
-                target = DST / p.relative_to(root_src)
-                expected_outputs.add(target.resolve())
-                manifest_key = f"root_asset:{p.relative_to(root_src).as_posix()}"
+                manifest_key = f"{manifest_prefix}:{rel_p.as_posix()}"
                 h = compute_file_hash(p)
                 new_manifest[manifest_key] = h
                 if not target.exists() or old_manifest.get(manifest_key) != h:
@@ -1245,97 +1234,64 @@ def main():
     if orphans_pruned:
         logging.info("Pruned %d orphaned artifact(s).", orphans_pruned)
 
-    synced_assets = 0
     for src_file, target_file in asset_sync_jobs:
         if not args.dry_run:
             target_file.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(src_file, target_file)
-        synced_assets += 1
-    if synced_assets:
-        logging.info("Synced %d modified/new public asset(s).", synced_assets)
 
     failed = 0
 
-    # 1. Execute media encryption
-    to_encrypt_blobs = len(encrypt_blob_tasks)
-    if to_encrypt_blobs > 0:
-        logging.info("Encrypting %d media blob(s)...", to_encrypt_blobs)
+    if encrypt_blob_tasks:
+        logging.info("Encrypting %d media blob(s)...", len(encrypt_blob_tasks))
         with concurrent.futures.ProcessPoolExecutor(
             max_workers=args.workers
         ) as executor:
-            future_to_blob = {
-                executor.submit(encrypt_blob_worker, t): t.src_path
-                for t in encrypt_blob_tasks
-            }
-            for future in concurrent.futures.as_completed(future_to_blob):
-                src_path = future_to_blob[future]
-                try:
-                    _, success, err = future.result()
-                    if not success:
-                        failed += 1
-                        logging.error(
-                            "Failed to encrypt blob %s: %s", src_path.name, err
-                        )
-                    elif args.verbose:
-                        logging.info("Encrypted blob: %s", src_path.name)
-                except Exception as exc:
+            futures = [
+                executor.submit(encrypt_blob_worker, t) for t in encrypt_blob_tasks
+            ]
+            for future in concurrent.futures.as_completed(futures):
+                path, ok, err = future.result()
+                if not ok:
                     failed += 1
-                    logging.error(
-                        "Exception encrypting blob %s: %s", src_path.name, exc
-                    )
+                    logging.error("Failed to encrypt blob %s: %s", path.name, err)
 
-    # 2. Execute document compilation
-    total_md = len(md_files)
-    to_compile = len(compile_tasks)
-
-    if to_compile > 0:
-        logging.info(
-            "Compiling %d of %d documents using %d workers...",
-            to_compile,
-            total_md,
-            args.workers,
-        )
+    if compile_tasks:
+        logging.info("Compiling %d documents...", len(compile_tasks))
         with concurrent.futures.ProcessPoolExecutor(
             max_workers=args.workers
         ) as executor:
-            future_to_file = {
-                executor.submit(compile_markdown_worker, t): t.md_path
-                for t in compile_tasks
-            }
-            for future in concurrent.futures.as_completed(future_to_file):
-                md_path = future_to_file[future]
-                try:
-                    _, success, err = future.result()
-                    if not success:
-                        failed += 1
-                        logging.error("Compilation error on %s:\n%s", md_path.name, err)
-                    elif args.verbose:
-                        logging.info("Built: %s", md_path.name)
-                except Exception as exc:
+            futures = [
+                executor.submit(compile_markdown_worker, t) for t in compile_tasks
+            ]
+            for future in concurrent.futures.as_completed(futures):
+                path, ok, err = future.result()
+                if not ok:
                     failed += 1
-                    logging.error(
-                        "Runtime exception compiling %s: %s", md_path.name, exc
-                    )
+                    logging.error("Error compiling %s: %s", path.name, err)
     else:
-        logging.info("All %d documents are verified current.", total_md)
+        logging.info("All documents are up-to-date.")
 
-    # 3. Compile SQLite FTS5 database and commit manifest
     if failed == 0:
-        build_sqlite_search_index(search_records, SEARCH_DB_FILE, dry_run=args.dry_run)
-        if SEARCH_DB_FILE.exists() and not args.dry_run:
-            new_manifest["__SEARCH_DB_HASH__"] = compute_file_hash(SEARCH_DB_FILE)
+        search_index_needed = (
+            not SEARCH_DB_FILE.exists()
+            or bool(metadata_extraction_jobs)
+            or orphans_pruned > 0
+        )
+        if search_index_needed:
+            build_sqlite_search_index(
+                search_records, SEARCH_DB_FILE, dry_run=args.dry_run
+            )
+            if SEARCH_DB_FILE.exists() and not args.dry_run:
+                new_manifest["__SEARCH_DB_HASH__"] = compute_file_hash(SEARCH_DB_FILE)
+        else:
+            new_manifest["__SEARCH_DB_HASH__"] = old_manifest.get(
+                "__SEARCH_DB_HASH__", ""
+            )
+
         save_manifest(MANIFEST_FILE, new_manifest, args.dry_run)
-        logging.info(
-            "Build complete. (%d compiled, %d blobs encrypted, %d assets synced, %d orphans pruned)",
-            to_compile,
-            to_encrypt_blobs,
-            synced_assets,
-            orphans_pruned,
-        )
+        logging.info("Pipeline completed successfully.")
     else:
-        logging.error(
-            "Build aborted due to %d failure(s). Manifest state not updated.", failed
-        )
+        logging.error("Build failed with %d error(s). Manifest retained.", failed)
         sys.exit(1)
 
 
