@@ -6,6 +6,7 @@ importScripts("sqlite3.js");
 let sqlite3 = null;
 let db = null;
 let initPromise = null;
+const messageQueue = [];
 
 /**
  * Initializes the SQLite3 WASM runtime and deserializes search.db into memory.
@@ -124,7 +125,6 @@ function getRecentDocuments(searchId) {
 function executeSearch(query, searchId) {
   const trimmed = (query || "").trim();
 
-  // If query is empty, return the 50 most recent documents
   if (!trimmed) {
     getRecentDocuments(searchId);
     return;
@@ -166,7 +166,7 @@ function executeSearch(query, searchId) {
       executionSuccess = true;
       break;
     } catch (err) {
-      // Loop falls back to the safe prefix query if advanced syntax threw a syntax error
+      // Loop falls back to the safe prefix query if advanced syntax threw an error
     }
   }
 
@@ -195,8 +195,8 @@ function executeSearch(query, searchId) {
   });
 }
 
-self.onmessage = async (e) => {
-  const { type, dbUrl, query, searchId } = e.data || {};
+async function processMessage(data) {
+  const { type, dbUrl, query, searchId } = data || {};
 
   switch (type) {
     case "init":
@@ -204,6 +204,10 @@ self.onmessage = async (e) => {
         initPromise = initDatabase(dbUrl)
           .then(() => {
             self.postMessage({ type: "ready" });
+            while (messageQueue.length > 0) {
+              const pending = messageQueue.shift();
+              processMessage(pending);
+            }
           })
           .catch((err) => {
             initPromise = null;
@@ -213,25 +217,30 @@ self.onmessage = async (e) => {
       break;
 
     case "search":
-      if (initPromise) {
-        try {
-          await initPromise;
-          executeSearch(query || "", searchId);
-        } catch (err) {
-          self.postMessage({
-            type: "results",
-            query,
-            searchId,
-            hits: [],
-            hasMore: false,
-            isDefault: false,
-            error: err.message,
-          });
-        }
+      if (!db && initPromise) {
+        messageQueue.push(data);
+        return;
       }
+      if (!db && !initPromise) {
+        self.postMessage({
+          type: "results",
+          query,
+          searchId,
+          hits: [],
+          hasMore: false,
+          isDefault: false,
+          error: "Search database is not initialized.",
+        });
+        return;
+      }
+      executeSearch(query || "", searchId);
       break;
 
     default:
       console.warn("[Kykloi Search Worker] Unhandled message type:", type);
   }
+}
+
+self.onmessage = (e) => {
+  processMessage(e.data);
 };
