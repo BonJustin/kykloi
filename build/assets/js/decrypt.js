@@ -230,11 +230,8 @@ document.addEventListener("DOMContentLoaded", () => {
         lockContainer.remove();
       }
 
-      // Render math only if KaTeX was conditionally loaded for this page
       renderDecryptedMath(contentContainer);
-
-      // Decrypt and hydrate media blobs
-      hydrateEncryptedImages(contentContainer, password);
+      await hydrateEncryptedImages(contentContainer, password);
     } catch (err) {
       console.error("[Kykloi Decryption Error]:", err);
 
