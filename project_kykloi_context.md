@@ -878,6 +878,7 @@ importScripts("sqlite3.js");
 let sqlite3 = null;
 let db = null;
 let initPromise = null;
+const messageQueue = [];
 
 /**
  * Initializes the SQLite3 WASM runtime and deserializes search.db into memory.
@@ -996,7 +997,6 @@ function getRecentDocuments(searchId) {
 function executeSearch(query, searchId) {
   const trimmed = (query || "").trim();
 
-  // If query is empty, return the 50 most recent documents
   if (!trimmed) {
     getRecentDocuments(searchId);
     return;
@@ -1038,7 +1038,7 @@ function executeSearch(query, searchId) {
       executionSuccess = true;
       break;
     } catch (err) {
-      // Loop falls back to the safe prefix query if advanced syntax threw a syntax error
+      // Loop falls back to the safe prefix query if advanced syntax threw an error
     }
   }
 
@@ -1067,8 +1067,8 @@ function executeSearch(query, searchId) {
   });
 }
 
-self.onmessage = async (e) => {
-  const { type, dbUrl, query, searchId } = e.data || {};
+async function processMessage(data) {
+  const { type, dbUrl, query, searchId } = data || {};
 
   switch (type) {
     case "init":
@@ -1076,6 +1076,10 @@ self.onmessage = async (e) => {
         initPromise = initDatabase(dbUrl)
           .then(() => {
             self.postMessage({ type: "ready" });
+            while (messageQueue.length > 0) {
+              const pending = messageQueue.shift();
+              processMessage(pending);
+            }
           })
           .catch((err) => {
             initPromise = null;
@@ -1085,27 +1089,32 @@ self.onmessage = async (e) => {
       break;
 
     case "search":
-      if (initPromise) {
-        try {
-          await initPromise;
-          executeSearch(query || "", searchId);
-        } catch (err) {
-          self.postMessage({
-            type: "results",
-            query,
-            searchId,
-            hits: [],
-            hasMore: false,
-            isDefault: false,
-            error: err.message,
-          });
-        }
+      if (!db && initPromise) {
+        messageQueue.push(data);
+        return;
       }
+      if (!db && !initPromise) {
+        self.postMessage({
+          type: "results",
+          query,
+          searchId,
+          hits: [],
+          hasMore: false,
+          isDefault: false,
+          error: "Search database is not initialized.",
+        });
+        return;
+      }
+      executeSearch(query || "", searchId);
       break;
 
     default:
       console.warn("[Kykloi Search Worker] Unhandled message type:", type);
   }
+}
+
+self.onmessage = (e) => {
+  processMessage(e.data);
 };
 ```
 
@@ -2083,8 +2092,10 @@ def encrypt_binary_file(src_path: Path, dst_path: Path, passphrase: str) -> None
     envelope = salt + iv + ciphertext + tag
 
     dst_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(dst_path, "wb") as f:
+    tmp_path = dst_path.with_suffix(dst_path.suffix + ".tmp")
+    with open(tmp_path, "wb") as f:
         f.write(envelope)
+    tmp_path.replace(dst_path)
 
 
 def load_manifest(manifest_path: Path) -> dict:
@@ -2103,8 +2114,10 @@ def save_manifest(manifest_path: Path, manifest: dict, dry_run: bool):
     if dry_run:
         return
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(manifest_path, "w", encoding="utf-8") as f:
+    tmp_path = manifest_path.with_suffix(".json.tmp")
+    with open(tmp_path, "w", encoding="utf-8") as f:
         json.dump(manifest, f, indent=2, sort_keys=True)
+    tmp_path.replace(manifest_path)
 
 
 # ===========================================================================
@@ -2400,8 +2413,10 @@ def compile_markdown_worker(task: CompileTask) -> tuple[Path, bool, Optional[str
             "__KYKLOI_ENCRYPTED_PAYLOAD__", ciphertext_b64
         )
         task.out_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(task.out_path, "w", encoding="utf-8") as f:
+        tmp_out = task.out_path.with_suffix(task.out_path.suffix + ".tmp")
+        with open(tmp_out, "w", encoding="utf-8") as f:
             f.write(final_html)
+        tmp_out.replace(task.out_path)
     except OSError as e:
         return task.md_path, False, f"Disk write error: {e}"
 
@@ -3192,6 +3207,13 @@ requires-python = ">=3.12"
 dependencies = []
 ```
 
-## initial query
+## context
 
-this codebase has been revised many times. i am now looking for possible artifacts or architectural decisions that could be removed or refined to improve the overall function and adherence to best practice programming.
+* python 3.12
+* pandoc 3.1.11
+* `migrate_links.py` is not functioning properly and needs significant attention. (not the current focus for attention).
+* does not (and will not in most browsers) work over file protocol. relies on localhost for offline use.
+
+## query
+
+evaluate this project for performance, archival durability, and permacomputing potential. assess it's intent and ethos. explain to what degree it follows best practice programming standards.
