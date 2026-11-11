@@ -633,8 +633,10 @@ def encrypt_binary_file(src_path: Path, dst_path: Path, passphrase: str) -> None
     envelope = salt + iv + ciphertext + tag
 
     dst_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(dst_path, "wb") as f:
+    tmp_path = dst_path.with_suffix(dst_path.suffix + ".tmp")
+    with open(tmp_path, "wb") as f:
         f.write(envelope)
+    tmp_path.replace(dst_path)
 
 
 def load_manifest(manifest_path: Path) -> dict:
@@ -653,8 +655,10 @@ def save_manifest(manifest_path: Path, manifest: dict, dry_run: bool):
     if dry_run:
         return
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(manifest_path, "w", encoding="utf-8") as f:
+    tmp_path = manifest_path.with_suffix(".json.tmp")
+    with open(tmp_path, "w", encoding="utf-8") as f:
         json.dump(manifest, f, indent=2, sort_keys=True)
+    tmp_path.replace(manifest_path)
 
 
 # ===========================================================================
@@ -950,8 +954,10 @@ def compile_markdown_worker(task: CompileTask) -> tuple[Path, bool, Optional[str
             "__KYKLOI_ENCRYPTED_PAYLOAD__", ciphertext_b64
         )
         task.out_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(task.out_path, "w", encoding="utf-8") as f:
+        tmp_out = task.out_path.with_suffix(task.out_path.suffix + ".tmp")
+        with open(tmp_out, "w", encoding="utf-8") as f:
             f.write(final_html)
+        tmp_out.replace(task.out_path)
     except OSError as e:
         return task.md_path, False, f"Disk write error: {e}"
 
