@@ -521,6 +521,7 @@ class CompileTask:
     out_path: Path
     template_path: Path
     relative_root: str
+    doc_title: str
     defaults_yaml: Path
     lua_filter: Path
     bibliography_path: Optional[Path]
@@ -862,6 +863,8 @@ def compile_markdown_worker(task: CompileTask) -> tuple[Path, bool, Optional[str
             str(task.lua_filter),
             "-V",
             f"relative_root={task.relative_root}",
+            "-V",
+            f"pagetitle={task.doc_title}",
             f"--katex={task.relative_root}assets/katex/",
             "-o",
             str(task.out_path),
@@ -926,6 +929,8 @@ def compile_markdown_worker(task: CompileTask) -> tuple[Path, bool, Optional[str
         f"--katex={task.relative_root}assets/katex/",
         "-V",
         f"relative_root={task.relative_root}",
+        "-V",
+        f"pagetitle={task.doc_title}",
         "-V",
         "encrypted=true",
     ]
@@ -1151,6 +1156,7 @@ def main():
                     out_path=out,
                     template_path=DEFAULT_TEMPLATE,
                     relative_root=relative_root,
+                    doc_title="",
                     defaults_yaml=DEFAULTS_YAML,
                     lua_filter=LUA_FILTER,
                     bibliography_path=None,
@@ -1176,12 +1182,14 @@ def main():
             if (central_bib and doc_has_citations_map.get(t.md_path, False))
             else None
         )
+        meta = file_metadata_map[t.md_path]
         final_compile_tasks.append(
             CompileTask(
                 md_path=t.md_path,
                 out_path=t.out_path,
                 template_path=t.template_path,
                 relative_root=t.relative_root,
+                doc_title=meta["title"],
                 defaults_yaml=t.defaults_yaml,
                 lua_filter=t.lua_filter,
                 bibliography_path=needs_bib,

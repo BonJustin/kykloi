@@ -1971,6 +1971,7 @@ class CompileTask:
     out_path: Path
     template_path: Path
     relative_root: str
+    doc_title: str
     defaults_yaml: Path
     lua_filter: Path
     bibliography_path: Optional[Path]
@@ -2312,6 +2313,8 @@ def compile_markdown_worker(task: CompileTask) -> tuple[Path, bool, Optional[str
             str(task.lua_filter),
             "-V",
             f"relative_root={task.relative_root}",
+            "-V",
+            f"pagetitle={task.doc_title}",
             f"--katex={task.relative_root}assets/katex/",
             "-o",
             str(task.out_path),
@@ -2376,6 +2379,8 @@ def compile_markdown_worker(task: CompileTask) -> tuple[Path, bool, Optional[str
         f"--katex={task.relative_root}assets/katex/",
         "-V",
         f"relative_root={task.relative_root}",
+        "-V",
+        f"pagetitle={task.doc_title}",
         "-V",
         "encrypted=true",
     ]
@@ -2601,6 +2606,7 @@ def main():
                     out_path=out,
                     template_path=DEFAULT_TEMPLATE,
                     relative_root=relative_root,
+                    doc_title="",
                     defaults_yaml=DEFAULTS_YAML,
                     lua_filter=LUA_FILTER,
                     bibliography_path=None,
@@ -2626,12 +2632,14 @@ def main():
             if (central_bib and doc_has_citations_map.get(t.md_path, False))
             else None
         )
+        meta = file_metadata_map[t.md_path]
         final_compile_tasks.append(
             CompileTask(
                 md_path=t.md_path,
                 out_path=t.out_path,
                 template_path=t.template_path,
                 relative_root=t.relative_root,
+                doc_title=meta["title"],
                 defaults_yaml=t.defaults_yaml,
                 lua_filter=t.lua_filter,
                 bibliography_path=needs_bib,
@@ -3096,6 +3104,7 @@ writer: html5
 embed-resources: false
 variables:
   document-css: false
+  title: false
 top-level-division: chapter
 wrap: none
 columns: 78
@@ -3121,53 +3130,49 @@ fail-if-warnings: false
 ```
 -- translate_links.lua
 -- 1. Rewrites relative markdown links (.md) to HTML (.html)
--- 2. If KYKLOI_SECURE_BUILD is active, rewrites image sources to append .enc
+-- 2. Appends .enc to media targets and tags attributes when KYKLOI_SECURE_BUILD is active
 
 local is_secure = os.getenv("KYKLOI_SECURE_BUILD") == "1"
 
+local function is_external(url)
+  return url:match("^%a+://") ~= nil or url:match("^//") ~= nil or url:match("^mailto:") ~= nil
+end
+
 function Link(el)
-  -- Skip absolute URLs or protocols
-  if el.target:match("^%a+://") or el.target:match("^//") or el.target:match("^mailto:") then
+  if is_external(el.target) or el.target:sub(1, 1) == "#" then
     return el
   end
 
-  -- Decode URL to inspect extension if encoded
-  local target = el.target
-
-  -- Separate path from anchor or query
-  local path, rest = target:match("^(.-)%.md([#?].*)$")
+  local path, separator, suffix = el.target:match("^([^#?]+)([#?])(.*)$")
   if not path then
-    path = target:match("^(.-)%.md$")
-    rest = ""
+    path = el.target
+    separator = ""
+    suffix = ""
   end
 
-  if path then
-    el.target = path .. ".html" .. rest
+  if path:match("%.md$") then
+    path = path:gsub("%.md$", ".html")
+    el.target = path .. separator .. suffix
   end
 
   return el
 end
 
 function Image(el)
-  if not is_secure then
+  if not is_secure or is_external(el.src) or el.src:match("^data:") then
     return el
   end
 
-  -- Skip absolute URLs, protocols, or existing data URIs
-  if el.src:match("^%a+://") or el.src:match("^//") or el.src:match("^data:") then
-    return el
-  end
-
-  -- Extract clean base URL ignoring anchors or query parameters
-  local base_src, suffix = el.src:match("^(.-)(%?.*)$")
-  if not base_src then
-    base_src = el.src
+  local path, separator, suffix = el.src:match("^([^#?]+)([#?])(.*)$")
+  if not path then
+    path = el.src
+    separator = ""
     suffix = ""
   end
 
-  -- Append .enc if not already present
-  if not base_src:match("%.enc$") then
-    el.src = base_src .. ".enc" .. suffix
+  if not path:match("%.enc$") then
+    path = path .. ".enc"
+    el.src = path .. separator .. suffix
   end
 
   el.attributes["data-encrypted-media"] = "true"
