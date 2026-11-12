@@ -406,6 +406,7 @@ import hashlib
 import json
 import logging
 import os
+import platform
 import re
 import shutil
 import sqlite3
@@ -928,6 +929,7 @@ class CompileTask:
     is_secure: bool
     passphrase: Optional[str]
     dry_run: bool
+    pandoc_bin: str
 
 
 @dataclass(frozen=True)
@@ -965,8 +967,68 @@ def parse_args():
 
 
 # ===========================================================================
-# 3. CRYPTOGRAPHIC UTILITIES
+# 3. BINARY RESOLUTION & CRYPTOGRAPHIC UTILITIES
 # ===========================================================================
+
+
+def resolve_pandoc_binary(root_dir: Path) -> str:
+    """Resolves the Pandoc executable.
+    Prioritizes local bundled binaries in bin/ over host system PATH.
+    Includes defensive fallback for Linux systems mounting exFAT with noexec.
+    """
+    system = platform.system().lower()
+    machine = platform.machine().lower()
+
+    if machine in ("x86_64", "amd64"):
+        arch = "x86_64"
+    elif machine in ("arm64", "aarch64"):
+        arch = "arm64"
+    else:
+        arch = machine
+
+    base_bin = root_dir / "bin"
+    candidate = None
+
+    if system == "linux" and arch == "x86_64":
+        candidate = base_bin / "linux-x86_64" / "pandoc"
+    elif system == "darwin":
+        candidate = base_bin / f"macos-{arch}" / "pandoc"
+        if not candidate.exists() and arch == "arm64":
+            candidate = base_bin / "macos-x86_64" / "pandoc"
+    elif system == "windows":
+        candidate = base_bin / "windows-x86_64" / "pandoc.exe"
+
+    if candidate and candidate.is_file():
+        # Defensive Linux exFAT noexec mitigation
+        if system == "linux":
+            if not os.access(candidate, os.X_OK):
+                try:
+                    candidate.chmod(0o755)
+                except OSError:
+                    pass
+
+            if not os.access(candidate, os.X_OK):
+                tmp_dir = Path("/tmp/kykloi_bin")
+                tmp_dir.mkdir(parents=True, exist_ok=True)
+                shadow_bin = tmp_dir / "pandoc"
+                if (
+                    not shadow_bin.exists()
+                    or shadow_bin.stat().st_size != candidate.stat().st_size
+                ):
+                    shutil.copy2(candidate, shadow_bin)
+                    shadow_bin.chmod(0o755)
+                return str(shadow_bin.resolve())
+
+        return str(candidate.resolve())
+
+    # Fall back to host system PATH
+    sys_pandoc = shutil.which("pandoc")
+    if sys_pandoc:
+        return sys_pandoc
+
+    raise FileNotFoundError(
+        f"Pandoc executable not found. Checked local directory '{base_bin}' and system PATH."
+    )
 
 
 def compute_file_hash(path: Path) -> str:
@@ -1257,7 +1319,7 @@ def compile_markdown_worker(task: CompileTask) -> tuple[Path, bool, Optional[str
 
     if not task.is_secure:
         cmd = [
-            "pandoc",
+            task.pandoc_bin,
             str(task.md_path),
             "--defaults",
             str(task.defaults_yaml),
@@ -1301,7 +1363,7 @@ def compile_markdown_worker(task: CompileTask) -> tuple[Path, bool, Optional[str
     env["KYKLOI_SECURE_BUILD"] = "1"
 
     body_cmd = [
-        "pandoc",
+        task.pandoc_bin,
         str(task.md_path),
         "--defaults",
         str(task.defaults_yaml),
@@ -1324,7 +1386,7 @@ def compile_markdown_worker(task: CompileTask) -> tuple[Path, bool, Optional[str
         return task.md_path, False, f"Encryption failed: {e}"
 
     envelope_cmd = [
-        "pandoc",
+        task.pandoc_bin,
         str(task.md_path),
         "--defaults",
         str(task.defaults_yaml),
@@ -1420,6 +1482,13 @@ def main():
         logging.critical(str(err))
         sys.exit(1)
 
+    try:
+        pandoc_bin = resolve_pandoc_binary(PROJECT_ROOT)
+        logging.info("Resolved Pandoc executable: %s", pandoc_bin)
+    except FileNotFoundError as err:
+        logging.critical(str(err))
+        sys.exit(1)
+
     for path, desc in [
         (SRC, "Source directory"),
         (DEFAULTS_YAML, "Pandoc defaults configuration"),
@@ -1463,7 +1532,6 @@ def main():
     has_secure_files = any(is_secure_path(p, SRC) for p in all_content_files)
 
     passphrase = args.password
-    # Defensive check: Avoid blocking headless subprocesses if no passphrase provided
     if has_secure_files and not passphrase and not args.dry_run:
         if not sys.stdin.isatty():
             logging.error(
@@ -1582,6 +1650,7 @@ def main():
                     is_secure=is_secure,
                     passphrase=passphrase,
                     dry_run=args.dry_run,
+                    pandoc_bin=pandoc_bin,
                 )
             )
 
@@ -1615,6 +1684,7 @@ def main():
                 is_secure=t.is_secure,
                 passphrase=t.passphrase,
                 dry_run=t.dry_run,
+                pandoc_bin=pandoc_bin,
             )
         )
     compile_tasks = final_compile_tasks
@@ -3880,6 +3950,7 @@ if __name__ == "__main__":
 │   ├── app.css
 │   ├── app.js
 │   └── pico.css
+├── bin
 ├── build
 │   ├── assets
 │   │   ├── css
@@ -3904,6 +3975,7 @@ if __name__ == "__main__":
 │   ├── templates
 │   │   ├── md_to_static_html.html
 │   │   └── metadata.json
+│   ├── build_site copy.py
 │   ├── build_site.py
 │   ├── pandoc_md_to_static_html.yaml
 │   └── translate_links.lua
@@ -3928,7 +4000,7 @@ if __name__ == "__main__":
 ├── serve.py
 └── uv.lock
 
-13 directories, 40 files
+14 directories, 41 files
 ```
 
 ## Evaluation Context & Exclusion Manifest
