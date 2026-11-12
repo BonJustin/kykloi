@@ -9,7 +9,6 @@ import http.server
 import mimetypes
 import os
 import re
-import socket
 import socketserver
 import sys
 import threading
@@ -51,6 +50,7 @@ class KykloiHTTPRequestHandler(http.server.BaseHTTPRequestHandler):
     """
 
     server_version = "KykloiDaemon/0.5"
+    protocol_version = "HTTP/1.1"
 
     def translate_path(self, path: str) -> str | None:
         """Translate a URL path into an absolute file system path inside dist/."""

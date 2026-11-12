@@ -1063,8 +1063,21 @@ def main():
     has_secure_files = any(is_secure_path(p, SRC) for p in all_content_files)
 
     passphrase = args.password
+    # Defensive check: Avoid blocking headless subprocesses if no passphrase provided
     if has_secure_files and not passphrase and not args.dry_run:
-        passphrase = getpass.getpass("Enter passphrase for /secure/ notes: ")
+        if not sys.stdin.isatty():
+            logging.error(
+                "Passphrase required for /secure/ notes in non-interactive environment. "
+                "Provide --password or set KYKLOI_ENCRYPT_KEY."
+            )
+            sys.exit(1)
+
+        try:
+            passphrase = getpass.getpass("Enter passphrase for /secure/ notes: ")
+        except (OSError, EOFError):
+            logging.error("Terminal disconnected: Unable to prompt for passphrase.")
+            sys.exit(1)
+
         if not passphrase:
             logging.error("Passphrase required for secure notes.")
             sys.exit(1)

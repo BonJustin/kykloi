@@ -126,7 +126,6 @@ import http.server
 import mimetypes
 import os
 import re
-import socket
 import socketserver
 import sys
 import threading
@@ -168,6 +167,7 @@ class KykloiHTTPRequestHandler(http.server.BaseHTTPRequestHandler):
     """
 
     server_version = "KykloiDaemon/0.5"
+    protocol_version = "HTTP/1.1"
 
     def translate_path(self, path: str) -> str | None:
         """Translate a URL path into an absolute file system path inside dist/."""
@@ -1463,8 +1463,21 @@ def main():
     has_secure_files = any(is_secure_path(p, SRC) for p in all_content_files)
 
     passphrase = args.password
+    # Defensive check: Avoid blocking headless subprocesses if no passphrase provided
     if has_secure_files and not passphrase and not args.dry_run:
-        passphrase = getpass.getpass("Enter passphrase for /secure/ notes: ")
+        if not sys.stdin.isatty():
+            logging.error(
+                "Passphrase required for /secure/ notes in non-interactive environment. "
+                "Provide --password or set KYKLOI_ENCRYPT_KEY."
+            )
+            sys.exit(1)
+
+        try:
+            passphrase = getpass.getpass("Enter passphrase for /secure/ notes: ")
+        except (OSError, EOFError):
+            logging.error("Terminal disconnected: Unable to prompt for passphrase.")
+            sys.exit(1)
+
         if not passphrase:
             logging.error("Passphrase required for secure notes.")
             sys.exit(1)
@@ -3315,7 +3328,10 @@ Let $\hat{a}^\dagger$ and $\hat{a}$ be creation and annihilation operators such 
   <header class="hub-header">
     <div class="hub-header-brand">
       <h1>Kykloi Control Hub</h1>
-      <span class="hub-brand-badge">JmB² Appliance</span>
+      <div>
+        <button id="btn-open-vault" class="secondary outline btn-sm">Open Vault (Port 8000)</button>
+        <span class="hub-brand-badge" style="margin-left: 0.5rem;">JmB² Appliance</span>
+      </div>
     </div>
     <p class="hub-subtitle">Deterministic Archival SSG Maintenance Plane</p>
     <hr />
@@ -3366,10 +3382,13 @@ Let $\hat{a}^\dagger$ and $\hat{a}$ be creation and annihilation operators such 
 ## admin/app.js
 
 ```javascript
-/* admin/app.js - Dashboard Client Logic & Streaming IPC */
+/* admin/app.js - Kykloi Control Hub Client Engine */
 "use strict";
 
 document.addEventListener("DOMContentLoaded", () => {
+  // =========================================================================
+  // 1. DOM ELEMENT CACHE
+  // =========================================================================
   const statusBadge = document.getElementById("app-status-badge");
   const statusText = document.getElementById("app-status-text");
   const consoleEl = document.getElementById("console-output");
@@ -3377,8 +3396,13 @@ document.addEventListener("DOMContentLoaded", () => {
   const clearConsoleBtn = document.getElementById("btn-clear-console");
   const cleanCheckbox = document.getElementById("clean-build");
   const passwordInput = document.getElementById("build-passphrase");
+  const openVaultBtn = document.getElementById("btn-open-vault");
 
+  // =========================================================================
+  // 2. STATE & UI HELPERS
+  // =========================================================================
   function setStatus(state, message) {
+    if (!statusBadge || !statusText) return;
     statusBadge.className = "status-badge";
     if (state === "busy") statusBadge.classList.add("busy");
     if (state === "error") statusBadge.classList.add("error");
@@ -3386,54 +3410,93 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function appendConsole(text) {
+    if (!consoleEl) return;
     consoleEl.textContent += text;
     consoleEl.scrollTop = consoleEl.scrollHeight;
   }
 
-  clearConsoleBtn.addEventListener("click", () => {
-    consoleEl.textContent = "";
-  });
+  // =========================================================================
+  // 3. TERMINAL CONSOLE ACTIONS
+  // =========================================================================
+  if (clearConsoleBtn && consoleEl) {
+    clearConsoleBtn.addEventListener("click", () => {
+      consoleEl.textContent = "";
+    });
+  }
 
-  runBuildBtn.addEventListener("click", async () => {
-    runBuildBtn.disabled = true;
-    setStatus("busy", "Compiling Site...");
-    appendConsole(`\n>>> [${new Date().toLocaleTimeString()}] Build job started...\n`);
+  // =========================================================================
+  // 4. COMPILATION IPC BRIDGE (POST /api/build)
+  // =========================================================================
+  if (runBuildBtn) {
+    runBuildBtn.addEventListener("click", async () => {
+      runBuildBtn.disabled = true;
+      setStatus("busy", "Compiling Site...");
+      appendConsole(`\n>>> [${new Date().toLocaleTimeString()}] Triggering build pipeline...\n`);
 
-    const payload = {
-      clean: cleanCheckbox.checked,
-      password: passwordInput.value.trim() || undefined,
-      verbose: false,
-    };
+      const payload = {
+        clean: cleanCheckbox ? cleanCheckbox.checked : false,
+        password: passwordInput && passwordInput.value.trim() ? passwordInput.value.trim() : undefined,
+        verbose: false,
+      };
 
-    try {
-      const response = await fetch("/api/build", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
+      try {
+        const response = await fetch("/api/build", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
 
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status} from control daemon`);
+        // 409: Server-side build lock active
+        if (response.status === 409) {
+          const errorText = await response.text();
+          appendConsole(`\n[REJECTED] ${errorText}\n`);
+          setStatus("busy", "Build Already Running");
+          return;
+        }
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status} from control daemon`);
+        }
+
+        // Process chunked stream in real time
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder("utf-8");
+
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          const textChunk = decoder.decode(value, { stream: true });
+          appendConsole(textChunk);
+        }
+
+        setStatus("idle", "Build Complete");
+      } catch (err) {
+        appendConsole(`\n[FATAL IPC ERROR] ${err.message}\n`);
+        setStatus("error", "Execution Failed");
+      } finally {
+        runBuildBtn.disabled = false;
       }
+    });
+  }
 
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder("utf-8");
-
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        const textChunk = decoder.decode(value, { stream: true });
-        appendConsole(textChunk);
+  // =========================================================================
+  // 5. VAULT VIEWER ORCHESTRATION (POST /api/view)
+  // =========================================================================
+  if (openVaultBtn) {
+    openVaultBtn.addEventListener("click", async () => {
+      openVaultBtn.disabled = true;
+      try {
+        const res = await fetch("/api/view", { method: "POST" });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        appendConsole(`\n[Kykloi IPC] Static reader daemon confirmed active at ${data.url}\n`);
+      } catch (err) {
+        appendConsole(`\n[Kykloi IPC Error] Failed to launch vault viewer: ${err.message}\n`);
+      } finally {
+        openVaultBtn.disabled = false;
       }
-
-      setStatus("idle", "Build Complete");
-    } catch (err) {
-      appendConsole(`\n[FATAL IPC ERROR] ${err.message}\n`);
-      setStatus("error", "Execution Failed");
-    } finally {
-      runBuildBtn.disabled = false;
-    }
-  });
+    });
+  }
 });
 ```
 
@@ -3554,11 +3617,14 @@ body {
 #!/usr/bin/env python3
 """
 launch.py - Autonomous Control Hub Daemon for Project Kykloi.
-Serves exclusively from admin/ and provides streaming IPC for build tasks.
+Features CLI argument parsing, defensive MIME registration, and IPC vault orchestration.
 """
 
+import argparse
 import http.server
 import json
+import mimetypes
+import socket
 import socketserver
 import subprocess
 import sys
@@ -3567,28 +3633,37 @@ import time
 import webbrowser
 from pathlib import Path
 
-HOST = "127.0.0.1"
-START_PORT = 8000
-MAX_PORT_ATTEMPTS = 15
+# ===========================================================================
+# 1. PATH RESOLUTION & DEFENSIVE MIME REGISTRATION
+# ===========================================================================
 
 ROOT_DIR = Path(__file__).resolve().parent
 ADMIN_DIR = ROOT_DIR / "admin"
 BUILD_SCRIPT = ROOT_DIR / "build" / "build_site.py"
+SERVE_SCRIPT = ROOT_DIR / "serve.py"
+
+mimetypes.init()
+mimetypes.add_type("text/css", ".css")
+mimetypes.add_type("application/javascript", ".js")
+mimetypes.add_type("font/woff2", ".woff2")
+mimetypes.add_type("image/svg+xml", ".svg")
+
+BUILD_LOCK = threading.Lock()
+SERVE_PROC = None
+
+
+# ===========================================================================
+# 2. REQUEST HANDLER & IPC ENGINE
+# ===========================================================================
 
 
 class ControlHubHandler(http.server.SimpleHTTPRequestHandler):
-    """
-    Standard static server rooted in admin/ with dynamic IPC hooks.
-    All GET/HEAD requests are natively handled by SimpleHTTPRequestHandler.
-    """
-
     protocol_version = "HTTP/1.1"
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(ADMIN_DIR), **kwargs)
 
     def translate_path(self, path: str) -> str:
-        """Route root requests to admin.html if index.html does not exist."""
         clean_path = path.split("?", 1)[0].split("#", 1)[0]
         if clean_path in ("/", "/index.html"):
             admin_target = ADMIN_DIR / "admin.html"
@@ -3600,10 +3675,12 @@ class ControlHubHandler(http.server.SimpleHTTPRequestHandler):
         if self.path == "/api/build":
             self._handle_build_ipc()
             return
+        if self.path == "/api/view":
+            self._handle_view_ipc()
+            return
         self.send_error(404, "Unknown API Endpoint")
 
     def _send_chunk(self, data: bytes):
-        """Transmits a standard HTTP/1.1 chunk."""
         if not data:
             return
         chunk = f"{len(data):X}\r\n".encode("ascii") + data + b"\r\n"
@@ -3611,63 +3688,112 @@ class ControlHubHandler(http.server.SimpleHTTPRequestHandler):
         self.wfile.flush()
 
     def _handle_build_ipc(self):
-        """Executes build_site.py and streams stdout/stderr back in real time."""
-        content_length = int(self.headers.get("Content-Length", 0))
-        body = (
-            self.rfile.read(content_length).decode("utf-8")
-            if content_length > 0
-            else "{}"
-        )
+        if not BUILD_LOCK.acquire(blocking=False):
+            self.send_response(409)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            msg = b"Conflict: A build process is already active. Request rejected.\n"
+            self.send_header("Content-Length", str(len(msg)))
+            self.send_header("Cache-Control", "no-cache")
+            self.end_headers()
+            self.wfile.write(msg)
+            return
 
         try:
-            params = json.loads(body)
-        except json.JSONDecodeError:
-            params = {}
-
-        flags = []
-        if params.get("clean"):
-            flags.append("--clean")
-        if params.get("verbose"):
-            flags.append("--verbose")
-        if params.get("password"):
-            flags.extend(["--password", str(params["password"])])
-
-        cmd = [sys.executable, str(BUILD_SCRIPT)] + flags
-
-        # Initialize chunked response
-        self.send_response(200)
-        self.send_header("Content-Type", "text/plain; charset=utf-8")
-        self.send_header("Transfer-Encoding", "chunked")
-        self.send_header("Cache-Control", "no-cache")
-        self.end_headers()
-
-        self._send_chunk(f"[Kykloi IPC] Running: {' '.join(cmd)}\n\n".encode("utf-8"))
-
-        proc = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            cwd=str(ROOT_DIR),
-            text=True,
-            bufsize=1,
-        )
-
-        try:
-            for line in iter(proc.stdout.readline, ""):
-                self._send_chunk(line.encode("utf-8"))
-            proc.stdout.close()
-            exit_code = proc.wait()
-            self._send_chunk(
-                f"\n[Kykloi IPC] Completed with exit code {exit_code}.\n".encode(
-                    "utf-8"
-                )
+            content_length = int(self.headers.get("Content-Length", 0))
+            body = (
+                self.rfile.read(content_length).decode("utf-8")
+                if content_length > 0
+                else "{}"
             )
-        except (BrokenPipeError, ConnectionResetError):
-            proc.kill()
+
+            try:
+                params = json.loads(body)
+            except json.JSONDecodeError:
+                params = {}
+
+            flags = []
+            if params.get("clean"):
+                flags.append("--clean")
+            if params.get("verbose"):
+                flags.append("--verbose")
+            if params.get("password"):
+                flags.extend(["--password", str(params["password"])])
+
+            cmd = [sys.executable, str(BUILD_SCRIPT)] + flags
+
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Transfer-Encoding", "chunked")
+            self.send_header("Cache-Control", "no-cache")
+            self.end_headers()
+
+            self._send_chunk(
+                f"[Kykloi IPC] Executing: {' '.join(cmd)}\n\n".encode("utf-8")
+            )
+
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                stdin=subprocess.DEVNULL,
+                cwd=str(ROOT_DIR),
+                text=True,
+                bufsize=1,
+            )
+
+            try:
+                for line in iter(proc.stdout.readline, ""):
+                    self._send_chunk(line.encode("utf-8"))
+                proc.stdout.close()
+                code = proc.wait()
+                self._send_chunk(
+                    f"\n[Kykloi IPC] Build finished with exit code {code}.\n".encode(
+                        "utf-8"
+                    )
+                )
+            except (BrokenPipeError, ConnectionResetError):
+                proc.kill()
+            finally:
+                self.wfile.write(b"0\r\n\r\n")
+                self.wfile.flush()
+
         finally:
-            # Terminate HTTP chunk stream
-            self.wfile.write(b"0\r\n\r\n")
-            self.wfile.flush()
+            BUILD_LOCK.release()
+
+    def _handle_view_ipc(self):
+        """Spawns serve.py if inactive and signals browser launch."""
+        global SERVE_PROC
+        reader_port = 8000
+
+        # Test if serve.py is already active on port 8000
+        is_running = False
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(0.2)
+            if s.connect_ex(("127.0.0.1", reader_port)) == 0:
+                is_running = True
+
+        if not is_running:
+            SERVE_PROC = subprocess.Popen(
+                [sys.executable, str(SERVE_SCRIPT)],
+                cwd=str(ROOT_DIR),
+                stdin=subprocess.DEVNULL,
+            )
+            time.sleep(0.4)
+
+        vault_url = f"http://127.0.0.1:{reader_port}/"
+        threading.Thread(target=lambda: webbrowser.open(vault_url), daemon=True).start()
+
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(
+            json.dumps({"status": "launched", "url": vault_url}).encode("utf-8")
+        )
+
+
+# ===========================================================================
+# 3. CLI & INITIALIZATION
+# ===========================================================================
 
 
 class ThreadedServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
@@ -3675,18 +3801,38 @@ class ThreadedServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
     daemon_threads = True
 
 
+def parse_args():
+    p = argparse.ArgumentParser(description="Kykloi Control Hub Appliance Daemon.")
+    p.add_argument(
+        "--host",
+        type=str,
+        default="127.0.0.1",
+        help="Bind interface (default: 127.0.0.1)",
+    )
+    p.add_argument("--port", type=int, default=8040, help="Start port (default: 8040)")
+    p.add_argument(
+        "--browser",
+        action="store_true",
+        help="Launch browser upon startup (defaults to headless).",
+    )
+    return p.parse_args()
+
+
 def main():
-    if not ADMIN_DIR.exists():
-        sys.stderr.write(f"[FATAL] Admin directory not found: {ADMIN_DIR}\n")
+    args = parse_args()
+
+    if not ADMIN_DIR.exists() or not (ADMIN_DIR / "admin.html").is_file():
+        sys.stderr.write(f"[FATAL] Admin UI missing in {ADMIN_DIR}\n")
         sys.exit(1)
 
     server = None
-    port = START_PORT
+    port = args.port
+    max_attempts = 15
 
-    for offset in range(MAX_PORT_ATTEMPTS):
-        candidate_port = START_PORT + offset
+    for offset in range(max_attempts):
+        candidate_port = port + offset
         try:
-            server = ThreadedServer((HOST, candidate_port), ControlHubHandler)
+            server = ThreadedServer((args.host, candidate_port), ControlHubHandler)
             port = candidate_port
             break
         except OSError as e:
@@ -3698,22 +3844,26 @@ def main():
         sys.stderr.write("[FATAL] Could not bind to an open port.\n")
         sys.exit(1)
 
-    url = f"http://{HOST}:{port}/"
+    url = f"http://{args.host}:{port}/"
     print("=" * 60)
-    print("  Project Kykloi — Control Hub (Model 1 Architecture)")
-    print(f"  Root:  {ADMIN_DIR}")
-    print(f"  URL:   {url}")
+    print("  Project Kykloi — Control Hub Daemon")
+    print(f"  Root:   {ADMIN_DIR}")
+    print(f"  URL:    {url}")
+    print(f"  Mode:   {'Browser' if args.browser else 'Headless'}")
     print("=" * 60)
 
-    threading.Thread(
-        target=lambda: (time.sleep(0.3), webbrowser.open(url)), daemon=True
-    ).start()
+    if args.browser:
+        threading.Thread(
+            target=lambda: (time.sleep(0.3), webbrowser.open(url)), daemon=True
+        ).start()
 
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         print("\n[Kykloi] Shutting down Control Hub...")
     finally:
+        if SERVE_PROC:
+            SERVE_PROC.terminate()
         server.server_close()
 
 
