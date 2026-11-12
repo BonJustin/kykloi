@@ -3339,7 +3339,6 @@ Let $\hat{a}^\dagger$ and $\hat{a}$ be creation and annihilation operators such 
 │   │   │   └── test_artemis_2.jpg
 │   │   └── 20261031165927-nested-directory-test.md
 │   └── pandoc_markdown.md
-├── assemble_code_to_md copy.py
 ├── assemble_code_to_md.py
 ├── codebase_bundle.md
 ├── pyproject.toml
@@ -3349,7 +3348,7 @@ Let $\hat{a}^\dagger$ and $\hat{a}$ be creation and annihilation operators such 
 ├── serve.py
 └── uv.lock
 
-12 directories, 36 files
+12 directories, 35 files
 ```
 
 ## Evaluation Context & Exclusion Manifest
