@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <title>Kykloi Control Hub</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <!-- Self-Contained Local Assets -->
+  <link rel="stylesheet" href="pico.css">
+  <link rel="stylesheet" href="app.css">
+</head>
+<body class="container">
+  <header class="hub-header">
+    <div class="hub-header-brand">
+      <h1>Kykloi Control Hub</h1>
+      <span class="hub-brand-badge">JmB² Appliance</span>
+    </div>
+    <p class="hub-subtitle">Deterministic Archival SSG Maintenance Plane</p>
+    <hr />
+  </header>
+
+  <main>
+    <article>
+      <header><strong>Site Compiler Orchestration</strong></header>
+
+      <form id="build-form" onsubmit="return false;">
+        <div class="control-grid">
+          <input
+            type="password"
+            id="build-passphrase"
+            placeholder="Passphrase for /secure/ notes..."
+            autocomplete="off"
+          />
+          <label class="clean-toggle">
+            <input type="checkbox" id="clean-build" />
+            <span>Purge Dist</span>
+          </label>
+          <button type="button" id="btn-run-build">Compile Site</button>
+        </div>
+      </form>
+
+      <div class="status-bar">
+        <div class="status-indicator-group">
+          <span id="app-status-badge" class="status-badge"></span>
+          <span id="app-status-text">Appliance Ready</span>
+        </div>
+        <button id="btn-clear-console" class="secondary outline btn-sm">Clear Terminal</button>
+      </div>
+
+      <div id="console-output">Awaiting command...</div>
+    </article>
+  </main>
+
+  <footer class="hub-footer">
+    <hr />
+    <small>Zero-Dependency Local Appliance Model</small>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>

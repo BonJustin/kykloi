@@ -40,6 +40,10 @@ FILES_TO_INCLUDE = [
     # Representative Input Content (Schemas, Frontmatter, Encryption targets)
     "content/pandoc_markdown.md",
     "content/secure/20261031165927-nested-directory-test.md",
+    "admin/admin.html",
+    "admin/app.js",
+    "admin/app.css",
+    "launch.py",
 ]
 
 OUTPUT_FILE = "codebase_bundle.md"

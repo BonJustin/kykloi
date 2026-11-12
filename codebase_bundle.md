@@ -3297,10 +3297,439 @@ Inline mixed text, accents, and symbols:
 Let $\hat{a}^\dagger$ and $\hat{a}$ be creation and annihilation operators such that $[\hat{a}, \hat{a}^\dagger] = 1$, with expectation value $\langle \psi | \hat{H} | \psi \rangle \ge E_0$.
 ```
 
+## admin/admin.html
+
+```html
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <title>Kykloi Control Hub</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <!-- Self-Contained Local Assets -->
+  <link rel="stylesheet" href="pico.css">
+  <link rel="stylesheet" href="app.css">
+</head>
+<body class="container">
+  <header class="hub-header">
+    <div class="hub-header-brand">
+      <h1>Kykloi Control Hub</h1>
+      <span class="hub-brand-badge">JmB² Appliance</span>
+    </div>
+    <p class="hub-subtitle">Deterministic Archival SSG Maintenance Plane</p>
+    <hr />
+  </header>
+
+  <main>
+    <article>
+      <header><strong>Site Compiler Orchestration</strong></header>
+
+      <form id="build-form" onsubmit="return false;">
+        <div class="control-grid">
+          <input
+            type="password"
+            id="build-passphrase"
+            placeholder="Passphrase for /secure/ notes..."
+            autocomplete="off"
+          />
+          <label class="clean-toggle">
+            <input type="checkbox" id="clean-build" />
+            <span>Purge Dist</span>
+          </label>
+          <button type="button" id="btn-run-build">Compile Site</button>
+        </div>
+      </form>
+
+      <div class="status-bar">
+        <div class="status-indicator-group">
+          <span id="app-status-badge" class="status-badge"></span>
+          <span id="app-status-text">Appliance Ready</span>
+        </div>
+        <button id="btn-clear-console" class="secondary outline btn-sm">Clear Terminal</button>
+      </div>
+
+      <div id="console-output">Awaiting command...</div>
+    </article>
+  </main>
+
+  <footer class="hub-footer">
+    <hr />
+    <small>Zero-Dependency Local Appliance Model</small>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
+```
+
+## admin/app.js
+
+```javascript
+/* admin/app.js - Dashboard Client Logic & Streaming IPC */
+"use strict";
+
+document.addEventListener("DOMContentLoaded", () => {
+  const statusBadge = document.getElementById("app-status-badge");
+  const statusText = document.getElementById("app-status-text");
+  const consoleEl = document.getElementById("console-output");
+  const runBuildBtn = document.getElementById("btn-run-build");
+  const clearConsoleBtn = document.getElementById("btn-clear-console");
+  const cleanCheckbox = document.getElementById("clean-build");
+  const passwordInput = document.getElementById("build-passphrase");
+
+  function setStatus(state, message) {
+    statusBadge.className = "status-badge";
+    if (state === "busy") statusBadge.classList.add("busy");
+    if (state === "error") statusBadge.classList.add("error");
+    statusText.textContent = message;
+  }
+
+  function appendConsole(text) {
+    consoleEl.textContent += text;
+    consoleEl.scrollTop = consoleEl.scrollHeight;
+  }
+
+  clearConsoleBtn.addEventListener("click", () => {
+    consoleEl.textContent = "";
+  });
+
+  runBuildBtn.addEventListener("click", async () => {
+    runBuildBtn.disabled = true;
+    setStatus("busy", "Compiling Site...");
+    appendConsole(`\n>>> [${new Date().toLocaleTimeString()}] Build job started...\n`);
+
+    const payload = {
+      clean: cleanCheckbox.checked,
+      password: passwordInput.value.trim() || undefined,
+      verbose: false,
+    };
+
+    try {
+      const response = await fetch("/api/build", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status} from control daemon`);
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder("utf-8");
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        const textChunk = decoder.decode(value, { stream: true });
+        appendConsole(textChunk);
+      }
+
+      setStatus("idle", "Build Complete");
+    } catch (err) {
+      appendConsole(`\n[FATAL IPC ERROR] ${err.message}\n`);
+      setStatus("error", "Execution Failed");
+    } finally {
+      runBuildBtn.disabled = false;
+    }
+  });
+});
+```
+
+## admin/app.css
+
+```css
+/* admin/app.css - Kykloi Control Hub Operational Styling */
+
+body {
+  padding-top: 1.5rem;
+  max-width: 85ch;
+  margin-inline: auto;
+}
+
+.hub-header {
+  margin-bottom: 1.5rem;
+}
+
+.hub-header-brand {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.hub-header-brand h1 {
+  margin-bottom: 0;
+  font-size: 1.75rem;
+}
+
+.hub-brand-badge {
+  font-size: 1.1rem;
+  font-weight: bold;
+  color: var(--pico-primary);
+}
+
+.hub-subtitle {
+  color: var(--pico-muted-color);
+  margin-bottom: 0.5rem;
+}
+
+.control-grid {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 1rem;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.clean-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.status-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.status-indicator-group {
+  display: flex;
+  align-items: center;
+  font-size: 0.85rem;
+  font-weight: bold;
+}
+
+.status-badge {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background-color: var(--pico-color-green-500, #2ecc71);
+  margin-right: 0.5rem;
+}
+
+.status-badge.busy {
+  background-color: var(--pico-color-amber-500, #f39c12);
+}
+
+.status-badge.error {
+  background-color: var(--pico-color-red-500, #e74c3c);
+}
+
+.btn-sm {
+  padding: 0.2rem 0.6rem;
+  font-size: 0.75rem;
+}
+
+#console-output {
+  background: #0f141c;
+  color: #39ff14;
+  font-family: ui-monospace, SFMono-Regular, "Cascadia Code", Consolas, monospace;
+  font-size: 0.85rem;
+  line-height: 1.45;
+  padding: 1rem;
+  border-radius: var(--pico-border-radius);
+  min-height: 260px;
+  max-height: 480px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.hub-footer {
+  text-align: center;
+  color: var(--pico-muted-color);
+}
+```
+
+## launch.py
+
+```python
+#!/usr/bin/env python3
+"""
+launch.py - Autonomous Control Hub Daemon for Project Kykloi.
+Serves exclusively from admin/ and provides streaming IPC for build tasks.
+"""
+
+import http.server
+import json
+import socketserver
+import subprocess
+import sys
+import threading
+import time
+import webbrowser
+from pathlib import Path
+
+HOST = "127.0.0.1"
+START_PORT = 8000
+MAX_PORT_ATTEMPTS = 15
+
+ROOT_DIR = Path(__file__).resolve().parent
+ADMIN_DIR = ROOT_DIR / "admin"
+BUILD_SCRIPT = ROOT_DIR / "build" / "build_site.py"
+
+
+class ControlHubHandler(http.server.SimpleHTTPRequestHandler):
+    """
+    Standard static server rooted in admin/ with dynamic IPC hooks.
+    All GET/HEAD requests are natively handled by SimpleHTTPRequestHandler.
+    """
+
+    protocol_version = "HTTP/1.1"
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, directory=str(ADMIN_DIR), **kwargs)
+
+    def translate_path(self, path: str) -> str:
+        """Route root requests to admin.html if index.html does not exist."""
+        clean_path = path.split("?", 1)[0].split("#", 1)[0]
+        if clean_path in ("/", "/index.html"):
+            admin_target = ADMIN_DIR / "admin.html"
+            if admin_target.is_file():
+                return str(admin_target)
+        return super().translate_path(path)
+
+    def do_POST(self):
+        if self.path == "/api/build":
+            self._handle_build_ipc()
+            return
+        self.send_error(404, "Unknown API Endpoint")
+
+    def _send_chunk(self, data: bytes):
+        """Transmits a standard HTTP/1.1 chunk."""
+        if not data:
+            return
+        chunk = f"{len(data):X}\r\n".encode("ascii") + data + b"\r\n"
+        self.wfile.write(chunk)
+        self.wfile.flush()
+
+    def _handle_build_ipc(self):
+        """Executes build_site.py and streams stdout/stderr back in real time."""
+        content_length = int(self.headers.get("Content-Length", 0))
+        body = (
+            self.rfile.read(content_length).decode("utf-8")
+            if content_length > 0
+            else "{}"
+        )
+
+        try:
+            params = json.loads(body)
+        except json.JSONDecodeError:
+            params = {}
+
+        flags = []
+        if params.get("clean"):
+            flags.append("--clean")
+        if params.get("verbose"):
+            flags.append("--verbose")
+        if params.get("password"):
+            flags.extend(["--password", str(params["password"])])
+
+        cmd = [sys.executable, str(BUILD_SCRIPT)] + flags
+
+        # Initialize chunked response
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header("Transfer-Encoding", "chunked")
+        self.send_header("Cache-Control", "no-cache")
+        self.end_headers()
+
+        self._send_chunk(f"[Kykloi IPC] Running: {' '.join(cmd)}\n\n".encode("utf-8"))
+
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            cwd=str(ROOT_DIR),
+            text=True,
+            bufsize=1,
+        )
+
+        try:
+            for line in iter(proc.stdout.readline, ""):
+                self._send_chunk(line.encode("utf-8"))
+            proc.stdout.close()
+            exit_code = proc.wait()
+            self._send_chunk(
+                f"\n[Kykloi IPC] Completed with exit code {exit_code}.\n".encode(
+                    "utf-8"
+                )
+            )
+        except (BrokenPipeError, ConnectionResetError):
+            proc.kill()
+        finally:
+            # Terminate HTTP chunk stream
+            self.wfile.write(b"0\r\n\r\n")
+            self.wfile.flush()
+
+
+class ThreadedServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
+    allow_reuse_address = True
+    daemon_threads = True
+
+
+def main():
+    if not ADMIN_DIR.exists():
+        sys.stderr.write(f"[FATAL] Admin directory not found: {ADMIN_DIR}\n")
+        sys.exit(1)
+
+    server = None
+    port = START_PORT
+
+    for offset in range(MAX_PORT_ATTEMPTS):
+        candidate_port = START_PORT + offset
+        try:
+            server = ThreadedServer((HOST, candidate_port), ControlHubHandler)
+            port = candidate_port
+            break
+        except OSError as e:
+            if e.errno in (98, 48, 10048):
+                continue
+            raise
+
+    if server is None:
+        sys.stderr.write("[FATAL] Could not bind to an open port.\n")
+        sys.exit(1)
+
+    url = f"http://{HOST}:{port}/"
+    print("=" * 60)
+    print("  Project Kykloi — Control Hub (Model 1 Architecture)")
+    print(f"  Root:  {ADMIN_DIR}")
+    print(f"  URL:   {url}")
+    print("=" * 60)
+
+    threading.Thread(
+        target=lambda: (time.sleep(0.3), webbrowser.open(url)), daemon=True
+    ).start()
+
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("\n[Kykloi] Shutting down Control Hub...")
+    finally:
+        server.server_close()
+
+
+if __name__ == "__main__":
+    main()
+```
+
 ## Filtered Project Directory Tree
 
 ```text
 .
+├── admin
+│   ├── admin.html
+│   ├── app.css
+│   ├── app.js
+│   └── pico.css
 ├── build
 │   ├── assets
 │   │   ├── css
@@ -3341,6 +3770,7 @@ Let $\hat{a}^\dagger$ and $\hat{a}$ be creation and annihilation operators such 
 │   └── pandoc_markdown.md
 ├── assemble_code_to_md.py
 ├── codebase_bundle.md
+├── launch.py
 ├── pyproject.toml
 ├── README.md
 ├── run_linux_mac.sh
@@ -3348,7 +3778,7 @@ Let $\hat{a}^\dagger$ and $\hat{a}$ be creation and annihilation operators such 
 ├── serve.py
 └── uv.lock
 
-12 directories, 35 files
+13 directories, 40 files
 ```
 
 ## Evaluation Context & Exclusion Manifest
