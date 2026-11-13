@@ -3,10 +3,10 @@
 ```toml
 [project]
 name = "kykloi"
-version = "0.4.0"
+version = "0.5.0"
 description = "Deterministic Archival Markdown SSG with WebCrypto Encryption"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.10"
 dependencies = []
 ```
 
@@ -3950,7 +3950,6 @@ if __name__ == "__main__":
 │   ├── app.css
 │   ├── app.js
 │   └── pico.css
-├── bin
 ├── build
 │   ├── assets
 │   │   ├── css
@@ -3975,7 +3974,6 @@ if __name__ == "__main__":
 │   ├── templates
 │   │   ├── md_to_static_html.html
 │   │   └── metadata.json
-│   ├── build_site copy.py
 │   ├── build_site.py
 │   ├── pandoc_md_to_static_html.yaml
 │   └── translate_links.lua
@@ -4000,7 +3998,7 @@ if __name__ == "__main__":
 ├── serve.py
 └── uv.lock
 
-14 directories, 41 files
+13 directories, 40 files
 ```
 
 ## Evaluation Context & Exclusion Manifest
