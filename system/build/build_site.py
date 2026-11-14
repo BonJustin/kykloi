@@ -1,3 +1,9 @@
+#!/usr/bin/env python3
+"""
+system/build/build_site.py - Zero-Dependency Deterministic SSG Compiler.
+Part of Project Kykloi (v0.5.0).
+"""
+
 import argparse
 import base64
 import concurrent.futures
@@ -493,17 +499,23 @@ JUNK_DIR_NAMES = {
 JUNK_FILE_EXTENSIONS = {".ztr-directory", ".ds_store", "thumbs.db", "desktop.ini"}
 
 
-def is_junk_path(path: Path) -> bool:
-    for part in path.parts:
+def is_junk_path(path: Path, root: Optional[Path] = None) -> bool:
+    base = root if root is not None else PROJECT_ROOT
+    try:
+        rel_parts = path.relative_to(base).parts
+    except ValueError:
+        rel_parts = path.parts
+    for part in rel_parts:
         if part.lower() in JUNK_DIR_NAMES or part.startswith("."):
             return True
     return path.name.lower() in JUNK_FILE_EXTENSIONS
 
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+APP_DIR = Path(__file__).resolve().parent
+SYSTEM_DIR = APP_DIR.parent
+PROJECT_ROOT = SYSTEM_DIR.parent
 SRC = PROJECT_ROOT / "content"
 DST = PROJECT_ROOT / "dist"
-APP_DIR = PROJECT_ROOT / "build"
 
 DEFAULTS_YAML = APP_DIR / "pandoc_md_to_static_html.yaml"
 DEFAULT_TEMPLATE = APP_DIR / "templates" / "md_to_static_html.html"
@@ -573,7 +585,7 @@ def parse_args():
 
 def resolve_pandoc_binary(root_dir: Path) -> str:
     """Resolves the Pandoc executable.
-    Prioritizes local bundled binaries in bin/ over host system PATH.
+    Prioritizes local bundled binaries in system/tools/pandoc/ over host system PATH.
     Includes defensive fallback for Linux systems mounting exFAT with noexec.
     """
     system = platform.system().lower()
@@ -586,7 +598,7 @@ def resolve_pandoc_binary(root_dir: Path) -> str:
     else:
         arch = machine
 
-    base_bin = root_dir / "bin"
+    base_bin = root_dir / "system" / "tools" / "pandoc"
     candidate = None
 
     if system == "linux" and arch == "x86_64":

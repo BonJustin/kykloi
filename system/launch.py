@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-launch.py - Autonomous Control Hub Daemon for Project Kykloi.
+system/launch.py - Autonomous Control Hub Daemon for Project Kykloi.
 Features CLI argument parsing, defensive MIME registration, and IPC vault orchestration.
 """
 
@@ -8,7 +8,6 @@ import argparse
 import http.server
 import json
 import mimetypes
-import socket
 import socketserver
 import subprocess
 import sys
@@ -21,10 +20,11 @@ from pathlib import Path
 # 1. PATH RESOLUTION & DEFENSIVE MIME REGISTRATION
 # ===========================================================================
 
-ROOT_DIR = Path(__file__).resolve().parent
-ADMIN_DIR = ROOT_DIR / "admin"
-BUILD_SCRIPT = ROOT_DIR / "build" / "build_site.py"
-SERVE_SCRIPT = ROOT_DIR / "serve.py"
+SYSTEM_DIR = Path(__file__).resolve().parent
+ROOT_DIR = SYSTEM_DIR.parent
+ADMIN_DIR = SYSTEM_DIR / "admin"
+BUILD_SCRIPT = SYSTEM_DIR / "build" / "build_site.py"
+SERVE_SCRIPT = SYSTEM_DIR / "serve.py"
 
 mimetypes.init()
 mimetypes.add_type("text/css", ".css")
@@ -144,35 +144,58 @@ class ControlHubHandler(http.server.SimpleHTTPRequestHandler):
         finally:
             BUILD_LOCK.release()
 
-    def _handle_view_ipc(self):
-        """Spawns serve.py if inactive and signals browser launch."""
-        global SERVE_PROC
-        reader_port = 8000
 
-        # Test if serve.py is already active on port 8000
-        is_running = False
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.settimeout(0.2)
-            if s.connect_ex(("127.0.0.1", reader_port)) == 0:
-                is_running = True
+def _handle_view_ipc(self):
+    """Spawns serve.py if inactive and signals browser launch."""
+    global SERVE_PROC
+    reader_host = "127.0.0.1"
+    reader_port = 8000
 
-        if not is_running:
-            SERVE_PROC = subprocess.Popen(
-                [sys.executable, str(SERVE_SCRIPT)],
-                cwd=str(ROOT_DIR),
-                stdin=subprocess.DEVNULL,
-            )
-            time.sleep(0.4)
+    def check_is_kykloi_daemon(port: int) -> bool:
+        try:
+            import http.client
 
-        vault_url = f"http://127.0.0.1:{reader_port}/"
-        threading.Thread(target=lambda: webbrowser.open(vault_url), daemon=True).start()
+            conn = http.client.HTTPConnection(reader_host, port, timeout=0.3)
+            conn.request("HEAD", "/")
+            res = conn.getresponse()
+            server_hdr = res.getheader("Server", "")
+            conn.close()
+            return "KykloiDaemon" in server_hdr
+        except Exception:
+            return False
 
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json")
-        self.end_headers()
-        self.wfile.write(
-            json.dumps({"status": "launched", "url": vault_url}).encode("utf-8")
+    # Verify whether an active process is specifically the Kykloi daemon
+    active_port = None
+    for candidate in range(8000, 8016):
+        if check_is_kykloi_daemon(candidate):
+            active_port = candidate
+            break
+
+    if active_port is None:
+        # Spawn fresh instance if no verified daemon found
+        SERVE_PROC = subprocess.Popen(
+            [sys.executable, str(SERVE_SCRIPT)],
+            cwd=str(ROOT_DIR),
+            stdin=subprocess.DEVNULL,
         )
+        for _ in range(20):
+            time.sleep(0.1)
+            for candidate in range(8000, 8016):
+                if check_is_kykloi_daemon(candidate):
+                    active_port = candidate
+                    break
+            if active_port is not None:
+                break
+
+    resolved_port = active_port or reader_port
+    vault_url = f"http://{reader_host}:{resolved_port}/"
+    threading.Thread(target=lambda: webbrowser.open(vault_url), daemon=True).start()
+    self.send_response(200)
+    self.send_header("Content-Type", "application/json")
+    self.end_headers()
+    self.wfile.write(
+        json.dumps({"status": "launched", "url": vault_url}).encode("utf-8")
+    )
 
 
 # ===========================================================================

@@ -1,6 +1,6 @@
 # Kykloi
 
-*This is yet to be developed but in the meantime will contain bits of context as reminders and key points for inclusion later.*
+*This README is yet to be developed but in the meantime will contain bits of context as reminders and key points for inclusion in documentation later.*
 
 ## Contextual Tidbits
 

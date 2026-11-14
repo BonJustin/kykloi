@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-serve.py - Zero-Dependency Archival HTTP Daemon with RFC 7233 Range Support.
+system/serve.py - Zero-Dependency Archival HTTP Daemon with RFC 7233 Range Support.
 Part of Project Kykloi (v0.5.0).
 """
 
@@ -21,7 +21,8 @@ from pathlib import Path
 # 1. PATH RESOLUTION & DEFENSIVE MIME REGISTRATION
 # ===========================================================================
 
-ROOT_DIR = Path(__file__).resolve().parent
+SYSTEM_DIR = Path(__file__).resolve().parent
+ROOT_DIR = SYSTEM_DIR.parent
 DIST_DIR = ROOT_DIR / "dist"
 
 # Hardcode MIME overrides to protect against stripped/minimal host OS registries
@@ -229,7 +230,7 @@ def main():
         print("\n[ERROR] Compiled artifacts directory not found or empty:")
         print(f"        {DIST_DIR}")
         print("\nPlease build the static site first using:")
-        print("  python3 build/build_site.py\n")
+        print("  python3 system/build/build_site.py\n")
         sys.exit(1)
 
     port = args.port

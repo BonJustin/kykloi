@@ -1,238 +1,156 @@
 #!/usr/bin/env python3
-"""assemble_code_to_md.py
+"""
+assemble_code_to_md.py - Simplified Codebase Context Aggregator.
 
-Assembles specified codebase files into a single CommonMark-compliant Markdown file.
-Prioritizes explicit paths, prunes vendor bloat from directory listings, and appends
-a categorized context block with justifications for all excluded components.
+Recursively generates an ASCII tree of the project and bundles the contents
+of files specified in an inclusion whitelist into a single markdown file.
 """
 
-from __future__ import annotations
-
 import re
-import subprocess
-import sys
 from pathlib import Path
 
-# ----------------------------------------------------------------------
-# 1. TARGET FILE SPECIFICATION
-# Explicit relative paths eliminate path resolution ambiguity.
-# ----------------------------------------------------------------------
-FILES_TO_INCLUDE = [
-    # Project Configuration & Architectural Intent
-    "pyproject.toml",
-    "README.md",
-    "run_linux_mac.sh",
-    "run_windows.bat",
-    # Core Pipeline & Backend
-    "serve.py",
-    "build/build_site.py",
-    "build/pandoc_md_to_static_html.yaml",
-    "build/translate_links.lua",
-    # Templates & Source HTML
-    "build/root/index.html",
-    "build/templates/md_to_static_html.html",
-    "build/templates/metadata.json",
-    # Client-Side Logic & Layout
-    "build/assets/css/style.css",
-    "build/assets/js/decrypt.js",
-    "build/assets/js/pico_search.js",
-    "build/assets/js/search_worker.js",
-    # Representative Input Content (Schemas, Frontmatter, Encryption targets)
-    "content/pandoc_markdown.md",
-    "content/secure/20261031165927-nested-directory-test.md",
-    "admin/admin.html",
-    "admin/app.js",
-    "admin/app.css",
-    "launch.py",
-]
+# ===========================================================================
+# CONFIGURATION
+# ===========================================================================
 
-OUTPUT_FILE = "codebase_bundle.md"
+ROOT_DIR = Path(__file__).resolve().parent
+OUTPUT_FILE = ROOT_DIR / "codebase_bundle.md"
 
-# ----------------------------------------------------------------------
-# 2. EXCLUSION RULES & EVALUATION CONTEXT
-# ----------------------------------------------------------------------
-EXCLUSIONS_WITH_RATIONALE = [
-    (
-        "dist/",
-        "Derived Build Artifacts",
-        "Contains ephemeral, auto-generated HTML, media blobs (.enc), and SQLite indices. "
-        "Source files under build/ and content/ represent the ground truth.",
-    ),
-    (
-        "build/assets/katex/ & build/assets/fonts/",
-        "Third-Party Vendor Binaries/Assets",
-        "Contains pre-compiled upstream KaTeX assets (WASM/JS/CSS) and TTF/WOFF2 font binaries. "
-        "Excluded to conserve LLM context window tokens without loss of architectural semantic meaning.",
-    ),
-    (
-        "build/assets/js/sqlite3*.js & sqlite3.wasm",
-        "Upstream SQLite3 WASM Runtime",
-        "Pre-compiled official SQLite WASM engine. The proprietary integration surface "
-        "resides entirely within build/assets/js/search_worker.js.",
-    ),
-    (
-        ".git/, .github/, .venv/, __pycache__/",
-        "Version Control & Environment Metadata",
-        "Platform-specific cache directories, local virtual environments, and VCS internal records.",
-    ),
-]
-
-TREE_IGNORE_PATTERNS = {
+# Folders to display in the tree without traversing or bundling their contents
+EXCLUDED_DIRS = {
     ".git",
     ".github",
     ".venv",
     "venv",
     "__pycache__",
+    "node_modules",
     "dist",
     "katex",
     "fonts",
-    "node_modules",
 }
 
-LANGUAGE_MAP = {
+# Whitelist of files to bundle (match by filename or relative POSIX path)
+INCLUDED_FILES = {
+    "pyproject.toml",
+    "README.md",
+    "admin.html",
+    "app.css",
+    "app.js",
+    "style.css",
+    "decrypt.js",
+    "pico_search.js",
+    "search_worker.js",
+    "index.html",
+    "md_to_static_html.html",
+    "build_site.py",
+    "pandoc_md_to_static_html.yaml",
+    "translate_links.lua",
+    "launch.py",
+    "serve.py",
+}
+
+# Optional overrides for markdown syntax highlighting; unlisted extensions
+# default to the extension name itself (e.g., .css -> css, .html -> html)
+LANG_MAP = {
     ".py": "python",
     ".js": "javascript",
-    ".ts": "typescript",
-    ".json": "json",
-    ".toml": "toml",
-    ".yaml": "yaml",
-    ".yml": "yaml",
-    ".md": "markdown",
     ".sh": "bash",
-    ".bat": "bat",
-    ".html": "html",
-    ".css": "css",
-    ".sql": "sql",
-    ".lua": "lua",
+    ".yml": "yaml",
 }
 
 
-def get_fence(content: str) -> str:
-    """Returns a backtick fence strictly longer than any internal backtick sequence."""
-    matches = re.findall(r"`+", content)
-    longest = max((len(m) for m in matches), default=0)
-    return "`" * max(3, longest + 1)
+# ===========================================================================
+# TRAVERSAL & BUNDLE GENERATION
+# ===========================================================================
 
 
-def generate_python_tree(root_dir: Path, max_depth: int = 4) -> str:
-    """Pure-Python fallback for filtered directory tree generation."""
-    lines: list[str] = [root_dir.name + "/"]
-
-    def _walk(directory: Path, prefix: str = "", depth: int = 0):
-        if depth >= max_depth:
-            return
-        entries = sorted(
-            [e for e in directory.iterdir() if e.name not in TREE_IGNORE_PATTERNS],
-            key=lambda e: (e.is_file(), e.name.lower()),
-        )
-        count = len(entries)
-        for i, entry in enumerate(entries):
-            is_last = i == count - 1
-            connector = "└── " if is_last else "├── "
-            lines.append(
-                f"{prefix}{connector}{entry.name}{'/' if entry.is_dir() else ''}"
-            )
-            if entry.is_dir():
-                sub_prefix = prefix + ("    " if is_last else "│   ")
-                _walk(entry, sub_prefix, depth + 1)
-
-    _walk(root_dir)
-    return "\n".join(lines)
+def get_safe_fence(content: str) -> str:
+    """Returns a markdown code fence backtick string long enough not to collide."""
+    ticks = re.findall(r"`+", content)
+    max_ticks = max((len(t) for t in ticks), default=0)
+    return "`" * max(3, max_ticks + 1)
 
 
-def get_tree_output(root_dir: Path) -> str:
-    """Runs `tree` with ignore flags, falling back to pure-Python generator if unavailable."""
-    ignore_pattern = "|".join(TREE_IGNORE_PATTERNS)
+def traverse(directory: Path, prefix: str = "") -> tuple[list[str], list[Path]]:
+    """Recursively constructs tree lines and collects whitelisted files in one pass."""
+    tree_lines: list[str] = []
+    bundle_files: list[Path] = []
+
     try:
-        cmd = ["tree", ".", "-I", ignore_pattern, "--dirsfirst"]
-        result = subprocess.run(
-            cmd,
-            cwd=root_dir,
-            capture_output=True,
-            text=True,
-            check=True,
+        entries = sorted(
+            directory.iterdir(), key=lambda e: (not e.is_dir(), e.name.lower())
         )
-        return result.stdout.strip()
-    except (FileNotFoundError, subprocess.CalledProcessError):
-        return generate_python_tree(root_dir)
+    except PermissionError:
+        return tree_lines, bundle_files
+
+    # Ignore system metadata and the generated bundle itself
+    entries = [
+        e for e in entries if e.name not in {OUTPUT_FILE.name, ".DS_Store", "Thumbs.db"}
+    ]
+
+    total = len(entries)
+    for idx, entry in enumerate(entries):
+        is_last = idx == total - 1
+        connector = "└── " if is_last else "├── "
+        child_prefix = prefix + ("    " if is_last else "│   ")
+        rel_path = entry.relative_to(ROOT_DIR).as_posix()
+
+        if entry.is_dir():
+            if entry.name in EXCLUDED_DIRS or rel_path in EXCLUDED_DIRS:
+                tree_lines.append(
+                    f"{prefix}{connector}{entry.name}/ (contents excluded)"
+                )
+            else:
+                tree_lines.append(f"{prefix}{connector}{entry.name}/")
+                sub_lines, sub_files = traverse(entry, child_prefix)
+                tree_lines.extend(sub_lines)
+                bundle_files.extend(sub_files)
+        else:
+            tree_lines.append(f"{prefix}{connector}{entry.name}")
+            if entry.name in INCLUDED_FILES or rel_path in INCLUDED_FILES:
+                bundle_files.append(entry)
+
+    return tree_lines, bundle_files
 
 
-def assemble_markdown(
-    files: list[str],
-    root_dir: Path,
-    output_file: str,
-) -> None:
-    lines: list[str] = []
-    assembled_count = 0
+def assemble_bundle() -> None:
+    """Traverses the project and writes the directory tree and file bundle."""
+    tree_lines, bundle_files = traverse(ROOT_DIR)
 
-    for file_str in files:
-        file_path = (root_dir / file_str).resolve()
+    output = [
+        "# Project Directory Tree",
+        "",
+        "```text",
+        f"{ROOT_DIR.name}/",
+        *tree_lines,
+        "```",
+        "",
+        "# Source Files",
+        "",
+    ]
 
-        if not file_path.is_file():
-            print(
-                f"Warning: Specified file '{file_str}' not found. Skipping.",
-                file=sys.stderr,
-            )
-            continue
-
+    for file_path in bundle_files:
+        rel_path = file_path.relative_to(ROOT_DIR).as_posix()
         try:
             content = file_path.read_text(encoding="utf-8")
-        except UnicodeDecodeError:
-            print(
-                f"Warning: '{file_str}' is binary or unreadable. Skipping.",
-                file=sys.stderr,
-            )
+        except (UnicodeDecodeError, PermissionError):
             continue
 
-        rel_display_path = file_path.relative_to(root_dir).as_posix()
-        ext = file_path.suffix.lower()
-        lang = LANGUAGE_MAP.get(ext, "")
-        fence = get_fence(content)
+        fence = get_safe_fence(content)
+        lang = LANG_MAP.get(
+            file_path.suffix.lower(), file_path.suffix.lstrip(".").lower()
+        )
 
-        lines.append(f"## {rel_display_path}")
-        lines.append("")
-        lines.append(f"{fence}{lang}")
-        lines.append(content.rstrip("\r\n"))
-        lines.append(fence)
-        lines.append("")
-        assembled_count += 1
+        output.append(f"## {rel_path}\n")
+        output.append(f"{fence}{lang}")
+        output.append(content.rstrip())
+        output.append(fence)
+        output.append("")
 
-    # Filtered Structural Tree
-    tree_text = get_tree_output(root_dir)
-    tree_fence = get_fence(tree_text)
-
-    lines.append("## Filtered Project Directory Tree")
-    lines.append("")
-    lines.append(f"{tree_fence}text")
-    lines.append(tree_text)
-    lines.append(tree_fence)
-    lines.append("")
-
-    # Explicit Context and Exclusions Block
-    lines.append("## Evaluation Context & Exclusion Manifest")
-    lines.append("")
-    lines.append(
-        "The following targets are deliberately omitted from this evaluation bundle. "
-        "Reviewing models must evaluate the system according to the rationales below:"
-    )
-    lines.append("")
-
-    for target, category, rationale in EXCLUSIONS_WITH_RATIONALE:
-        lines.append(f"### `{target}` ({category})")
-        lines.append(f"{rationale}")
-        lines.append("")
-
-    output_path = root_dir / output_file
-    output_path.write_text("\n".join(lines), encoding="utf-8")
-    print(
-        f"Assembly complete: {assembled_count} file(s) bundled into '{output_path.relative_to(root_dir)}'."
-    )
-
-
-def main() -> None:
-    root_dir = Path.cwd()
-    assemble_markdown(FILES_TO_INCLUDE, root_dir, OUTPUT_FILE)
+    OUTPUT_FILE.write_text("\n".join(output), encoding="utf-8")
+    print(f"Bundle successfully created at: {OUTPUT_FILE}")
+    print(f"Total source files included: {len(bundle_files)}")
 
 
 if __name__ == "__main__":
-    main()
+    assemble_bundle()
