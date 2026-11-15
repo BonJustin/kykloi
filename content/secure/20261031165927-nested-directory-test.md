@@ -8,6 +8,10 @@ keywords: ["delete"]
 
 This is a test of markdown, media, and math encryption compatibility.
 
+## Update 061746
+
+This should show up if the site is building correctly this morning...
+
 ## Media Encryption
 
 ![Test - Artemis II](media/test_artemis_2.jpg)

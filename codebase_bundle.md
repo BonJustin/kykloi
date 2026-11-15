@@ -47,8 +47,7 @@ kykloi/
 │   │   │   ├── web-app-manifest-192x192.png
 │   │   │   └── web-app-manifest-512x512.png
 │   │   ├── templates/
-│   │   │   ├── md_to_static_html.html
-│   │   │   └── metadata.json
+│   │   │   └── md_to_static_html.html
 │   │   ├── .build_manifest.json
 │   │   ├── build_site.py
 │   │   ├── pandoc_md_to_static_html.yaml
@@ -60,7 +59,6 @@ kykloi/
 │   └── serve.py
 ├── .gitignore
 ├── .python-version
-├── assemble_code_to_md copy.py
 ├── assemble_code_to_md.py
 ├── pyproject.toml
 ├── README.md
@@ -87,11 +85,12 @@ kykloi/
 <body class="container">
   <header class="hub-header">
     <div class="hub-header-brand">
-      <h1>Kykloi Control Hub</h1>
-      <div>
-        <button id="btn-open-vault" class="secondary outline btn-sm">Open Vault (Port 8000)</button>
-        <span class="hub-brand-badge" style="margin-left: 0.5rem;">JmB² Appliance</span>
-      </div>
+        <h1>Kykloi Control Hub</h1>
+        <div>
+            <a id="btn-open-vault" href="/" target="_blank" role="button" class="secondary outline btn-sm">Open Vault</a>
+            <button id="btn-shutdown-server" class="secondary outline btn-sm" style="color: var(--pico-color-red-500); margin-left: 0.35rem;">Stop Appliance</button>
+            <span class="hub-brand-badge" style="margin-left: 0.5rem;">JmB² Appliance</span>
+        </div>
     </div>
     <p class="hub-subtitle">Deterministic Archival SSG Maintenance Plane</p>
     <hr />
@@ -351,21 +350,51 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // =========================================================================
-  // 5. VAULT VIEWER ORCHESTRATION (POST /api/view)
+  // 5. VAULT VIEWER ORCHESTRATION
   // =========================================================================
   if (openVaultBtn) {
-    openVaultBtn.addEventListener("click", async () => {
-      openVaultBtn.disabled = true;
+    openVaultBtn.addEventListener("click", () => {
+      appendConsole(`\n[Kykloi] Opening vault reader in new tab...\n`);
+    });
+  }
+
+  // =========================================================================
+  // 6. HEARTBEAT & APPLIANCE LIFECYCLE
+  // =========================================================================
+  const shutdownBtn = document.getElementById("btn-shutdown-server");
+  const HEARTBEAT_INTERVAL_MS = 3000;
+
+  async function sendHeartbeat() {
+    try {
+      await fetch("/api/heartbeat", { method: "POST" });
+    } catch (_) {
+      // Daemon may be in shutdown phase
+    }
+  }
+
+  sendHeartbeat();
+  setInterval(sendHeartbeat, HEARTBEAT_INTERVAL_MS);
+
+  if (shutdownBtn) {
+    shutdownBtn.addEventListener("click", async () => {
+      if (!confirm("Shut down the Kykloi appliance server?")) return;
+
+      shutdownBtn.disabled = true;
+      setStatus("error", "Appliance Stopped");
+      appendConsole("\n[Kykloi] Shutdown signal dispatched. Daemon terminating...\n");
+
       try {
-        const res = await fetch("/api/view", { method: "POST" });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json();
-        appendConsole(`\n[Kykloi IPC] Static reader daemon confirmed active at ${data.url}\n`);
-      } catch (err) {
-        appendConsole(`\n[Kykloi IPC Error] Failed to launch vault viewer: ${err.message}\n`);
-      } finally {
-        openVaultBtn.disabled = false;
+        await fetch("/api/shutdown", { method: "POST" });
+      } catch (_) {
+        // Socket closure breaks connection
       }
+
+      document.body.innerHTML = `
+        <main class="container" style="text-align: center; padding-top: 5rem;">
+          <h1>Appliance Offline</h1>
+          <p style="color: var(--pico-muted-color);">The local daemon has been cleanly terminated. You may safely close this tab.</p>
+        </main>
+      `;
     });
   }
 });
@@ -2056,8 +2085,13 @@ JUNK_DIR_NAMES = {
 JUNK_FILE_EXTENSIONS = {".ztr-directory", ".ds_store", "thumbs.db", "desktop.ini"}
 
 
-def is_junk_path(path: Path) -> bool:
-    for part in path.parts:
+def is_junk_path(path: Path, root: Optional[Path] = None) -> bool:
+    base = root if root is not None else PROJECT_ROOT
+    try:
+        rel_parts = path.relative_to(base).parts
+    except ValueError:
+        rel_parts = path.parts
+    for part in rel_parts:
         if part.lower() in JUNK_DIR_NAMES or part.startswith("."):
             return True
     return path.name.lower() in JUNK_FILE_EXTENSIONS
@@ -3057,63 +3091,229 @@ import argparse
 import http.server
 import json
 import mimetypes
-import socket
+
+# ===========================================================================
+# 1. PATH RESOLUTION & DEFENSIVE MIME REGISTRATION
+# ===========================================================================
+import os
+import re
 import socketserver
 import subprocess
 import sys
 import threading
 import time
+import urllib.parse
 import webbrowser
 from pathlib import Path
-
-# ===========================================================================
-# 1. PATH RESOLUTION & DEFENSIVE MIME REGISTRATION
-# ===========================================================================
 
 SYSTEM_DIR = Path(__file__).resolve().parent
 ROOT_DIR = SYSTEM_DIR.parent
 ADMIN_DIR = SYSTEM_DIR / "admin"
+DIST_DIR = ROOT_DIR / "dist"
 BUILD_SCRIPT = SYSTEM_DIR / "build" / "build_site.py"
-SERVE_SCRIPT = SYSTEM_DIR / "serve.py"
 
 mimetypes.init()
+mimetypes.add_type("application/wasm", ".wasm")
+mimetypes.add_type("font/woff2", ".woff2")
+mimetypes.add_type("application/manifest+json", ".webmanifest")
+mimetypes.add_type("application/octet-stream", ".enc")
+mimetypes.add_type("image/svg+xml", ".svg")
 mimetypes.add_type("text/css", ".css")
 mimetypes.add_type("application/javascript", ".js")
-mimetypes.add_type("font/woff2", ".woff2")
-mimetypes.add_type("image/svg+xml", ".svg")
 
 BUILD_LOCK = threading.Lock()
-SERVE_PROC = None
-
+RANGE_REGEX = re.compile(r"^bytes=(\d*)-(\d*)$")
+LAST_HEARTBEAT = time.time()
+HEARTBEAT_LOCK = threading.Lock()
 
 # ===========================================================================
-# 2. REQUEST HANDLER & IPC ENGINE
+# 2. UNIFIED REQUEST HANDLER & IPC ENGINE
 # ===========================================================================
 
 
-class ControlHubHandler(http.server.SimpleHTTPRequestHandler):
+class KykloiApplianceHandler(http.server.BaseHTTPRequestHandler):
+    server_version = "KykloiAppliance/0.5"
     protocol_version = "HTTP/1.1"
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, directory=str(ADMIN_DIR), **kwargs)
+    def guess_mime(self, filepath: str) -> str:
+        mime, _ = mimetypes.guess_type(filepath)
+        return mime or "application/octet-stream"
 
-    def translate_path(self, path: str) -> str:
-        clean_path = path.split("?", 1)[0].split("#", 1)[0]
-        if clean_path in ("/", "/index.html"):
-            admin_target = ADMIN_DIR / "admin.html"
-            if admin_target.is_file():
-                return str(admin_target)
-        return super().translate_path(path)
+    # -----------------------------------------------------------------------
+    # ROUTING DISPATCH
+    # -----------------------------------------------------------------------
+    def do_HEAD(self):
+        self._dispatch_get(send_body=False)
+
+    def do_GET(self):
+        self._dispatch_get(send_body=True)
 
     def do_POST(self):
-        if self.path == "/api/build":
+        clean_path = urllib.parse.urlsplit(self.path).path
+        if clean_path == "/api/build":
             self._handle_build_ipc()
             return
-        if self.path == "/api/view":
+        if clean_path == "/api/view":
             self._handle_view_ipc()
+            return
+        if clean_path == "/api/heartbeat":
+            self._handle_heartbeat_ipc()
+            return
+        if clean_path == "/api/shutdown":
+            self._handle_shutdown_ipc()
             return
         self.send_error(404, "Unknown API Endpoint")
 
+    def _dispatch_get(self, send_body: bool):
+        parsed = urllib.parse.urlsplit(self.path)
+        clean_path = urllib.parse.unquote(parsed.path)
+
+        # 1. Admin UI Namespace
+        if clean_path == "/admin":
+            self.send_response(302)
+            self.send_header("Location", "/admin/")
+            self.end_headers()
+            return
+
+        if clean_path.startswith("/admin/"):
+            rel_admin = clean_path[len("/admin/") :]
+            if rel_admin in ("", "index.html"):
+                target = ADMIN_DIR / "admin.html"
+            else:
+                target = (ADMIN_DIR / rel_admin).resolve()
+
+            try:
+                target.relative_to(ADMIN_DIR.resolve())
+            except ValueError:
+                self.send_error(403, "Forbidden")
+                return
+
+            if not target.is_file():
+                self.send_error(404, "Admin Asset Not Found")
+                return
+
+            self._serve_static_file(str(target), send_body)
+            return
+
+        # 2. Vault Dist Namespace
+        if not DIST_DIR.exists() or not any(DIST_DIR.iterdir()):
+            self.send_response(302)
+            self.send_header("Location", "/admin/")
+            self.end_headers()
+            return
+
+        target_file = self._translate_dist_path(clean_path)
+        if target_file is None or not os.path.isfile(target_file):
+            self.send_error(404, "File Not Found")
+            return
+
+        self._serve_static_file(target_file, send_body)
+
+    # -----------------------------------------------------------------------
+    # DIST FILE RESOLUTION & RFC 7233 RANGE STREAMING
+    # -----------------------------------------------------------------------
+    def _translate_dist_path(self, clean_path: str) -> str | None:
+        stripped = clean_path.lstrip("/")
+        target = (DIST_DIR / stripped).resolve()
+
+        try:
+            target.relative_to(DIST_DIR.resolve())
+        except ValueError:
+            return None
+
+        if target.is_dir():
+            index_candidate = target / "index.html"
+            if index_candidate.is_file():
+                return str(index_candidate)
+
+        return str(target) if target.exists() else None
+
+    def _serve_static_file(self, filepath: str, send_body: bool):
+        try:
+            file_size = os.path.getsize(filepath)
+        except OSError:
+            self.send_error(404, "File Inaccessible")
+            return
+
+        mime_type = self.guess_mime(filepath)
+        range_header = self.headers.get("Range")
+
+        # Full Request (200 OK)
+        if not range_header:
+            self.send_response(200)
+            self.send_header("Content-Type", mime_type)
+            self.send_header("Content-Length", str(file_size))
+            self.send_header("Accept-Ranges", "bytes")
+            self.send_header("Cache-Control", "no-cache")
+            self.end_headers()
+
+            if send_body:
+                self._stream_slice(filepath, start=0, length=file_size)
+            return
+
+        # RFC 7233 Range Request (206 Partial Content)
+        match = RANGE_REGEX.match(range_header.strip())
+        if not match:
+            self._send_416(file_size)
+            return
+
+        raw_start, raw_end = match.groups()
+        if raw_start and raw_end:
+            start = int(raw_start)
+            end = int(raw_end)
+        elif raw_start:
+            start = int(raw_start)
+            end = file_size - 1
+        elif raw_end:
+            suffix_len = int(raw_end)
+            start = max(0, file_size - suffix_len)
+            end = file_size - 1
+        else:
+            self._send_416(file_size)
+            return
+
+        if start > end or start >= file_size or start < 0:
+            self._send_416(file_size)
+            return
+
+        end = min(end, file_size - 1)
+        content_length = (end - start) + 1
+
+        self.send_response(206)
+        self.send_header("Content-Type", mime_type)
+        self.send_header("Content-Range", f"bytes {start}-{end}/{file_size}")
+        self.send_header("Content-Length", str(content_length))
+        self.send_header("Accept-Ranges", "bytes")
+        self.send_header("Cache-Control", "no-cache")
+        self.end_headers()
+
+        if send_body:
+            self._stream_slice(filepath, start=start, length=content_length)
+
+    def _send_416(self, file_size: int):
+        self.send_response(416)
+        self.send_header("Content-Range", f"bytes */{file_size}")
+        self.end_headers()
+
+    def _stream_slice(self, filepath: str, start: int, length: int):
+        chunk_size = 65536
+        remaining = length
+        try:
+            with open(filepath, "rb") as f:
+                f.seek(start)
+                while remaining > 0:
+                    read_len = min(chunk_size, remaining)
+                    data = f.read(read_len)
+                    if not data:
+                        break
+                    self.wfile.write(data)
+                    remaining -= len(data)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+
+    # -----------------------------------------------------------------------
+    # COMPILATION IPC
+    # -----------------------------------------------------------------------
     def _send_chunk(self, data: bytes):
         if not data:
             return
@@ -3153,7 +3353,7 @@ class ControlHubHandler(http.server.SimpleHTTPRequestHandler):
             if params.get("password"):
                 flags.extend(["--password", str(params["password"])])
 
-            cmd = [sys.executable, str(BUILD_SCRIPT)] + flags
+            cmd = [sys.executable, "-u", str(BUILD_SCRIPT)] + flags
 
             self.send_response(200)
             self.send_header("Content-Type", "text/plain; charset=utf-8")
@@ -3195,34 +3395,33 @@ class ControlHubHandler(http.server.SimpleHTTPRequestHandler):
             BUILD_LOCK.release()
 
     def _handle_view_ipc(self):
-        """Spawns serve.py if inactive and signals browser launch."""
-        global SERVE_PROC
-        reader_port = 8000
-
-        # Test if serve.py is already active on port 8000
-        is_running = False
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.settimeout(0.2)
-            if s.connect_ex(("127.0.0.1", reader_port)) == 0:
-                is_running = True
-
-        if not is_running:
-            SERVE_PROC = subprocess.Popen(
-                [sys.executable, str(SERVE_SCRIPT)],
-                cwd=str(ROOT_DIR),
-                stdin=subprocess.DEVNULL,
-            )
-            time.sleep(0.4)
-
-        vault_url = f"http://127.0.0.1:{reader_port}/"
-        threading.Thread(target=lambda: webbrowser.open(vault_url), daemon=True).start()
-
+        vault_url = (
+            f"http://{self.server.server_address[0]}:{self.server.server_address[1]}/"
+        )
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.end_headers()
         self.wfile.write(
-            json.dumps({"status": "launched", "url": vault_url}).encode("utf-8")
+            json.dumps({"status": "ready", "url": vault_url}).encode("utf-8")
         )
+
+    def _handle_heartbeat_ipc(self):
+        global LAST_HEARTBEAT
+        with HEARTBEAT_LOCK:
+            LAST_HEARTBEAT = time.time()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Cache-Control", "no-cache")
+        self.end_headers()
+        self.wfile.write(b'{"status":"ok"}')
+
+    def _handle_shutdown_ipc(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Cache-Control", "no-cache")
+        self.end_headers()
+        self.wfile.write(b'{"status":"shutting_down"}')
+        threading.Thread(target=self.server.shutdown, daemon=True).start()
 
 
 # ===========================================================================
@@ -3236,20 +3435,54 @@ class ThreadedServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
 
 
 def parse_args():
-    p = argparse.ArgumentParser(description="Kykloi Control Hub Appliance Daemon.")
+    p = argparse.ArgumentParser(description="Kykloi Appliance Daemon.")
     p.add_argument(
         "--host",
         type=str,
         default="127.0.0.1",
         help="Bind interface (default: 127.0.0.1)",
     )
-    p.add_argument("--port", type=int, default=8040, help="Start port (default: 8040)")
+    p.add_argument("--port", type=int, default=8000, help="Start port (default: 8000)")
     p.add_argument(
         "--browser",
         action="store_true",
         help="Launch browser upon startup (defaults to headless).",
     )
+    p.add_argument(
+        "--idle-timeout",
+        type=int,
+        default=20,
+        help="Seconds without client heartbeat before auto-termination (0 to disable, default: 20).",
+    )
     return p.parse_args()
+
+
+def start_watchdog(server: ThreadedServer, timeout: int, grace_period: int = 30):
+    if timeout <= 0:
+        return
+
+    def _watch():
+        start_time = time.time()
+        while True:
+            time.sleep(2)
+            now = time.time()
+            if now - start_time < grace_period:
+                continue
+
+            if BUILD_LOCK.locked():
+                continue
+
+            with HEARTBEAT_LOCK:
+                idle = now - LAST_HEARTBEAT
+
+            if idle > timeout:
+                print(
+                    f"\n[Kykloi] Inactive control plane (no heartbeat for {int(idle)}s). Auto-terminating daemon..."
+                )
+                threading.Thread(target=server.shutdown, daemon=True).start()
+                break
+
+    threading.Thread(target=_watch, daemon=True).start()
 
 
 def main():
@@ -3266,7 +3499,7 @@ def main():
     for offset in range(max_attempts):
         candidate_port = port + offset
         try:
-            server = ThreadedServer((args.host, candidate_port), ControlHubHandler)
+            server = ThreadedServer((args.host, candidate_port), KykloiApplianceHandler)
             port = candidate_port
             break
         except OSError as e:
@@ -3278,26 +3511,28 @@ def main():
         sys.stderr.write("[FATAL] Could not bind to an open port.\n")
         sys.exit(1)
 
-    url = f"http://{args.host}:{port}/"
-    print("=" * 60)
-    print("  Project Kykloi — Control Hub Daemon")
-    print(f"  Root:   {ADMIN_DIR}")
-    print(f"  URL:    {url}")
+    admin_url = f"http://{args.host}:{port}/admin/"
+    vault_url = f"http://{args.host}:{port}/"
+
+    print("=" * 64)
+    print("  Project Kykloi — Unified Appliance Daemon")
+    print(f"  Admin:  {admin_url}")
+    print(f"  Vault:  {vault_url}")
     print(f"  Mode:   {'Browser' if args.browser else 'Headless'}")
-    print("=" * 60)
+    print("=" * 64)
 
     if args.browser:
         threading.Thread(
-            target=lambda: (time.sleep(0.3), webbrowser.open(url)), daemon=True
+            target=lambda: (time.sleep(0.3), webbrowser.open(admin_url)), daemon=True
         ).start()
+
+    start_watchdog(server, timeout=args.idle_timeout)
 
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\n[Kykloi] Shutting down Control Hub...")
+        print("\n[Kykloi] Shutting down appliance daemon...")
     finally:
-        if SERVE_PROC:
-            SERVE_PROC.terminate()
         server.server_close()
 
 

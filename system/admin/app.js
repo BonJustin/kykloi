@@ -96,21 +96,39 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // =========================================================================
-  // 5. VAULT VIEWER ORCHESTRATION (POST /api/view)
+  // 5. VAULT VIEWER ORCHESTRATION
   // =========================================================================
   if (openVaultBtn) {
-    openVaultBtn.addEventListener("click", async () => {
-      openVaultBtn.disabled = true;
+    openVaultBtn.addEventListener("click", () => {
+      appendConsole(`\n[Kykloi] Opening vault reader in new tab...\n`);
+    });
+  }
+
+  // =========================================================================
+  // 6. APPLIANCE LIFECYCLE (EXPLICIT SHUTDOWN)
+  // =========================================================================
+  const shutdownBtn = document.getElementById("btn-shutdown-server");
+
+  if (shutdownBtn) {
+    shutdownBtn.addEventListener("click", async () => {
+      if (!confirm("Shut down the Kykloi appliance server?")) return;
+
+      shutdownBtn.disabled = true;
+      setStatus("error", "Appliance Stopped");
+      appendConsole("\n[Kykloi] Shutdown signal dispatched. Daemon terminating...\n");
+
       try {
-        const res = await fetch("/api/view", { method: "POST" });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json();
-        appendConsole(`\n[Kykloi IPC] Static reader daemon confirmed active at ${data.url}\n`);
-      } catch (err) {
-        appendConsole(`\n[Kykloi IPC Error] Failed to launch vault viewer: ${err.message}\n`);
-      } finally {
-        openVaultBtn.disabled = false;
+        await fetch("/api/shutdown", { method: "POST" });
+      } catch (_) {
+        // Socket closure breaks connection
       }
+
+      document.body.innerHTML = `
+        <main class="container" style="text-align: center; padding-top: 5rem;">
+          <h1>Appliance Offline</h1>
+          <p style="color: var(--pico-muted-color);">The local daemon has been cleanly terminated. You may safely close this tab.</p>
+        </main>
+      `;
     });
   }
 });
