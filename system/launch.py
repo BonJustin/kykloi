@@ -305,9 +305,6 @@ class KykloiApplianceHandler(http.server.BaseHTTPRequestHandler):
 
     def _handle_shutdown_ipc(self):
         self.send_response(200)
-
-    def _handle_shutdown_ipc(self):
-        self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.send_header("Cache-Control", "no-cache")
         self.end_headers()
