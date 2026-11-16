@@ -585,61 +585,109 @@ def parse_args():
 
 def resolve_pandoc_binary(root_dir: Path) -> str:
     """Resolves the Pandoc executable.
-    Prioritizes local bundled binaries in system/tools/pandoc/ over host system PATH.
-    Includes defensive fallback for Linux systems mounting exFAT with noexec.
+    1. Checks hydrated temporary runtime directory (hermetic determinism).
+    2. Hydrates on demand from system/tools/archives/ if present.
+    3. Falls back to host system PATH only if no local archive exists.
     """
     system = platform.system().lower()
     machine = platform.machine().lower()
+    arch = (
+        "x86_64"
+        if machine in ("x86_64", "amd64")
+        else ("arm64" if machine in ("arm64", "aarch64") else machine)
+    )
+    target = f"{'macos' if system == 'darwin' else system}-{arch}"
 
-    if machine in ("x86_64", "amd64"):
-        arch = "x86_64"
-    elif machine in ("arm64", "aarch64"):
-        arch = "arm64"
+    if system == "windows":
+        runtime_dir = Path(os.environ.get("TEMP", "/tmp")) / f"kykloi_runtime_{target}"
+        pandoc_bin = runtime_dir / "pandoc.exe"
     else:
-        arch = machine
+        runtime_dir = Path(f"/tmp/kykloi_runtime_{target}")
+        pandoc_bin = runtime_dir / "bin" / "pandoc"
 
-    base_bin = root_dir / "system" / "tools" / "pandoc"
-    candidate = None
+    if pandoc_bin.is_file() and os.access(pandoc_bin, os.X_OK):
+        return str(pandoc_bin.resolve())
 
-    if system == "linux" and arch == "x86_64":
-        candidate = base_bin / "linux-x86_64" / "pandoc"
-    elif system == "darwin":
-        candidate = base_bin / f"macos-{arch}" / "pandoc"
-        if not candidate.exists() and arch == "arm64":
-            candidate = base_bin / "macos-x86_64" / "pandoc"
-    elif system == "windows":
-        candidate = base_bin / "windows-x86_64" / "pandoc.exe"
+    archives_dir = root_dir / "system" / "tools" / "archives"
+    manifest_path = root_dir / "system" / "tools" / "tools_manifest.json"
+    ext = "zip" if system in ("windows", "darwin") else "tar.gz"
+    archive_path = archives_dir / f"pandoc-{target}.{ext}"
+    stamp_file = runtime_dir / ".verified_sha256"
 
-    if candidate and candidate.is_file():
-        # Defensive Linux exFAT noexec mitigation
-        if system == "linux":
-            if not os.access(candidate, os.X_OK):
-                try:
-                    candidate.chmod(0o755)
-                except OSError:
-                    pass
+    if pandoc_bin.is_file() and stamp_file.is_file():
+        return str(pandoc_bin.resolve())
 
-            if not os.access(candidate, os.X_OK):
-                tmp_dir = Path("/tmp/kykloi_bin")
-                tmp_dir.mkdir(parents=True, exist_ok=True)
-                shadow_bin = tmp_dir / "pandoc"
-                if (
-                    not shadow_bin.exists()
-                    or shadow_bin.stat().st_size != candidate.stat().st_size
-                ):
-                    shutil.copy2(candidate, shadow_bin)
-                    shadow_bin.chmod(0o755)
-                return str(shadow_bin.resolve())
+    if archive_path.is_file():
+        if not manifest_path.is_file():
+            raise FileNotFoundError(f"Tools manifest missing at {manifest_path}")
 
-        return str(candidate.resolve())
+        try:
+            with open(manifest_path, "r", encoding="utf-8") as mf:
+                tools_manifest = json.load(mf)
+            expected_hash = tools_manifest["tools"]["pandoc"]["targets"][target][
+                "sha256"
+            ]
+        except (KeyError, json.JSONDecodeError) as err:
+            raise ValueError(
+                f"Failed to read Pandoc expected hash for {target} from manifest: {err}"
+            )
 
-    # Fall back to host system PATH
+        logging.info("Verifying SHA-256 for %s...", archive_path.name)
+        actual_hash = compute_file_hash(archive_path)
+        if actual_hash != expected_hash:
+            raise ValueError(
+                f"SHA-256 mismatch for {archive_path.name}:\n"
+                f"  Expected: {expected_hash}\n"
+                f"  Actual:   {actual_hash}"
+            )
+
+        logging.info(
+            "Hydrating Pandoc from %s to %s...", archive_path.name, runtime_dir
+        )
+        runtime_dir.mkdir(parents=True, exist_ok=True)
+
+        if ext == "zip":
+            import zipfile
+
+            with zipfile.ZipFile(archive_path, "r") as zf:
+                for member in zf.namelist():
+                    filename = Path(member).name
+                    if filename in ("pandoc", "pandoc.exe"):
+                        target_file = (
+                            (runtime_dir / "bin" / filename)
+                            if system != "windows"
+                            else (runtime_dir / filename)
+                        )
+                        target_file.parent.mkdir(parents=True, exist_ok=True)
+                        with zf.open(member) as src, open(target_file, "wb") as dst:
+                            shutil.copyfileobj(src, dst)
+                        target_file.chmod(0o755)
+                        stamp_file.write_text(actual_hash, encoding="utf-8")
+                        return str(target_file.resolve())
+        else:
+            import tarfile
+
+            with tarfile.open(archive_path, "r:gz") as tf:
+                for member in tf.getmembers():
+                    filename = Path(member.name).name
+                    if filename == "pandoc":
+                        target_file = runtime_dir / "bin" / "pandoc"
+                        target_file.parent.mkdir(parents=True, exist_ok=True)
+                        src = tf.extractfile(member)
+                        if src:
+                            with open(target_file, "wb") as dst:
+                                shutil.copyfileobj(src, dst)
+                            target_file.chmod(0o755)
+                            stamp_file.write_text(actual_hash, encoding="utf-8")
+                            return str(target_file.resolve())
+
+    # Fall back to host system PATH only if local archive is not packaged
     sys_pandoc = shutil.which("pandoc")
     if sys_pandoc:
         return sys_pandoc
 
     raise FileNotFoundError(
-        f"Pandoc executable not found. Checked local directory '{base_bin}' and system PATH."
+        f"Pandoc executable not found on host and archive missing at {archive_path}"
     )
 
 
@@ -943,7 +991,7 @@ def compile_markdown_worker(task: CompileTask) -> tuple[Path, bool, Optional[str
             f"relative_root={task.relative_root}",
             "-V",
             f"pagetitle={task.doc_title}",
-            f"--katex={task.relative_root}assets/katex/",
+            f"--math-method=katex:{task.relative_root}assets/katex/",
             "-o",
             str(task.out_path),
         ]
@@ -981,7 +1029,7 @@ def compile_markdown_worker(task: CompileTask) -> tuple[Path, bool, Optional[str
         str(task.defaults_yaml),
         "--lua-filter",
         str(task.lua_filter),
-        f"--katex={task.relative_root}assets/katex/",
+        f"--math-method=katex:{task.relative_root}assets/katex/",
     ]
     if task.bibliography_path:
         body_cmd.extend(

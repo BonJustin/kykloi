@@ -46,7 +46,9 @@ INCLUDED_FILES = {
     "pandoc_md_to_static_html.yaml",
     "translate_links.lua",
     "launch.py",
-    "serve.py",
+    "launch.bat",
+    "launch.sh",
+    "tools_manifest.json",
 }
 
 # Optional overrides for markdown syntax highlighting; unlisted extensions

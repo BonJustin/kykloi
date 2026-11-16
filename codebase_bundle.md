@@ -24,6 +24,7 @@ kykloi/
 │   │   ├── app.js
 │   │   └── pico.css
 │   ├── build/
+│   │   ├── __pycache__/ (contents excluded)
 │   │   ├── assets/
 │   │   │   ├── css/
 │   │   │   │   ├── pico.css
@@ -52,12 +53,25 @@ kykloi/
 │   │   ├── pandoc_md_to_static_html.yaml
 │   │   └── translate_links.lua
 │   ├── tools/
-│   │   ├── pandoc/
-│   │   └── python/
+│   │   ├── archives/
+│   │   │   ├── pandoc-linux-arm64.tar.gz
+│   │   │   ├── pandoc-linux-x86_64.tar.gz
+│   │   │   ├── pandoc-macos-arm64.zip
+│   │   │   ├── pandoc-macos-x86_64.zip
+│   │   │   ├── pandoc-windows-x86_64.zip
+│   │   │   ├── python-linux-arm64.tar.gz
+│   │   │   ├── python-linux-x86_64.tar.gz
+│   │   │   ├── python-macos-arm64.tar.gz
+│   │   │   ├── python-macos-x86_64.tar.gz
+│   │   │   └── python-windows-x86_64.tar.gz
+│   │   └── tools_manifest.json
 │   └── launch.py
 ├── .gitignore
 ├── .python-version
 ├── assemble_code_to_md.py
+├── hash_generator.py
+├── launch.bat
+├── launch.sh
 ├── pyproject.toml
 ├── README.md
 ├── system_instructions.md
@@ -2157,61 +2171,109 @@ def parse_args():
 
 def resolve_pandoc_binary(root_dir: Path) -> str:
     """Resolves the Pandoc executable.
-    Prioritizes local bundled binaries in system/tools/pandoc/ over host system PATH.
-    Includes defensive fallback for Linux systems mounting exFAT with noexec.
+    1. Checks hydrated temporary runtime directory (hermetic determinism).
+    2. Hydrates on demand from system/tools/archives/ if present.
+    3. Falls back to host system PATH only if no local archive exists.
     """
     system = platform.system().lower()
     machine = platform.machine().lower()
+    arch = (
+        "x86_64"
+        if machine in ("x86_64", "amd64")
+        else ("arm64" if machine in ("arm64", "aarch64") else machine)
+    )
+    target = f"{'macos' if system == 'darwin' else system}-{arch}"
 
-    if machine in ("x86_64", "amd64"):
-        arch = "x86_64"
-    elif machine in ("arm64", "aarch64"):
-        arch = "arm64"
+    if system == "windows":
+        runtime_dir = Path(os.environ.get("TEMP", "/tmp")) / f"kykloi_runtime_{target}"
+        pandoc_bin = runtime_dir / "pandoc.exe"
     else:
-        arch = machine
+        runtime_dir = Path(f"/tmp/kykloi_runtime_{target}")
+        pandoc_bin = runtime_dir / "bin" / "pandoc"
 
-    base_bin = root_dir / "system" / "tools" / "pandoc"
-    candidate = None
+    if pandoc_bin.is_file() and os.access(pandoc_bin, os.X_OK):
+        return str(pandoc_bin.resolve())
 
-    if system == "linux" and arch == "x86_64":
-        candidate = base_bin / "linux-x86_64" / "pandoc"
-    elif system == "darwin":
-        candidate = base_bin / f"macos-{arch}" / "pandoc"
-        if not candidate.exists() and arch == "arm64":
-            candidate = base_bin / "macos-x86_64" / "pandoc"
-    elif system == "windows":
-        candidate = base_bin / "windows-x86_64" / "pandoc.exe"
+    archives_dir = root_dir / "system" / "tools" / "archives"
+    manifest_path = root_dir / "system" / "tools" / "tools_manifest.json"
+    ext = "zip" if system in ("windows", "darwin") else "tar.gz"
+    archive_path = archives_dir / f"pandoc-{target}.{ext}"
+    stamp_file = runtime_dir / ".verified_sha256"
 
-    if candidate and candidate.is_file():
-        # Defensive Linux exFAT noexec mitigation
-        if system == "linux":
-            if not os.access(candidate, os.X_OK):
-                try:
-                    candidate.chmod(0o755)
-                except OSError:
-                    pass
+    if pandoc_bin.is_file() and stamp_file.is_file():
+        return str(pandoc_bin.resolve())
 
-            if not os.access(candidate, os.X_OK):
-                tmp_dir = Path("/tmp/kykloi_bin")
-                tmp_dir.mkdir(parents=True, exist_ok=True)
-                shadow_bin = tmp_dir / "pandoc"
-                if (
-                    not shadow_bin.exists()
-                    or shadow_bin.stat().st_size != candidate.stat().st_size
-                ):
-                    shutil.copy2(candidate, shadow_bin)
-                    shadow_bin.chmod(0o755)
-                return str(shadow_bin.resolve())
+    if archive_path.is_file():
+        if not manifest_path.is_file():
+            raise FileNotFoundError(f"Tools manifest missing at {manifest_path}")
 
-        return str(candidate.resolve())
+        try:
+            with open(manifest_path, "r", encoding="utf-8") as mf:
+                tools_manifest = json.load(mf)
+            expected_hash = tools_manifest["tools"]["pandoc"]["targets"][target][
+                "sha256"
+            ]
+        except (KeyError, json.JSONDecodeError) as err:
+            raise ValueError(
+                f"Failed to read Pandoc expected hash for {target} from manifest: {err}"
+            )
 
-    # Fall back to host system PATH
+        logging.info("Verifying SHA-256 for %s...", archive_path.name)
+        actual_hash = compute_file_hash(archive_path)
+        if actual_hash != expected_hash:
+            raise ValueError(
+                f"SHA-256 mismatch for {archive_path.name}:\n"
+                f"  Expected: {expected_hash}\n"
+                f"  Actual:   {actual_hash}"
+            )
+
+        logging.info(
+            "Hydrating Pandoc from %s to %s...", archive_path.name, runtime_dir
+        )
+        runtime_dir.mkdir(parents=True, exist_ok=True)
+
+        if ext == "zip":
+            import zipfile
+
+            with zipfile.ZipFile(archive_path, "r") as zf:
+                for member in zf.namelist():
+                    filename = Path(member).name
+                    if filename in ("pandoc", "pandoc.exe"):
+                        target_file = (
+                            (runtime_dir / "bin" / filename)
+                            if system != "windows"
+                            else (runtime_dir / filename)
+                        )
+                        target_file.parent.mkdir(parents=True, exist_ok=True)
+                        with zf.open(member) as src, open(target_file, "wb") as dst:
+                            shutil.copyfileobj(src, dst)
+                        target_file.chmod(0o755)
+                        stamp_file.write_text(actual_hash, encoding="utf-8")
+                        return str(target_file.resolve())
+        else:
+            import tarfile
+
+            with tarfile.open(archive_path, "r:gz") as tf:
+                for member in tf.getmembers():
+                    filename = Path(member.name).name
+                    if filename == "pandoc":
+                        target_file = runtime_dir / "bin" / "pandoc"
+                        target_file.parent.mkdir(parents=True, exist_ok=True)
+                        src = tf.extractfile(member)
+                        if src:
+                            with open(target_file, "wb") as dst:
+                                shutil.copyfileobj(src, dst)
+                            target_file.chmod(0o755)
+                            stamp_file.write_text(actual_hash, encoding="utf-8")
+                            return str(target_file.resolve())
+
+    # Fall back to host system PATH only if local archive is not packaged
     sys_pandoc = shutil.which("pandoc")
     if sys_pandoc:
         return sys_pandoc
 
     raise FileNotFoundError(
-        f"Pandoc executable not found. Checked local directory '{base_bin}' and system PATH."
+        f"Pandoc executable not found on host and archive missing at {archive_path}"
     )
 
 
@@ -2515,7 +2577,7 @@ def compile_markdown_worker(task: CompileTask) -> tuple[Path, bool, Optional[str
             f"relative_root={task.relative_root}",
             "-V",
             f"pagetitle={task.doc_title}",
-            f"--katex={task.relative_root}assets/katex/",
+            f"--math-method=katex:{task.relative_root}assets/katex/",
             "-o",
             str(task.out_path),
         ]
@@ -2553,7 +2615,7 @@ def compile_markdown_worker(task: CompileTask) -> tuple[Path, bool, Optional[str
         str(task.defaults_yaml),
         "--lua-filter",
         str(task.lua_filter),
-        f"--katex={task.relative_root}assets/katex/",
+        f"--math-method=katex:{task.relative_root}assets/katex/",
     ]
     if task.bibliography_path:
         body_cmd.extend(
@@ -3064,6 +3126,70 @@ function Image(el)
 end
 ```
 
+## system/tools/tools_manifest.json
+
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "description": "Kykloi Offline Appliance Toolchain Manifest",
+  "version": "1.0",
+  "tools": {
+    "pandoc": {
+      "version": "3.14",
+      "upstream": "https://github.com/jgm/pandoc/releases/tag/3.14",
+      "targets": {
+        "linux-x86_64": {
+          "archive": "pandoc-linux-x86_64.tar.gz",
+          "sha256": "c5f4720cdefb3f7bdc5d07202ef579feef0d1370773c873804dd8fdaa8c4f1b8"
+        },
+        "linux-arm64": {
+          "archive": "pandoc-linux-arm64.tar.gz",
+          "sha256": "c692f3d78a415741bbbac4cdbbbe26fa7edca1f43d2301b982fbf4009cc8cf7f"
+        },
+        "macos-arm64": {
+          "archive": "pandoc-macos-arm64.zip",
+          "sha256": "58d6593884fec9d4424b641b92503c316d9c36decb2891ff8d73ae74dd3b6304"
+        },
+        "macos-x86_64": {
+          "archive": "pandoc-macos-x86_64.zip",
+          "sha256": "891708579061e7b1c1a6ce0df30ebb3cb2b6d0ca045ed3c8554ab830c1e0c270"
+        },
+        "windows-x86_64": {
+          "archive": "pandoc-windows-x86_64.zip",
+          "sha256": "0144b96e8c7b023fd382ec5ef5bdc475e873f1019d6fa72502492df2c9a94a3b"
+        }
+      }
+    },
+    "python": {
+      "version": "3.12.16+20261110",
+      "upstream": "https://github.com/astral-sh/python-build-standalone/releases/tag/20261110",
+      "targets": {
+        "linux-x86_64": {
+          "archive": "python-linux-x86_64.tar.gz",
+          "sha256": "c6648466ed3e4916a4d641d6cf0807b12a33a1e5a29d487fbbad0ea3b8541e20"
+        },
+        "linux-arm64": {
+          "archive": "python-linux-arm64.tar.gz",
+          "sha256": "b6a41defec4975d94b4ff1950236e7383e5c02ba40ea48c9ec33c66087a35aab"
+        },
+        "macos-arm64": {
+          "archive": "python-macos-arm64.tar.gz",
+          "sha256": "2f11b8aa3726bdbd87dd9eb76568412faddf4f47e26913fa45d6a2e424972acd"
+        },
+        "macos-x86_64": {
+          "archive": "python-macos-x86_64.tar.gz",
+          "sha256": "b78a4c479f1964ec484880bee567568266f68da102269fb93a05fe8716b45f91"
+        },
+        "windows-x86_64": {
+          "archive": "python-windows-x86_64.tar.gz",
+          "sha256": "355ee61b8207b91574491b1c6dc9b0ebb4408fc56bfafe498f3ef439314b52dc"
+        }
+      }
+    }
+  }
+}
+```
+
 ## system/launch.py
 
 ```python
@@ -3459,6 +3585,255 @@ def main():
 
 if __name__ == "__main__":
     main()
+```
+
+## launch.bat
+
+```bat
+@echo off
+setlocal enabledelayedexpansion
+
+:: ---------------------------------------------------------------------------
+:: 1. CONFIGURATION & VERSION CONSTRAINTS
+:: ---------------------------------------------------------------------------
+if "%REQ_MAJ%"=="" set "REQ_MAJ=3"
+if "%REQ_MIN%"=="" set "REQ_MIN=10"
+
+set "USE_HOST=0"
+
+:: ---------------------------------------------------------------------------
+:: 2. EVALUATE HOST PYTHON (Bypassed if KYKLOI_FORCE_FALLBACK=1)
+:: ---------------------------------------------------------------------------
+if not "%KYKLOI_FORCE_FALLBACK%"=="1" (
+    where python >nul 2>&1
+    if !ERRORLEVEL! equ 0 (
+        for /f "tokens=1,2 delims=." %%a in ('python -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2^>nul') do (
+            set "HOST_MAJOR=%%a"
+            set "HOST_MINOR=%%b"
+        )
+        if "!HOST_MAJOR!"=="%REQ_MAJ%" (
+            if !HOST_MINOR! geq %REQ_MIN% (
+                set "USE_HOST=1"
+            )
+        )
+    )
+)
+
+if "%USE_HOST%"=="1" (
+    for /f "delims=" %%i in ('where python') do (
+        set "HOST_PATH=%%i"
+        goto :host_resolved
+    )
+    :host_resolved
+    echo [Kykloi] Using host Python runtime: !HOST_PATH! (!HOST_MAJOR!.!HOST_MINOR!)
+    python system\launch.py %*
+    exit /b %ERRORLEVEL%
+)
+
+:: ---------------------------------------------------------------------------
+:: 3. HYDRATE RUNTIME FROM LOCAL ARCHIVE (WITH SHA-256 VERIFICATION)
+:: ---------------------------------------------------------------------------
+set "SCRIPT_DIR=%~dp0"
+set "TARGET=windows-x86_64"
+set "ARCHIVE_PY=%SCRIPT_DIR%system\tools\archives\python-%TARGET%.tar.gz"
+set "MANIFEST_PATH=%SCRIPT_DIR%system\tools\tools_manifest.json"
+set "RUNTIME_ROOT=%TEMP%\kykloi_runtime_%TARGET%"
+set "LOCAL_PY=%RUNTIME_ROOT%\python.exe"
+set "STAMP_FILE=%RUNTIME_ROOT%\.verified_sha256"
+
+if not exist "%LOCAL_PY%" goto :hydrate_runtime
+if not exist "%STAMP_FILE%" goto :hydrate_runtime
+goto :execute_runtime
+
+:hydrate_runtime
+if not exist "%ARCHIVE_PY%" (
+    echo [FATAL] Python ^>= %REQ_MAJ%.%REQ_MIN% not detected on host, and fallback archive missing:
+    echo         %ARCHIVE_PY%
+    pause
+    exit /b 1
+)
+
+if not exist "%MANIFEST_PATH%" (
+    echo [FATAL] Tool manifest missing: %MANIFEST_PATH%
+    pause
+    exit /b 1
+)
+
+echo [Kykloi] Querying manifest hash for python-%TARGET%.tar.gz...
+for /f "usebackq delims=" %%H in (`powershell -NoProfile -Command "(Get-Content -Raw '%MANIFEST_PATH%' | ConvertFrom-Json).tools.python.targets.'%TARGET%'.sha256" 2^>nul`) do (
+    set "EXPECTED_SHA=%%H"
+)
+
+if "%EXPECTED_SHA%"=="" (
+    echo [FATAL] Failed to extract SHA-256 definition from %MANIFEST_PATH%
+    pause
+    exit /b 1
+)
+
+echo [Kykloi] Verifying SHA-256 checksum for %ARCHIVE_PY%...
+for /f "skip=1 tokens=*" %%H in ('certutil -hashfile "%ARCHIVE_PY%" SHA256 2^>nul') do (
+    set "RAW_HASH=%%H"
+    goto :hash_extracted
+)
+:hash_extracted
+set "ACTUAL_SHA=!RAW_HASH: =!"
+
+if /i not "!ACTUAL_SHA!"=="!EXPECTED_SHA!" (
+    echo [FATAL] Checksum verification failed for %ARCHIVE_PY%
+    echo         Expected: !EXPECTED_SHA!
+    echo         Actual:   !ACTUAL_SHA!
+    pause
+    exit /b 1
+)
+
+echo [Kykloi] Checksum verified. Extracting portable Python runtime to %RUNTIME_ROOT%...
+if exist "%RUNTIME_ROOT%" rmdir /s /q "%RUNTIME_ROOT%" >nul 2>&1
+mkdir "%RUNTIME_ROOT%" >nul 2>&1
+tar -xzf "%ARCHIVE_PY%" -C "%RUNTIME_ROOT%" --strip-components=1
+<nul set /p="!ACTUAL_SHA!" > "%STAMP_FILE%"
+
+:execute_runtime
+
+:: ---------------------------------------------------------------------------
+:: 4. EXECUTE APPLICATION LAUNCHER
+:: ---------------------------------------------------------------------------
+echo [Kykloi] Using fallback Python runtime: %LOCAL_PY%
+"%LOCAL_PY%" "%SCRIPT_DIR%system\launch.py" %*
+exit /b %ERRORLEVEL%
+```
+
+## launch.sh
+
+```bash
+#!/usr/bin/env sh
+set -e
+
+REQ_MAJ="${REQ_MAJ:-3}"
+REQ_MIN="${REQ_MIN:-10}"
+
+# ---------------------------------------------------------------------------
+# 1. EVALUATE HOST PYTHON
+# ---------------------------------------------------------------------------
+USE_HOST_PY=0
+
+if [ "${KYKLOI_FORCE_FALLBACK}" != "1" ] && command -v python3 >/dev/null 2>&1; then
+    PY_VER=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>/dev/null || echo "0.0")
+    MAJ=$(echo "$PY_VER" | cut -d. -f1)
+    MIN=$(echo "$PY_VER" | cut -d. -f2)
+    if [ "$MAJ" -eq "$REQ_MAJ" ] && [ "$MIN" -ge "$REQ_MIN" ]; then
+        USE_HOST_PY=1
+    fi
+fi
+
+if [ "$USE_HOST_PY" -eq 1 ]; then
+    echo "[Kykloi] Using host Python runtime: $(which python3) (${PY_VER})"
+    exec python3 system/launch.py "$@"
+fi
+
+# ---------------------------------------------------------------------------
+# 2. RESOLVE PLATFORM TARGET IDENTIFIER
+# ---------------------------------------------------------------------------
+OS="$(uname -s)"
+ARCH="$(uname -m)"
+
+case "$OS" in
+    Linux)
+        case "$ARCH" in
+            x86_64)        TARGET="linux-x86_64" ;;
+            aarch64|arm64) TARGET="linux-arm64" ;;
+            *) echo "[FATAL] Unsupported Linux architecture: $ARCH" >&2; exit 1 ;;
+        esac
+        ;;
+    Darwin)
+        case "$ARCH" in
+            x86_64) TARGET="macos-x86_64" ;;
+            arm64)  TARGET="macos-arm64" ;;
+            *) echo "[FATAL] Unsupported macOS architecture: $ARCH" >&2; exit 1 ;;
+        esac
+        ;;
+    *)
+        echo "[FATAL] Unsupported operating system: $OS" >&2; exit 1
+        ;;
+esac
+
+# ---------------------------------------------------------------------------
+# 3. HYDRATE RUNTIME TO LOCAL TEMPORARY STORAGE (WITH SHA-256 VERIFICATION)
+# ---------------------------------------------------------------------------
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ARCHIVE_PY="$SCRIPT_DIR/system/tools/archives/python-${TARGET}.tar.gz"
+MANIFEST_PATH="$SCRIPT_DIR/system/tools/tools_manifest.json"
+RUNTIME_ROOT="/tmp/kykloi_runtime_${TARGET}"
+LOCAL_PY="$RUNTIME_ROOT/bin/python3"
+STAMP_FILE="$RUNTIME_ROOT/.verified_sha256"
+
+compute_sha256() {
+    target_file="$1"
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$target_file" | cut -d' ' -f1
+    elif command -v shasum >/dev/null 2>&1; then
+        shasum -a 256 "$target_file" | cut -d' ' -f1
+    elif command -v openssl >/dev/null 2>&1; then
+        openssl dgst -sha256 "$target_file" | awk '{print $NF}'
+    else
+        echo "[FATAL] No SHA-256 verification utility (sha256sum, shasum, openssl) available." >&2
+        exit 1
+    fi
+}
+
+extract_expected_hash() {
+    archive_name="$1"
+    manifest="$2"
+    awk -v target="\"${archive_name}\"" '
+        $0 ~ target {
+            while (getline > 0) {
+                if ($0 ~ /"sha256":/) {
+                    gsub(/.*"sha256": *"|"*,?$/, "");
+                    print;
+                    exit;
+                }
+            }
+        }
+    ' "$manifest"
+}
+
+if [ ! -f "$LOCAL_PY" ] || [ ! -f "$STAMP_FILE" ]; then
+    if [ ! -f "$ARCHIVE_PY" ]; then
+        echo "[FATAL] Python >= ${REQ_MAJ}.${REQ_MIN} missing on host, and fallback archive not found at:" >&2
+        echo "        $ARCHIVE_PY" >&2
+        exit 1
+    fi
+
+    if [ ! -f "$MANIFEST_PATH" ]; then
+        echo "[FATAL] Verification manifest missing at: $MANIFEST_PATH" >&2
+        exit 1
+    fi
+
+    EXPECTED_SHA=$(extract_expected_hash "python-${TARGET}.tar.gz" "$MANIFEST_PATH")
+    if [ -z "$EXPECTED_SHA" ]; then
+        echo "[FATAL] Could not locate SHA-256 definition for python-${TARGET}.tar.gz in manifest." >&2
+        exit 1
+    fi
+
+    echo "[Kykloi] Verifying SHA-256 for python-${TARGET}.tar.gz..."
+    ACTUAL_SHA=$(compute_sha256 "$ARCHIVE_PY")
+
+    if [ "$ACTUAL_SHA" != "$EXPECTED_SHA" ]; then
+        echo "[FATAL] Checksum verification failed for $ARCHIVE_PY" >&2
+        echo "        Expected: $EXPECTED_SHA" >&2
+        echo "        Actual:   $ACTUAL_SHA" >&2
+        exit 1
+    fi
+
+    echo "[Kykloi] Checksum verified. Extracting portable Python runtime to $RUNTIME_ROOT..."
+    rm -rf "$RUNTIME_ROOT"
+    mkdir -p "$RUNTIME_ROOT"
+    tar -xzf "$ARCHIVE_PY" -C "$RUNTIME_ROOT" --strip-components=1
+    printf "%s" "$ACTUAL_SHA" > "$STAMP_FILE"
+
+    if [ "$OS" = "Darwin" ]; then
+        xattr -dr com.apple.quarantine "$RUNTIME_ROOT" 2>/dev/null || true
+    fi
+fi
 ```
 
 ## pyproject.toml

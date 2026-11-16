@@ -180,34 +180,34 @@
                                                 <col style="width: 33%" />
                                                 </colgroup>
                                                 <thead>
-                                                <tr class="header">
+                                                <tr>
                                                 <th style="text-align: left;">Subsystem</th>
                                                 <th style="text-align: left;">Performance Characteristics</th>
                                                 <th style="text-align: left;">Bottlenecks / Notes</th>
                                                 </tr>
                                                 </thead>
                                                 <tbody>
-                                                <tr class="odd">
+                                                <tr>
                                                 <td style="text-align: left;"><strong>Site Build (Markdown)</strong></td>
                                                 <td style="text-align: left;"><strong>Fast to Very Fast</strong> (Multi-process, incremental via SHA-256 manifest).</td>
                                                 <td style="text-align: left;">Uses <code>concurrent.futures.ProcessPoolExecutor</code>. Re-renders only modified files. Pandoc execution overhead is the main factor.</td>
                                                 </tr>
-                                                <tr class="even">
+                                                <tr>
                                                 <td style="text-align: left;"><strong>Media Encryption</strong></td>
                                                 <td style="text-align: left;"><strong>Moderate to Slow on Large Blobs</strong></td>
                                                 <td style="text-align: left;">Pure-Python AES-GCM is CPU-intensive. For small images and SVGs, it is unnoticeable. For large videos/archives, it will be noticeably slower than C-accelerated engines.</td>
                                                 </tr>
-                                                <tr class="odd">
+                                                <tr>
                                                 <td style="text-align: left;"><strong>Local Daemon (<code>serve.py</code>)</strong></td>
                                                 <td style="text-align: left;"><strong>High Efficiency</strong></td>
                                                 <td style="text-align: left;">Threaded TCP daemon using 64KB chunk streaming and RFC 7233 range requests. Memory footprint remains minimal regardless of asset size.</td>
                                                 </tr>
-                                                <tr class="even">
+                                                <tr>
                                                 <td style="text-align: left;"><strong>Client Search (WASM SQLite)</strong></td>
                                                 <td style="text-align: left;"><strong>Near-Instantaneous Querying</strong></td>
                                                 <td style="text-align: left;">First load incurs a small network download (<code>search.db</code> + WASM runtime ~1–2MB), but subsequent queries execute within 1–5ms directly inside a background thread without UI blocking.</td>
                                                 </tr>
-                                                <tr class="odd">
+                                                <tr>
                                                 <td style="text-align: left;"><strong>Client Decryption</strong></td>
                                                 <td style="text-align: left;"><strong>Instantaneous</strong></td>
                                                 <td style="text-align: left;">Leverages hardware-accelerated AES-NI via browser native <code>SubtleCrypto</code>. Decrypting notes and inlining media blobs happens in milliseconds.</td>
