@@ -612,33 +612,35 @@ def resolve_pandoc_binary(root_dir: Path) -> str:
         runtime_dir = Path(f"/tmp/kykloi_runtime_{target}")
         pandoc_bin = runtime_dir / "bin" / "pandoc"
 
-    if pandoc_bin.is_file() and os.access(pandoc_bin, os.X_OK):
-        return str(pandoc_bin.resolve())
+        archives_dir = root_dir / "system" / "tools" / "archives"
+        manifest_path = root_dir / "system" / "tools" / "tools_manifest.json"
+        stamp_file = runtime_dir / ".verified_sha256"
 
-    archives_dir = root_dir / "system" / "tools" / "archives"
-    manifest_path = root_dir / "system" / "tools" / "tools_manifest.json"
-    ext = "zip" if system in ("windows", "darwin") else "tar.gz"
-    archive_path = archives_dir / f"pandoc-{pandoc_target}.{ext}"
-    stamp_file = runtime_dir / ".verified_sha256"
+        if (
+            pandoc_bin.is_file()
+            and stamp_file.is_file()
+            and os.access(pandoc_bin, os.X_OK)
+        ):
+            return str(pandoc_bin.resolve())
 
-    if pandoc_bin.is_file() and stamp_file.is_file():
-        return str(pandoc_bin.resolve())
+    if not manifest_path.is_file():
+        raise FileNotFoundError(f"Tools manifest missing at {manifest_path}")
+
+    try:
+        with open(manifest_path, "r", encoding="utf-8") as mf:
+            tools_manifest = json.load(mf)
+        target_info = tools_manifest["tools"]["pandoc"]["targets"][pandoc_target]
+        archive_name = target_info["archive"]
+        expected_hash = target_info["sha256"]
+    except (KeyError, json.JSONDecodeError) as err:
+        raise ValueError(
+            f"Failed to read Pandoc manifest definition for {pandoc_target}: {err}"
+        )
+
+    archive_path = archives_dir / archive_name
+    ext = "zip" if archive_name.endswith(".zip") else "tar.gz"
 
     if archive_path.is_file():
-        if not manifest_path.is_file():
-            raise FileNotFoundError(f"Tools manifest missing at {manifest_path}")
-
-        try:
-            with open(manifest_path, "r", encoding="utf-8") as mf:
-                tools_manifest = json.load(mf)
-            expected_hash = tools_manifest["tools"]["pandoc"]["targets"][pandoc_target][
-                "sha256"
-            ]
-        except (KeyError, json.JSONDecodeError) as err:
-            raise ValueError(
-                f"Failed to read Pandoc expected hash for {pandoc_target} from manifest: {err}"
-            )
-
         logging.info("Verifying SHA-256 for %s...", archive_path.name)
         actual_hash = compute_file_hash(archive_path)
         if actual_hash != expected_hash:
@@ -900,9 +902,9 @@ def extract_metadata_fast(md_path: Path) -> tuple[Path, dict[str, str], bool]:
 
     if not meta["title"]:
         clean_stem = md_path.stem
-        parts = clean_stem.split(maxsplit=1)
-        if len(parts) > 1 and parts[0].isdigit() and len(parts[0]) in (8, 12, 14):
-            clean_stem = parts[1]
+        ts_match = re.match(r"^(\d{8}|\d{12}|\d{14})[-_\s]+(.+)$", clean_stem)
+        if ts_match:
+            clean_stem = ts_match.group(2)
         meta["title"] = clean_stem.replace("-", " ").replace("_", " ").title()
 
     return md_path, meta, has_citations
@@ -1059,7 +1061,7 @@ def compile_markdown_worker(task: CompileTask) -> tuple[Path, bool, Optional[str
         str(task.defaults_yaml),
         "--template",
         str(task.template_path),
-        f"--katex={task.relative_root}assets/katex/",
+        f"--math-method=katex:{task.relative_root}assets/katex/",
         "-V",
         f"relative_root={task.relative_root}",
         "-V",

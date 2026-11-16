@@ -97,12 +97,20 @@ case "$OS" in
 esac
 
 # ---------------------------------------------------------------------------
-# 3. HYDRATE RUNTIME TO LOCAL TEMPORARY STORAGE (WITH SHA-256 VERIFICATION)
+# 3. HYDRATE RUNTIME TO LOCAL STORAGE (WITH SHA-256 VERIFICATION)
 # ---------------------------------------------------------------------------
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-ARCHIVE_PY="$SCRIPT_DIR/system/tools/archives/python-${TARGET}.tar.gz"
 MANIFEST_PATH="$SCRIPT_DIR/system/tools/tools_manifest.json"
-RUNTIME_ROOT="/tmp/kykloi_runtime_${TARGET}"
+
+# Support hardened systems where /tmp is mounted noexec
+BASE_RUNTIME="/tmp"
+if [ -n "$XDG_RUNTIME_DIR" ] && [ -w "$XDG_RUNTIME_DIR" ]; then
+    BASE_RUNTIME="$XDG_RUNTIME_DIR"
+elif [ -d "$HOME/.cache" ] && [ -w "$HOME/.cache" ]; then
+    BASE_RUNTIME="$HOME/.cache"
+fi
+
+RUNTIME_ROOT="${BASE_RUNTIME}/kykloi_runtime_${TARGET}"
 LOCAL_PY="$RUNTIME_ROOT/bin/python3"
 STAMP_FILE="$RUNTIME_ROOT/.verified_sha256"
 
@@ -120,35 +128,53 @@ compute_sha256() {
     fi
 }
 
-extract_expected_hash() {
-    archive_name="$1"
-    manifest="$2"
-    sed -n "/\"${archive_name}\"/,/}/p" "$manifest" | grep '"sha256"' | head -n 1 | sed -E 's/.*"sha256":[[:space:]]*"([^"]+)".*/\1/'
+extract_python_field() {
+    target="$1"
+    field="$2"
+    manifest="$3"
+    # Isolate specifically within the "python" section to prevent collision with pandoc targets
+    sed -n '/"python":/,/"tools":/p' "$manifest" | \
+        sed -n "/\"${target}\":/,/}/p" | \
+        grep "\"${field}\"" | head -n 1 | \
+        sed -E "s/.*\"${field}\":[[:space:]]*\"([^\"]+)\".*/\1/"
 }
 
 if [ ! -f "$LOCAL_PY" ] || [ ! -f "$STAMP_FILE" ]; then
-    if [ ! -f "$ARCHIVE_PY" ]; then
-        echo "[FATAL] Python >= ${REQ_MAJ}.${REQ_MIN} missing on host, and fallback archive not found at:" >&2
-        echo "        $ARCHIVE_PY" >&2
-        exit 1
-    fi
-
     if [ ! -f "$MANIFEST_PATH" ]; then
         echo "[FATAL] Verification manifest missing at: $MANIFEST_PATH" >&2
         exit 1
     fi
 
-    EXPECTED_SHA=$(extract_expected_hash "python-${TARGET}.tar.gz" "$MANIFEST_PATH")
-    if [ -z "$EXPECTED_SHA" ]; then
-        echo "[FATAL] Could not locate SHA-256 definition for python-${TARGET}.tar.gz in manifest." >&2
+    ARCHIVE_NAME=$(extract_python_field "$TARGET" "archive" "$MANIFEST_PATH")
+    EXPECTED_SHA=$(extract_python_field "$TARGET" "sha256" "$MANIFEST_PATH")
+    DOWNLOAD_URL=$(extract_python_field "$TARGET" "url" "$MANIFEST_PATH")
+
+    if [ -z "$ARCHIVE_NAME" ] || [ -z "$EXPECTED_SHA" ]; then
+        echo "[FATAL] Target ${TARGET} not found in manifest python definitions." >&2
         exit 1
     fi
 
-    echo "[Kykloi] Verifying SHA-256 for python-${TARGET}.tar.gz..."
+    ARCHIVE_PY="$SCRIPT_DIR/system/tools/archives/$ARCHIVE_NAME"
+
+    if [ ! -f "$ARCHIVE_PY" ]; then
+        echo "[Kykloi] Pre-packaged archive not found locally: $ARCHIVE_NAME"
+        echo "[Kykloi] Attempting automatic download..."
+        mkdir -p "$SCRIPT_DIR/system/tools/archives"
+        if command -v curl >/dev/null 2>&1; then
+            curl -fSL "$DOWNLOAD_URL" -o "$ARCHIVE_PY"
+        elif command -v wget >/dev/null 2>&1; then
+            wget "$DOWNLOAD_URL" -O "$ARCHIVE_PY"
+        else
+            echo "[FATAL] No network downloader (curl, wget) available and local archive missing." >&2
+            exit 1
+        fi
+    fi
+
+    echo "[Kykloi] Verifying SHA-256 for $ARCHIVE_NAME..."
     ACTUAL_SHA=$(compute_sha256 "$ARCHIVE_PY")
 
     if [ "$ACTUAL_SHA" != "$EXPECTED_SHA" ]; then
-        echo "[FATAL] Checksum verification failed for $ARCHIVE_PY" >&2
+        echo "[FATAL] Checksum verification failed for $ARCHIVE_NAME" >&2
         echo "        Expected: $EXPECTED_SHA" >&2
         echo "        Actual:   $ACTUAL_SHA" >&2
         exit 1

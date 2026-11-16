@@ -6,3 +6,8 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Project binaries
+system/tools/archives/*.tar.gz
+system/tools/archives/*.zip
+!system/tools/archives/.gitkeep

@@ -15,28 +15,36 @@ set "USE_HOST=0"
 if not "%KYKLOI_FORCE_FALLBACK%"=="1" (
     where python >nul 2>&1
     if !ERRORLEVEL! equ 0 (
+        set "HOST_MAJOR="
+        set "HOST_MINOR="
         for /f "tokens=1,2 delims=." %%a in ('python -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2^>nul') do (
             set "HOST_MAJOR=%%a"
             set "HOST_MINOR=%%b"
         )
-        if "!HOST_MAJOR!"=="%REQ_MAJ%" (
-            if !HOST_MINOR! geq %REQ_MIN% (
-                set "USE_HOST=1"
+        if defined HOST_MAJOR if defined HOST_MINOR (
+            if "!HOST_MAJOR!"=="%REQ_MAJ%" (
+                if !HOST_MINOR! geq %REQ_MIN% (
+                    set "USE_HOST=1"
+                )
             )
         )
     )
 )
 
-if "%USE_HOST%"=="1" (
-    for /f "delims=" %%i in ('where python') do (
-        set "HOST_PATH=%%i"
-        goto :host_resolved
-    )
-    :host_resolved
-    echo [Kykloi] Using host Python runtime: !HOST_PATH! (!HOST_MAJOR!.!HOST_MINOR!)
-    python system\launch.py %*
-    exit /b %ERRORLEVEL%
+if "%USE_HOST%"=="1" goto :run_host_python
+goto :skip_host_python
+
+:run_host_python
+for /f "delims=" %%i in ('where python') do (
+    set "HOST_PATH=%%i"
+    goto :host_resolved
 )
+:host_resolved
+echo [Kykloi] Using host Python runtime: !HOST_PATH! (!HOST_MAJOR!.!HOST_MINOR!)
+python system\launch.py %*
+exit /b %ERRORLEVEL%
+
+:skip_host_python
 
 :: ---------------------------------------------------------------------------
 :: 3. HYDRATE RUNTIME FROM LOCAL ARCHIVE (WITH SHA-256 VERIFICATION)
@@ -48,7 +56,6 @@ set "TARGET=windows-x86_64"
 if /i "%PROCESSOR_ARCHITECTURE%"=="ARM64" set "TARGET=windows-arm64"
 if /i "%PROCESSOR_ARCHITEW6432%"=="ARM64" set "TARGET=windows-arm64"
 
-set "ARCHIVE_PY=%SCRIPT_DIR%system\tools\archives\python-%TARGET%.tar.gz"
 set "MANIFEST_PATH=%SCRIPT_DIR%system\tools\tools_manifest.json"
 set "RUNTIME_ROOT=%TEMP%\kykloi_runtime_%TARGET%"
 set "LOCAL_PY=%RUNTIME_ROOT%\python.exe"
@@ -59,31 +66,41 @@ if not exist "%STAMP_FILE%" goto :hydrate_runtime
 goto :execute_runtime
 
 :hydrate_runtime
-if not exist "%ARCHIVE_PY%" (
-    echo [FATAL] Python ^>= %REQ_MAJ%.%REQ_MIN% not detected on host, and fallback archive missing:
-    echo         %ARCHIVE_PY%
-    pause
-    exit /b 1
-)
-
 if not exist "%MANIFEST_PATH%" (
     echo [FATAL] Tool manifest missing: %MANIFEST_PATH%
     pause
     exit /b 1
 )
 
-echo [Kykloi] Querying manifest hash for python-%TARGET%.tar.gz...
-for /f "usebackq delims=" %%H in (`powershell -NoProfile -Command "(Get-Content -Raw '%MANIFEST_PATH%' | ConvertFrom-Json).tools.python.targets.'%TARGET%'.sha256" 2^>nul`) do (
-    set "EXPECTED_SHA=%%H"
+echo [Kykloi] Querying manifest definitions for %TARGET%...
+:: Atomic single-process extraction to avoid multi-invocation latency
+for /f "usebackq tokens=1,2* delims=|" %%A in (`powershell -NoProfile -Command "$m=(Get-Content -Raw '%MANIFEST_PATH%' | ConvertFrom-Json).tools.python.targets.'%TARGET%'; if($m){Write-Output ($m.archive + '|' + $m.sha256 + '|' + $m.url)}" 2^>nul`) do (
+    set "ARCHIVE_NAME=%%A"
+    set "EXPECTED_SHA=%%B"
+    set "DOWNLOAD_URL=%%C"
 )
 
-if "%EXPECTED_SHA%"=="" (
-    echo [FATAL] Failed to extract SHA-256 definition from %MANIFEST_PATH%
+if "%ARCHIVE_NAME%"=="" (
+    echo [FATAL] Failed to extract manifest parameters for target %TARGET%
     pause
     exit /b 1
 )
 
-echo [Kykloi] Verifying SHA-256 checksum for %ARCHIVE_PY%...
+set "ARCHIVE_PY=%SCRIPT_DIR%system\tools\archives\%ARCHIVE_NAME%"
+
+if not exist "%ARCHIVE_PY%" (
+    echo [Kykloi] Pre-packaged archive not found locally: %ARCHIVE_NAME%
+    echo [Kykloi] Attempting automatic download...
+    if not exist "%SCRIPT_DIR%system\tools\archives" mkdir "%SCRIPT_DIR%system\tools\archives"
+    powershell -NoProfile -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; (New-Object Net.WebClient).DownloadFile('%DOWNLOAD_URL%', '%ARCHIVE_PY%')"
+    if not exist "%ARCHIVE_PY%" (
+        echo [FATAL] Download failed from: %DOWNLOAD_URL%
+        pause
+        exit /b 1
+    )
+)
+
+echo [Kykloi] Verifying SHA-256 checksum for %ARCHIVE_NAME%...
 for /f "skip=1 tokens=*" %%H in ('certutil -hashfile "%ARCHIVE_PY%" SHA256 2^>nul') do (
     set "RAW_HASH=%%H"
     goto :hash_extracted
@@ -92,7 +109,7 @@ for /f "skip=1 tokens=*" %%H in ('certutil -hashfile "%ARCHIVE_PY%" SHA256 2^>nu
 set "ACTUAL_SHA=!RAW_HASH: =!"
 
 if /i not "!ACTUAL_SHA!"=="!EXPECTED_SHA!" (
-    echo [FATAL] Checksum verification failed for %ARCHIVE_PY%
+    echo [FATAL] Checksum verification failed for %ARCHIVE_NAME%
     echo         Expected: !EXPECTED_SHA!
     echo         Actual:   !ACTUAL_SHA!
     pause

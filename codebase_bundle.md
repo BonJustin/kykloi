@@ -62,6 +62,7 @@ kykloi/
 │   │   │   ├── python-macos-x86_64.tar.gz
 │   │   │   ├── python-windows-arm64.tar.gz.tar.gz
 │   │   │   └── python-windows-x86_64.tar.gz
+│   │   ├── tools_manifest copy.json
 │   │   └── tools_manifest.json
 │   └── launch.py
 ├── .gitignore
@@ -1883,28 +1884,29 @@ def resolve_pandoc_binary(root_dir: Path) -> str:
 
     archives_dir = root_dir / "system" / "tools" / "archives"
     manifest_path = root_dir / "system" / "tools" / "tools_manifest.json"
-    ext = "zip" if system in ("windows", "darwin") else "tar.gz"
-    archive_path = archives_dir / f"pandoc-{pandoc_target}.{ext}"
     stamp_file = runtime_dir / ".verified_sha256"
 
     if pandoc_bin.is_file() and stamp_file.is_file():
         return str(pandoc_bin.resolve())
 
+    if not manifest_path.is_file():
+        raise FileNotFoundError(f"Tools manifest missing at {manifest_path}")
+
+    try:
+        with open(manifest_path, "r", encoding="utf-8") as mf:
+            tools_manifest = json.load(mf)
+        target_info = tools_manifest["tools"]["pandoc"]["targets"][pandoc_target]
+        archive_name = target_info["archive"]
+        expected_hash = target_info["sha256"]
+    except (KeyError, json.JSONDecodeError) as err:
+        raise ValueError(
+            f"Failed to read Pandoc manifest definition for {pandoc_target}: {err}"
+        )
+
+    archive_path = archives_dir / archive_name
+    ext = "zip" if archive_name.endswith(".zip") else "tar.gz"
+
     if archive_path.is_file():
-        if not manifest_path.is_file():
-            raise FileNotFoundError(f"Tools manifest missing at {manifest_path}")
-
-        try:
-            with open(manifest_path, "r", encoding="utf-8") as mf:
-                tools_manifest = json.load(mf)
-            expected_hash = tools_manifest["tools"]["pandoc"]["targets"][pandoc_target][
-                "sha256"
-            ]
-        except (KeyError, json.JSONDecodeError) as err:
-            raise ValueError(
-                f"Failed to read Pandoc expected hash for {pandoc_target} from manifest: {err}"
-            )
-
         logging.info("Verifying SHA-256 for %s...", archive_path.name)
         actual_hash = compute_file_hash(archive_path)
         if actual_hash != expected_hash:
@@ -2819,30 +2821,35 @@ end
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "description": "Kykloi Offline Appliance Toolchain Manifest",
-  "version": "1.0",
+  "version": "1.1",
   "tools": {
     "pandoc": {
       "version": "3.14",
       "upstream": "https://github.com/jgm/pandoc/releases/tag/3.14",
       "targets": {
         "linux-x86_64": {
-          "archive": "pandoc-linux-x86_64.tar.gz",
+          "archive": "pandoc-3.14-linux-amd64.tar.gz",
+          "url": "https://github.com/jgm/pandoc/releases/download/3.14/pandoc-3.14-linux-amd64.tar.gz",
           "sha256": "c5f4720cdefb3f7bdc5d07202ef579feef0d1370773c873804dd8fdaa8c4f1b8"
         },
         "linux-arm64": {
-          "archive": "pandoc-linux-arm64.tar.gz",
+          "archive": "pandoc-3.14-linux-arm64.tar.gz",
+          "url": "https://github.com/jgm/pandoc/releases/download/3.14/pandoc-3.14-linux-arm64.tar.gz",
           "sha256": "c692f3d78a415741bbbac4cdbbbe26fa7edca1f43d2301b982fbf4009cc8cf7f"
         },
         "macos-arm64": {
-          "archive": "pandoc-macos-arm64.zip",
+          "archive": "pandoc-3.14-arm64-macOS.zip",
+          "url": "https://github.com/jgm/pandoc/releases/download/3.14/pandoc-3.14-arm64-macOS.zip",
           "sha256": "58d6593884fec9d4424b641b92503c316d9c36decb2891ff8d73ae74dd3b6304"
         },
         "macos-x86_64": {
-          "archive": "pandoc-macos-x86_64.zip",
+          "archive": "pandoc-3.14-x86_64-macOS.zip",
+          "url": "https://github.com/jgm/pandoc/releases/download/3.14/pandoc-3.14-x86_64-macOS.zip",
           "sha256": "891708579061e7b1c1a6ce0df30ebb3cb2b6d0ca045ed3c8554ab830c1e0c270"
         },
         "windows-x86_64": {
-          "archive": "pandoc-windows-x86_64.zip",
+          "archive": "pandoc-3.14-windows-x86_64.zip",
+          "url": "https://github.com/jgm/pandoc/releases/download/3.14/pandoc-3.14-windows-x86_64.zip",
           "sha256": "0144b96e8c7b023fd382ec5ef5bdc475e873f1019d6fa72502492df2c9a94a3b"
         }
       }
@@ -2852,35 +2859,43 @@ end
       "upstream": "https://github.com/astral-sh/python-build-standalone/releases/tag/20261110",
       "targets": {
         "linux-x86_64": {
-          "archive": "python-linux-x86_64.tar.gz",
+          "archive": "cpython-3.12.16+20261110-x86_64-unknown-linux-gnu-install_only.tar.gz",
+          "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261110/cpython-3.12.16+20261110-x86_64-unknown-linux-gnu-install_only.tar.gz",
           "sha256": "c6648466ed3e4916a4d641d6cf0807b12a33a1e5a29d487fbbad0ea3b8541e20"
         },
         "linux-arm64": {
-          "archive": "python-linux-arm64.tar.gz",
+          "archive": "cpython-3.12.16+20261110-aarch64-unknown-linux-gnu-install_only.tar.gz",
+          "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261110/cpython-3.12.16+20261110-aarch64-unknown-linux-gnu-install_only.tar.gz",
           "sha256": "b6a41defec4975d94b4ff1950236e7383e5c02ba40ea48c9ec33c66087a35aab"
         },
         "macos-arm64": {
-          "archive": "python-macos-arm64.tar.gz",
+          "archive": "cpython-3.12.16+20261110-aarch64-apple-darwin-install_only.tar.gz",
+          "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261110/cpython-3.12.16+20261110-aarch64-apple-darwin-install_only.tar.gz",
           "sha256": "2f11b8aa3726bdbd87dd9eb76568412faddf4f47e26913fa45d6a2e424972acd"
         },
         "macos-x86_64": {
-          "archive": "python-macos-x86_64.tar.gz",
+          "archive": "cpython-3.12.16+20261110-x86_64-apple-darwin-install_only.tar.gz",
+          "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261110/cpython-3.12.16+20261110-x86_64-apple-darwin-install_only.tar.gz",
           "sha256": "b78a4c479f1964ec484880bee567568266f68da102269fb93a05fe8716b45f91"
         },
         "windows-x86_64": {
-          "archive": "python-windows-x86_64.tar.gz",
+          "archive": "cpython-3.12.16+20261110-x86_64-pc-windows-msvc-install_only.tar.gz",
+          "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261110/cpython-3.12.16+20261110-x86_64-pc-windows-msvc-install_only.tar.gz",
           "sha256": "355ee61b8207b91574491b1c6dc9b0ebb4408fc56bfafe498f3ef439314b52dc"
         },
         "linux-arm64-musl": {
-          "archive": "python-linux-arm64-musl.tar.gz",
+          "archive": "cpython-3.12.16+20261110-aarch64-unknown-linux-musl-install_only.tar.gz",
+          "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261110/cpython-3.12.16+20261110-aarch64-unknown-linux-musl-install_only.tar.gz",
           "sha256": "64bb304e59d5d6ed5eaae24e95e743a2420a8897d2f6c854b1438ff9cb47e432"
         },
         "linux-x86_64-musl": {
-          "archive": "python-linux-x86_64-musl.tar.gz",
+          "archive": "cpython-3.12.16+20261110-x86_64-unknown-linux-musl-install_only.tar.gz",
+          "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261110/cpython-3.12.16+20261110-x86_64-unknown-linux-musl-install_only.tar.gz",
           "sha256": "e32685cf248d2f33b249816120774143b4b57578cb30de5b8dba3e54963765c3"
         },
         "windows-arm64": {
-          "archive": "python-windows-arm64.tar.gz",
+          "archive": "cpython-3.12.16+20261110-aarch64-pc-windows-msvc-install_only.tar.gz",
+          "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261110/cpython-3.12.16+20261110-aarch64-pc-windows-msvc-install_only.tar.gz",
           "sha256": "c1b334c7b1db8f962b37a333d8362cab0ba7ebda1a7cce917fae56a1e0c8cbe7"
         }
       }
@@ -3287,7 +3302,6 @@ set "TARGET=windows-x86_64"
 if /i "%PROCESSOR_ARCHITECTURE%"=="ARM64" set "TARGET=windows-arm64"
 if /i "%PROCESSOR_ARCHITEW6432%"=="ARM64" set "TARGET=windows-arm64"
 
-set "ARCHIVE_PY=%SCRIPT_DIR%system\tools\archives\python-%TARGET%.tar.gz"
 set "MANIFEST_PATH=%SCRIPT_DIR%system\tools\tools_manifest.json"
 set "RUNTIME_ROOT=%TEMP%\kykloi_runtime_%TARGET%"
 set "LOCAL_PY=%RUNTIME_ROOT%\python.exe"
@@ -3298,31 +3312,41 @@ if not exist "%STAMP_FILE%" goto :hydrate_runtime
 goto :execute_runtime
 
 :hydrate_runtime
-if not exist "%ARCHIVE_PY%" (
-    echo [FATAL] Python ^>= %REQ_MAJ%.%REQ_MIN% not detected on host, and fallback archive missing:
-    echo         %ARCHIVE_PY%
-    pause
-    exit /b 1
-)
-
 if not exist "%MANIFEST_PATH%" (
     echo [FATAL] Tool manifest missing: %MANIFEST_PATH%
     pause
     exit /b 1
 )
 
-echo [Kykloi] Querying manifest hash for python-%TARGET%.tar.gz...
-for /f "usebackq delims=" %%H in (`powershell -NoProfile -Command "(Get-Content -Raw '%MANIFEST_PATH%' | ConvertFrom-Json).tools.python.targets.'%TARGET%'.sha256" 2^>nul`) do (
-    set "EXPECTED_SHA=%%H"
+echo [Kykloi] Querying manifest definitions for %TARGET%...
+:: Atomic single-process extraction to avoid multi-invocation latency
+for /f "usebackq tokens=1,2* delims=|" %%A in (`powershell -NoProfile -Command "$m=(Get-Content -Raw '%MANIFEST_PATH%' | ConvertFrom-Json).tools.python.targets.'%TARGET%'; if($m){Write-Output ($m.archive + '|' + $m.sha256 + '|' + $m.url)}" 2^>nul`) do (
+    set "ARCHIVE_NAME=%%A"
+    set "EXPECTED_SHA=%%B"
+    set "DOWNLOAD_URL=%%C"
 )
 
-if "%EXPECTED_SHA%"=="" (
-    echo [FATAL] Failed to extract SHA-256 definition from %MANIFEST_PATH%
+if "%ARCHIVE_NAME%"=="" (
+    echo [FATAL] Failed to extract manifest parameters for target %TARGET%
     pause
     exit /b 1
 )
 
-echo [Kykloi] Verifying SHA-256 checksum for %ARCHIVE_PY%...
+set "ARCHIVE_PY=%SCRIPT_DIR%system\tools\archives\%ARCHIVE_NAME%"
+
+if not exist "%ARCHIVE_PY%" (
+    echo [Kykloi] Pre-packaged archive not found locally: %ARCHIVE_NAME%
+    echo [Kykloi] Attempting automatic download...
+    if not exist "%SCRIPT_DIR%system\tools\archives" mkdir "%SCRIPT_DIR%system\tools\archives"
+    powershell -NoProfile -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; (New-Object Net.WebClient).DownloadFile('%DOWNLOAD_URL%', '%ARCHIVE_PY%')"
+    if not exist "%ARCHIVE_PY%" (
+        echo [FATAL] Download failed from: %DOWNLOAD_URL%
+        pause
+        exit /b 1
+    )
+)
+
+echo [Kykloi] Verifying SHA-256 checksum for %ARCHIVE_NAME%...
 for /f "skip=1 tokens=*" %%H in ('certutil -hashfile "%ARCHIVE_PY%" SHA256 2^>nul') do (
     set "RAW_HASH=%%H"
     goto :hash_extracted
@@ -3331,7 +3355,7 @@ for /f "skip=1 tokens=*" %%H in ('certutil -hashfile "%ARCHIVE_PY%" SHA256 2^>nu
 set "ACTUAL_SHA=!RAW_HASH: =!"
 
 if /i not "!ACTUAL_SHA!"=="!EXPECTED_SHA!" (
-    echo [FATAL] Checksum verification failed for %ARCHIVE_PY%
+    echo [FATAL] Checksum verification failed for %ARCHIVE_NAME%
     echo         Expected: !EXPECTED_SHA!
     echo         Actual:   !ACTUAL_SHA!
     pause
@@ -3456,12 +3480,20 @@ case "$OS" in
 esac
 
 # ---------------------------------------------------------------------------
-# 3. HYDRATE RUNTIME TO LOCAL TEMPORARY STORAGE (WITH SHA-256 VERIFICATION)
+# 3. HYDRATE RUNTIME TO LOCAL STORAGE (WITH SHA-256 VERIFICATION)
 # ---------------------------------------------------------------------------
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-ARCHIVE_PY="$SCRIPT_DIR/system/tools/archives/python-${TARGET}.tar.gz"
 MANIFEST_PATH="$SCRIPT_DIR/system/tools/tools_manifest.json"
-RUNTIME_ROOT="/tmp/kykloi_runtime_${TARGET}"
+
+# Support hardened systems where /tmp is mounted noexec
+BASE_RUNTIME="/tmp"
+if [ -n "$XDG_RUNTIME_DIR" ] && [ -w "$XDG_RUNTIME_DIR" ]; then
+    BASE_RUNTIME="$XDG_RUNTIME_DIR"
+elif [ -d "$HOME/.cache" ] && [ -w "$HOME/.cache" ]; then
+    BASE_RUNTIME="$HOME/.cache"
+fi
+
+RUNTIME_ROOT="${BASE_RUNTIME}/kykloi_runtime_${TARGET}"
 LOCAL_PY="$RUNTIME_ROOT/bin/python3"
 STAMP_FILE="$RUNTIME_ROOT/.verified_sha256"
 
@@ -3479,35 +3511,53 @@ compute_sha256() {
     fi
 }
 
-extract_expected_hash() {
-    archive_name="$1"
-    manifest="$2"
-    sed -n "/\"${archive_name}\"/,/}/p" "$manifest" | grep '"sha256"' | head -n 1 | sed -E 's/.*"sha256":[[:space:]]*"([^"]+)".*/\1/'
+extract_python_field() {
+    target="$1"
+    field="$2"
+    manifest="$3"
+    # Isolate specifically within the "python" section to prevent collision with pandoc targets
+    sed -n '/"python":/,/"tools":/p' "$manifest" | \
+        sed -n "/\"${target}\":/,/}/p" | \
+        grep "\"${field}\"" | head -n 1 | \
+        sed -E "s/.*\"${field}\":[[:space:]]*\"([^\"]+)\".*/\1/"
 }
 
 if [ ! -f "$LOCAL_PY" ] || [ ! -f "$STAMP_FILE" ]; then
-    if [ ! -f "$ARCHIVE_PY" ]; then
-        echo "[FATAL] Python >= ${REQ_MAJ}.${REQ_MIN} missing on host, and fallback archive not found at:" >&2
-        echo "        $ARCHIVE_PY" >&2
-        exit 1
-    fi
-
     if [ ! -f "$MANIFEST_PATH" ]; then
         echo "[FATAL] Verification manifest missing at: $MANIFEST_PATH" >&2
         exit 1
     fi
 
-    EXPECTED_SHA=$(extract_expected_hash "python-${TARGET}.tar.gz" "$MANIFEST_PATH")
-    if [ -z "$EXPECTED_SHA" ]; then
-        echo "[FATAL] Could not locate SHA-256 definition for python-${TARGET}.tar.gz in manifest." >&2
+    ARCHIVE_NAME=$(extract_python_field "$TARGET" "archive" "$MANIFEST_PATH")
+    EXPECTED_SHA=$(extract_python_field "$TARGET" "sha256" "$MANIFEST_PATH")
+    DOWNLOAD_URL=$(extract_python_field "$TARGET" "url" "$MANIFEST_PATH")
+
+    if [ -z "$ARCHIVE_NAME" ] || [ -z "$EXPECTED_SHA" ]; then
+        echo "[FATAL] Target ${TARGET} not found in manifest python definitions." >&2
         exit 1
     fi
 
-    echo "[Kykloi] Verifying SHA-256 for python-${TARGET}.tar.gz..."
+    ARCHIVE_PY="$SCRIPT_DIR/system/tools/archives/$ARCHIVE_NAME"
+
+    if [ ! -f "$ARCHIVE_PY" ]; then
+        echo "[Kykloi] Pre-packaged archive not found locally: $ARCHIVE_NAME"
+        echo "[Kykloi] Attempting automatic download..."
+        mkdir -p "$SCRIPT_DIR/system/tools/archives"
+        if command -v curl >/dev/null 2>&1; then
+            curl -fSL "$DOWNLOAD_URL" -o "$ARCHIVE_PY"
+        elif command -v wget >/dev/null 2>&1; then
+            wget "$DOWNLOAD_URL" -O "$ARCHIVE_PY"
+        else
+            echo "[FATAL] No network downloader (curl, wget) available and local archive missing." >&2
+            exit 1
+        fi
+    fi
+
+    echo "[Kykloi] Verifying SHA-256 for $ARCHIVE_NAME..."
     ACTUAL_SHA=$(compute_sha256 "$ARCHIVE_PY")
 
     if [ "$ACTUAL_SHA" != "$EXPECTED_SHA" ]; then
-        echo "[FATAL] Checksum verification failed for $ARCHIVE_PY" >&2
+        echo "[FATAL] Checksum verification failed for $ARCHIVE_NAME" >&2
         echo "        Expected: $EXPECTED_SHA" >&2
         echo "        Actual:   $ACTUAL_SHA" >&2
         exit 1

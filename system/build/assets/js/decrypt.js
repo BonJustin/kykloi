@@ -33,7 +33,7 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    const mathElements = container.getElementsByClassName("math");
+    const mathElements = container.querySelectorAll(".math");
     for (let i = 0; i < mathElements.length; i++) {
       const el = mathElements[i];
       let tex = el.textContent.trim();

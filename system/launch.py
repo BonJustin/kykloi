@@ -65,11 +65,14 @@ class KykloiVaultHandler(http.server.BaseHTTPRequestHandler):
         clean_path = urllib.parse.unquote(parsed.path)
 
         if not DIST_DIR.exists() or not any(DIST_DIR.iterdir()):
+            body = b"Vault unbuilt. Run compilation in CLI.\n"
             self.send_response(503)
             self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Connection", "close")
             self.end_headers()
             if send_body:
-                self.wfile.write(b"Vault unbuilt. Run compilation in CLI.\n")
+                self.wfile.write(body)
             return
 
         target_file = self._translate_dist_path(clean_path)
@@ -160,6 +163,8 @@ class KykloiVaultHandler(http.server.BaseHTTPRequestHandler):
     def _send_416(self, file_size: int):
         self.send_response(416)
         self.send_header("Content-Range", f"bytes */{file_size}")
+        self.send_header("Content-Length", "0")
+        self.send_header("Connection", "close")
         self.end_headers()
 
     def _stream_slice(self, filepath: str, start: int, length: int):
@@ -222,8 +227,12 @@ def execute_build(clean: bool = False, passphrase: str | None = None) -> int:
     if passphrase:
         cmd.extend(["--password", passphrase])
 
+    masked_cmd = [
+        "********" if i > 0 and cmd[i - 1] == "--password" else arg
+        for i, arg in enumerate(cmd)
+    ]
     print("\n" + "-" * 60)
-    print(f"[Compiler] Executing: {' '.join(cmd)}")
+    print(f"[Compiler] Executing: {' '.join(masked_cmd)}")
     print("-" * 60)
 
     res = subprocess.run(cmd, cwd=str(ROOT_DIR))
