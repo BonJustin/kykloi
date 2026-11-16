@@ -6,7 +6,6 @@ Features CLI argument parsing, defensive MIME registration, and IPC vault orches
 
 import argparse
 import http.server
-import json
 import mimetypes
 
 # ===========================================================================
@@ -18,14 +17,12 @@ import socketserver
 import subprocess
 import sys
 import threading
-import time
 import urllib.parse
 import webbrowser
 from pathlib import Path
 
 SYSTEM_DIR = Path(__file__).resolve().parent
 ROOT_DIR = SYSTEM_DIR.parent
-ADMIN_DIR = SYSTEM_DIR / "admin"
 DIST_DIR = ROOT_DIR / "dist"
 BUILD_SCRIPT = SYSTEM_DIR / "build" / "build_site.py"
 
@@ -38,77 +35,41 @@ mimetypes.add_type("image/svg+xml", ".svg")
 mimetypes.add_type("text/css", ".css")
 mimetypes.add_type("application/javascript", ".js")
 
-BUILD_LOCK = threading.Lock()
 RANGE_REGEX = re.compile(r"^bytes=(\d*)-(\d*)$")
 
 # ===========================================================================
-# 2. UNIFIED REQUEST HANDLER & IPC ENGINE
+# 2. VAULT STATIC SERVER HANDLER
 # ===========================================================================
 
 
-class KykloiApplianceHandler(http.server.BaseHTTPRequestHandler):
-    server_version = "KykloiAppliance/0.5"
+class KykloiVaultHandler(http.server.BaseHTTPRequestHandler):
+    server_version = "KykloiServer/0.6"
     protocol_version = "HTTP/1.1"
 
     def guess_mime(self, filepath: str) -> str:
         mime, _ = mimetypes.guess_type(filepath)
         return mime or "application/octet-stream"
 
-    # -----------------------------------------------------------------------
-    # ROUTING DISPATCH
-    # -----------------------------------------------------------------------
+    def log_message(self, format: str, *args):
+        # Silence access logs to keep the interactive CLI uncluttered
+        pass
+
     def do_HEAD(self):
         self._dispatch_get(send_body=False)
 
     def do_GET(self):
         self._dispatch_get(send_body=True)
 
-    def do_POST(self):
-        clean_path = urllib.parse.urlsplit(self.path).path
-        if clean_path == "/api/build":
-            self._handle_build_ipc()
-            return
-        if clean_path == "/api/shutdown":
-            self._handle_shutdown_ipc()
-            return
-        self.send_error(404, "Unknown API Endpoint")
-
     def _dispatch_get(self, send_body: bool):
         parsed = urllib.parse.urlsplit(self.path)
         clean_path = urllib.parse.unquote(parsed.path)
 
-        # 1. Admin UI Namespace
-        if clean_path == "/admin":
-            self.send_response(302)
-            self.send_header("Location", "/admin/")
-            self.end_headers()
-            return
-
-        if clean_path.startswith("/admin/"):
-            rel_admin = clean_path[len("/admin/") :]
-            if rel_admin in ("", "index.html"):
-                target = ADMIN_DIR / "admin.html"
-            else:
-                target = (ADMIN_DIR / rel_admin).resolve()
-
-            try:
-                target.relative_to(ADMIN_DIR.resolve())
-            except ValueError:
-                self.send_error(403, "Forbidden")
-                return
-
-            if not target.is_file():
-                self.send_error(404, "Admin Asset Not Found")
-                return
-
-            self._serve_static_file(str(target), send_body)
-            return
-
-        # 2. Vault Dist Namespace
         if not DIST_DIR.exists() or not any(DIST_DIR.iterdir()):
-            self.send_response(302)
-            self.send_header("Location", "/admin/")
+            self.send_response(503)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
             self.end_headers()
+            if send_body:
+                self.wfile.write(b"Vault unbuilt. Run compilation in CLI.\n")
             return
 
         target_file = self._translate_dist_path(clean_path)
@@ -118,9 +79,6 @@ class KykloiApplianceHandler(http.server.BaseHTTPRequestHandler):
 
         self._serve_static_file(target_file, send_body)
 
-    # -----------------------------------------------------------------------
-    # DIST FILE RESOLUTION & RFC 7233 RANGE STREAMING
-    # -----------------------------------------------------------------------
     def _translate_dist_path(self, clean_path: str) -> str | None:
         stripped = clean_path.lstrip("/")
         target = (DIST_DIR / stripped).resolve()
@@ -220,100 +178,9 @@ class KykloiApplianceHandler(http.server.BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError):
             pass
 
-    # -----------------------------------------------------------------------
-    # COMPILATION IPC
-    # -----------------------------------------------------------------------
-    def _send_chunk(self, data: bytes):
-        if not data:
-            return
-        chunk = f"{len(data):X}\r\n".encode("ascii") + data + b"\r\n"
-        self.wfile.write(chunk)
-        self.wfile.flush()
-
-    def _handle_build_ipc(self):
-        if not BUILD_LOCK.acquire(blocking=False):
-            self.send_response(409)
-            self.send_header("Content-Type", "text/plain; charset=utf-8")
-            msg = b"Conflict: A build process is already active. Request rejected.\n"
-            self.send_header("Content-Length", str(len(msg)))
-            self.send_header("Cache-Control", "no-cache")
-            self.end_headers()
-            self.wfile.write(msg)
-            return
-
-        try:
-            content_length = int(self.headers.get("Content-Length", 0))
-            body = (
-                self.rfile.read(content_length).decode("utf-8")
-                if content_length > 0
-                else "{}"
-            )
-
-            try:
-                params = json.loads(body)
-            except json.JSONDecodeError:
-                params = {}
-
-            flags = []
-            if params.get("clean"):
-                flags.append("--clean")
-            if params.get("verbose"):
-                flags.append("--verbose")
-            if params.get("password"):
-                flags.extend(["--password", str(params["password"])])
-
-            cmd = [sys.executable, "-u", str(BUILD_SCRIPT)] + flags
-
-            self.send_response(200)
-            self.send_header("Content-Type", "text/plain; charset=utf-8")
-            self.send_header("Transfer-Encoding", "chunked")
-            self.send_header("Cache-Control", "no-cache")
-            self.end_headers()
-
-            self._send_chunk(
-                f"[Kykloi IPC] Executing: {' '.join(cmd)}\n\n".encode("utf-8")
-            )
-
-            proc = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                stdin=subprocess.DEVNULL,
-                cwd=str(ROOT_DIR),
-                text=True,
-                bufsize=1,
-            )
-
-            try:
-                for line in iter(proc.stdout.readline, ""):
-                    self._send_chunk(line.encode("utf-8"))
-                proc.stdout.close()
-                code = proc.wait()
-                self._send_chunk(
-                    f"\n[Kykloi IPC] Build finished with exit code {code}.\n".encode(
-                        "utf-8"
-                    )
-                )
-            except (BrokenPipeError, ConnectionResetError):
-                proc.kill()
-            finally:
-                self.wfile.write(b"0\r\n\r\n")
-                self.wfile.flush()
-
-        finally:
-            BUILD_LOCK.release()
-
-    def _handle_shutdown_ipc(self):
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Cache-Control", "no-cache")
-        self.end_headers()
-        self.wfile.write(b'{"status":"shutting_down"}')
-        threading.Thread(target=self.server.shutdown, daemon=True).start()
-
 
 # ===========================================================================
-# 3. CLI & INITIALIZATION
+# 3. BACKGROUND SERVER ORCHESTRATION
 # ===========================================================================
 
 
@@ -322,70 +189,151 @@ class ThreadedServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
     daemon_threads = True
 
 
+def start_background_server(
+    host: str, start_port: int
+) -> tuple[ThreadedServer, int, str]:
+    max_attempts = 15
+    for offset in range(max_attempts):
+        candidate_port = start_port + offset
+        try:
+            server = ThreadedServer((host, candidate_port), KykloiVaultHandler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            url = f"http://{host}:{candidate_port}/"
+            return server, candidate_port, url
+        except OSError as e:
+            if e.errno in (98, 48, 10048):
+                continue
+            raise
+    raise RuntimeError(
+        f"Unable to bind to an open port between {start_port} and {start_port + max_attempts - 1}"
+    )
+
+
+# ===========================================================================
+# 4. COMPILER INVOCATION & INTERACTIVE CLI
+# ===========================================================================
+
+
+def execute_build(clean: bool = False, passphrase: str | None = None) -> int:
+    cmd = [sys.executable, str(BUILD_SCRIPT)]
+    if clean:
+        cmd.append("--clean")
+    if passphrase:
+        cmd.extend(["--password", passphrase])
+
+    print("\n" + "-" * 60)
+    print(f"[Compiler] Executing: {' '.join(cmd)}")
+    print("-" * 60)
+
+    res = subprocess.run(cmd, cwd=str(ROOT_DIR))
+    print("-" * 60)
+    return res.returncode
+
+
 def parse_args():
-    p = argparse.ArgumentParser(description="Kykloi Appliance Daemon.")
+    p = argparse.ArgumentParser(description="Kykloi Vault Engine & Local Appliance.")
     p.add_argument(
         "--host",
         type=str,
         default="127.0.0.1",
         help="Bind interface (default: 127.0.0.1)",
     )
-    p.add_argument("--port", type=int, default=8000, help="Start port (default: 8000)")
+    p.add_argument("--port", type=int, default=8000, help="Base port (default: 8000)")
+    p.add_argument("--build", action="store_true", help="Compile and exit immediately.")
     p.add_argument(
-        "--browser",
+        "--clean",
         action="store_true",
-        help="Launch browser upon startup (defaults to headless).",
+        help="Perform clean rebuild when combined with --build.",
+    )
+    p.add_argument(
+        "--password",
+        type=str,
+        default=os.environ.get("KYKLOI_ENCRYPT_KEY"),
+        help="Passphrase for /secure/ notes.",
     )
     return p.parse_args()
+
+
+def interactive_menu(vault_url: str, initial_password: str | None):
+    session_password = initial_password
+
+    while True:
+        vault_ready = DIST_DIR.exists() and any(DIST_DIR.iterdir())
+        status_line = (
+            f"Vault: Ready ({vault_url})" if vault_ready else "Vault: Not Compiled"
+        )
+        pw_status = "Set" if session_password else "Not Set"
+
+        print("\n==================== KYKLOI CONTROL PLANE ====================")
+        print(f"  Status:     {status_line}")
+        print(f"  Passphrase: [{pw_status}]")
+        print("==============================================================")
+        print("  [1] Compile Site (Incremental)")
+        print("  [2] Rebuild Site (Clean Purge)")
+        print("  [3] Set / Update Secure Passphrase")
+        print("  [4] Open Vault in Default Browser")
+        print("  [0] Exit")
+        print("==============================================================")
+
+        try:
+            choice = input("Select an option [0-4]: ").strip()
+        except (KeyboardInterrupt, EOFError):
+            print("\n")
+            break
+
+        if choice == "1":
+            execute_build(clean=False, passphrase=session_password)
+        elif choice == "2":
+            execute_build(clean=True, passphrase=session_password)
+        elif choice == "3":
+            import getpass
+
+            try:
+                pw = getpass.getpass(
+                    "Enter passphrase for /secure/ notes (leave empty to clear): "
+                )
+                session_password = pw.strip() or None
+                if session_password:
+                    print("[Config] Passphrase stored in active session memory.")
+                else:
+                    print("[Config] Passphrase cleared.")
+            except (KeyboardInterrupt, EOFError):
+                print("\n[Config] Passphrase entry cancelled.")
+        elif choice == "4":
+            if not vault_ready:
+                print("\n[!] Vault must be compiled before opening in browser.")
+            else:
+                print(f"\n[Browser] Opening {vault_url} ...")
+                webbrowser.open(vault_url)
+        elif choice == "0":
+            break
+        else:
+            print("\n[!] Invalid selection.")
 
 
 def main():
     args = parse_args()
 
-    if not ADMIN_DIR.exists() or not (ADMIN_DIR / "admin.html").is_file():
-        sys.stderr.write(f"[FATAL] Admin UI missing in {ADMIN_DIR}\n")
+    # Headless execution bypass
+    if args.build:
+        code = execute_build(clean=args.clean, passphrase=args.password)
+        sys.exit(code)
+
+    # Start background daemon
+    try:
+        server, port, vault_url = start_background_server(args.host, args.port)
+    except Exception as err:
+        sys.stderr.write(f"[FATAL] Server initialization failed: {err}\n")
         sys.exit(1)
-
-    server = None
-    port = args.port
-    max_attempts = 15
-
-    for offset in range(max_attempts):
-        candidate_port = port + offset
-        try:
-            server = ThreadedServer((args.host, candidate_port), KykloiApplianceHandler)
-            port = candidate_port
-            break
-        except OSError as e:
-            if e.errno in (98, 48, 10048):
-                continue
-            raise
-
-    if server is None:
-        sys.stderr.write("[FATAL] Could not bind to an open port.\n")
-        sys.exit(1)
-
-    admin_url = f"http://{args.host}:{port}/admin/"
-    vault_url = f"http://{args.host}:{port}/"
-
-    print("=" * 64)
-    print("  Project Kykloi — Unified Appliance Daemon")
-    print(f"  Admin:  {admin_url}")
-    print(f"  Vault:  {vault_url}")
-    print(f"  Mode:   {'Browser' if args.browser else 'Headless'}")
-    print("=" * 64)
-
-    if args.browser:
-        threading.Thread(
-            target=lambda: (time.sleep(0.3), webbrowser.open(admin_url)), daemon=True
-        ).start()
 
     try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        print("\n[Kykloi] Shutting down appliance daemon...")
+        interactive_menu(vault_url, args.password)
     finally:
+        print("\n[Kykloi] Shutting down local server and closing ports...")
+        server.shutdown()
         server.server_close()
+        print("[Kykloi] Shutdown complete.")
 
 
 if __name__ == "__main__":
