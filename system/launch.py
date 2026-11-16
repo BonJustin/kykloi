@@ -324,12 +324,10 @@ def interactive_menu(vault_url: str, initial_password: str | None):
 def main():
     args = parse_args()
 
-    # Headless execution bypass
     if args.build:
         code = execute_build(clean=args.clean, passphrase=args.password)
         sys.exit(code)
 
-    # Start background daemon
     try:
         server, port, vault_url = start_background_server(args.host, args.port)
     except Exception as err:

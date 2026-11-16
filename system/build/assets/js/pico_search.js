@@ -1,4 +1,3 @@
-/* pico_search.js - Kykloi SQLite3 FTS5 Search Hub Driver */
 "use strict";
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -28,7 +27,6 @@ document.addEventListener("DOMContentLoaded", () => {
         const { type, query, searchId, hits, hasMore, isDefault, error } = e.data || {};
 
         if (type === "ready") {
-          // Immediately display the 50 most recent notes upon initialization
           if (bodyInput.value.trim() === "") {
             dispatchSearch("", bodyResults);
           }
@@ -137,7 +135,6 @@ document.addEventListener("DOMContentLoaded", () => {
     debouncedSearch(e.target.value, bodyResults);
   });
 
-  // Handle nav search button click on index page
   if (navSearchBtn) {
     navSearchBtn.addEventListener("click", (e) => {
       e.preventDefault();
@@ -146,17 +143,14 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // Handle focus request if navigated from a note with ?focus=1
   if (window.location.search.includes("focus=1")) {
     bodyInput.focus();
   }
 
-  // Desktop default focus on load
   if (window.innerWidth > 768) {
     bodyInput.focus();
   }
 
-  // Keyboard shortcuts (/ or Ctrl+K / Cmd+K to focus search on index)
   window.addEventListener("keydown", (e) => {
     const isModifierK = (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k";
     const isSlash = e.key === "/" && !["INPUT", "TEXTAREA"].includes(document.activeElement?.tagName);
@@ -168,6 +162,5 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  // Pre-initialize background worker
   initWorker();
 });

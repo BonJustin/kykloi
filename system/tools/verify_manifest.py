@@ -97,7 +97,6 @@ def main():
                 }
             )
 
-    # Render summary table
     print(f"\nTarget Manifest: {manifest_file.relative_to(TOOLS_DIR.parent.parent)}")
     print(f"Archives Source: {archives_dir.relative_to(TOOLS_DIR.parent.parent)}\n")
     print(f"{'STATUS':<10} {'TOOL/TARGET':<30} {'ARCHIVE':<45}")

@@ -691,7 +691,6 @@ def resolve_pandoc_binary(root_dir: Path) -> str:
                             stamp_file.write_text(actual_hash, encoding="utf-8")
                             return str(target_file.resolve())
 
-    # Fall back to host system PATH only if local archive is not packaged
     sys_pandoc = shutil.which("pandoc")
     if sys_pandoc:
         return sys_pandoc

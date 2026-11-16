@@ -1,7 +1,3 @@
--- translate_links.lua
--- 1. Rewrites relative markdown links (.md) to HTML (.html)
--- 2. Appends .enc to media targets and tags attributes when KYKLOI_SECURE_BUILD is active
-
 local is_secure = os.getenv("KYKLOI_SECURE_BUILD") == "1"
 
 local function is_external(url)
