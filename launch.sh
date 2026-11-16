@@ -24,16 +24,63 @@ if [ "$USE_HOST_PY" -eq 1 ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# 2. RESOLVE PLATFORM TARGET IDENTIFIER
+# 2. RESOLVE PLATFORM TARGET IDENTIFIER (GNU vs MUSL DETECTION)
 # ---------------------------------------------------------------------------
 OS="$(uname -s)"
 ARCH="$(uname -m)"
 
+detect_linux_libc() {
+    # 1. Allow explicit user override
+    if [ -n "$KYKLOI_LIBC" ]; then
+        echo "$KYKLOI_LIBC"
+        return
+    fi
+
+    # 2. Check for glibc via getconf (standard on Fedora, Debian, Ubuntu, etc.)
+    if getconf GNU_LIBC_VERSION >/dev/null 2>&1; then
+        echo "gnu"
+        return
+    fi
+
+    # 3. Check ldd signature
+    if ldd --version 2>&1 | grep -iq "glibc\|gnu"; then
+        echo "gnu"
+        return
+    fi
+
+    if ldd --version 2>&1 | grep -iq "musl"; then
+        echo "musl"
+        return
+    fi
+
+    # 4. Check for dynamic linkers in /lib or /lib64
+    if ls /lib/ld-musl-*.so* >/dev/null 2>&1 || ls /lib64/ld-musl-*.so* >/dev/null 2>&1; then
+        echo "musl"
+        return
+    fi
+
+    # 5. Default to GNU
+    echo "gnu"
+}
+
 case "$OS" in
     Linux)
+        LIBC="$(detect_linux_libc)"
         case "$ARCH" in
-            x86_64)        TARGET="linux-x86_64" ;;
-            aarch64|arm64) TARGET="linux-arm64" ;;
+            x86_64)
+                if [ "$LIBC" = "musl" ]; then
+                    TARGET="linux-x86_64-musl"
+                else
+                    TARGET="linux-x86_64"
+                fi
+                ;;
+            aarch64|arm64)
+                if [ "$LIBC" = "musl" ]; then
+                    TARGET="linux-arm64-musl"
+                else
+                    TARGET="linux-arm64"
+                fi
+                ;;
             *) echo "[FATAL] Unsupported Linux architecture: $ARCH" >&2; exit 1 ;;
         esac
         ;;

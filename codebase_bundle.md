@@ -54,10 +54,13 @@ kykloi/
 │   │   │   ├── pandoc-macos-arm64.zip
 │   │   │   ├── pandoc-macos-x86_64.zip
 │   │   │   ├── pandoc-windows-x86_64.zip
+│   │   │   ├── python-linux-arm64-musl.tar.gz
 │   │   │   ├── python-linux-arm64.tar.gz
+│   │   │   ├── python-linux-x86_64-musl.tar.gz
 │   │   │   ├── python-linux-x86_64.tar.gz
 │   │   │   ├── python-macos-arm64.tar.gz
 │   │   │   ├── python-macos-x86_64.tar.gz
+│   │   │   ├── python-windows-arm64.tar.gz.tar.gz
 │   │   │   └── python-windows-x86_64.tar.gz
 │   │   └── tools_manifest.json
 │   └── launch.py
@@ -65,6 +68,8 @@ kykloi/
 ├── .python-version
 ├── assemble_code_to_md.py
 ├── hash_generator.py
+├── launch copy.bat
+├── launch copy.sh
 ├── launch.bat
 ├── launch.sh
 ├── pyproject.toml
@@ -1655,7 +1660,12 @@ def _ghash_mult(x: int, y: int) -> int:
     return z
 
 
+_GHASH_TABLES_CACHE: dict[int, list[list[int]]] = {}
+
+
 def _init_ghash_tables(h: int) -> list[list[int]]:
+    if h in _GHASH_TABLES_CACHE:
+        return _GHASH_TABLES_CACHE[h]
     tables: list[list[int]] = []
     for j in range(16):
         shift = 8 * (15 - j)
@@ -1665,6 +1675,7 @@ def _init_ghash_tables(h: int) -> list[list[int]]:
             low_bit = (b & -b).bit_length() - 1
             table[b] = table[b & (b - 1)] ^ basis[low_bit]
         tables.append(table)
+    _GHASH_TABLES_CACHE[h] = tables
     return tables
 
 
@@ -1858,6 +1869,7 @@ def resolve_pandoc_binary(root_dir: Path) -> str:
         else ("arm64" if machine in ("arm64", "aarch64") else machine)
     )
     target = f"{'macos' if system == 'darwin' else system}-{arch}"
+    pandoc_target = "windows-x86_64" if target == "windows-arm64" else target
 
     if system == "windows":
         runtime_dir = Path(os.environ.get("TEMP", "/tmp")) / f"kykloi_runtime_{target}"
@@ -1872,7 +1884,7 @@ def resolve_pandoc_binary(root_dir: Path) -> str:
     archives_dir = root_dir / "system" / "tools" / "archives"
     manifest_path = root_dir / "system" / "tools" / "tools_manifest.json"
     ext = "zip" if system in ("windows", "darwin") else "tar.gz"
-    archive_path = archives_dir / f"pandoc-{target}.{ext}"
+    archive_path = archives_dir / f"pandoc-{pandoc_target}.{ext}"
     stamp_file = runtime_dir / ".verified_sha256"
 
     if pandoc_bin.is_file() and stamp_file.is_file():
@@ -1885,12 +1897,12 @@ def resolve_pandoc_binary(root_dir: Path) -> str:
         try:
             with open(manifest_path, "r", encoding="utf-8") as mf:
                 tools_manifest = json.load(mf)
-            expected_hash = tools_manifest["tools"]["pandoc"]["targets"][target][
+            expected_hash = tools_manifest["tools"]["pandoc"]["targets"][pandoc_target][
                 "sha256"
             ]
         except (KeyError, json.JSONDecodeError) as err:
             raise ValueError(
-                f"Failed to read Pandoc expected hash for {target} from manifest: {err}"
+                f"Failed to read Pandoc expected hash for {pandoc_target} from manifest: {err}"
             )
 
         logging.info("Verifying SHA-256 for %s...", archive_path.name)
@@ -2858,6 +2870,18 @@ end
         "windows-x86_64": {
           "archive": "python-windows-x86_64.tar.gz",
           "sha256": "355ee61b8207b91574491b1c6dc9b0ebb4408fc56bfafe498f3ef439314b52dc"
+        },
+        "linux-arm64-musl": {
+          "archive": "python-linux-arm64-musl.tar.gz",
+          "sha256": "64bb304e59d5d6ed5eaae24e95e743a2420a8897d2f6c854b1438ff9cb47e432"
+        },
+        "linux-x86_64-musl": {
+          "archive": "python-linux-x86_64-musl.tar.gz",
+          "sha256": "e32685cf248d2f33b249816120774143b4b57578cb30de5b8dba3e54963765c3"
+        },
+        "windows-arm64": {
+          "archive": "python-windows-arm64.tar.gz",
+          "sha256": "c1b334c7b1db8f962b37a333d8362cab0ba7ebda1a7cce917fae56a1e0c8cbe7"
         }
       }
     }
@@ -3257,7 +3281,12 @@ if "%USE_HOST%"=="1" (
 :: 3. HYDRATE RUNTIME FROM LOCAL ARCHIVE (WITH SHA-256 VERIFICATION)
 :: ---------------------------------------------------------------------------
 set "SCRIPT_DIR=%~dp0"
+
+:: Architecture Detection (x86_64 vs ARM64)
 set "TARGET=windows-x86_64"
+if /i "%PROCESSOR_ARCHITECTURE%"=="ARM64" set "TARGET=windows-arm64"
+if /i "%PROCESSOR_ARCHITEW6432%"=="ARM64" set "TARGET=windows-arm64"
+
 set "ARCHIVE_PY=%SCRIPT_DIR%system\tools\archives\python-%TARGET%.tar.gz"
 set "MANIFEST_PATH=%SCRIPT_DIR%system\tools\tools_manifest.json"
 set "RUNTIME_ROOT=%TEMP%\kykloi_runtime_%TARGET%"
@@ -3354,16 +3383,63 @@ if [ "$USE_HOST_PY" -eq 1 ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# 2. RESOLVE PLATFORM TARGET IDENTIFIER
+# 2. RESOLVE PLATFORM TARGET IDENTIFIER (GNU vs MUSL DETECTION)
 # ---------------------------------------------------------------------------
 OS="$(uname -s)"
 ARCH="$(uname -m)"
 
+detect_linux_libc() {
+    # 1. Allow explicit user override
+    if [ -n "$KYKLOI_LIBC" ]; then
+        echo "$KYKLOI_LIBC"
+        return
+    fi
+
+    # 2. Check for glibc via getconf (standard on Fedora, Debian, Ubuntu, etc.)
+    if getconf GNU_LIBC_VERSION >/dev/null 2>&1; then
+        echo "gnu"
+        return
+    fi
+
+    # 3. Check ldd signature
+    if ldd --version 2>&1 | grep -iq "glibc\|gnu"; then
+        echo "gnu"
+        return
+    fi
+
+    if ldd --version 2>&1 | grep -iq "musl"; then
+        echo "musl"
+        return
+    fi
+
+    # 4. Check for dynamic linkers in /lib or /lib64
+    if ls /lib/ld-musl-*.so* >/dev/null 2>&1 || ls /lib64/ld-musl-*.so* >/dev/null 2>&1; then
+        echo "musl"
+        return
+    fi
+
+    # 5. Default to GNU
+    echo "gnu"
+}
+
 case "$OS" in
     Linux)
+        LIBC="$(detect_linux_libc)"
         case "$ARCH" in
-            x86_64)        TARGET="linux-x86_64" ;;
-            aarch64|arm64) TARGET="linux-arm64" ;;
+            x86_64)
+                if [ "$LIBC" = "musl" ]; then
+                    TARGET="linux-x86_64-musl"
+                else
+                    TARGET="linux-x86_64"
+                fi
+                ;;
+            aarch64|arm64)
+                if [ "$LIBC" = "musl" ]; then
+                    TARGET="linux-arm64-musl"
+                else
+                    TARGET="linux-arm64"
+                fi
+                ;;
             *) echo "[FATAL] Unsupported Linux architecture: $ARCH" >&2; exit 1 ;;
         esac
         ;;
@@ -3406,17 +3482,7 @@ compute_sha256() {
 extract_expected_hash() {
     archive_name="$1"
     manifest="$2"
-    awk -v target="\"${archive_name}\"" '
-        $0 ~ target {
-            while (getline > 0) {
-                if ($0 ~ /"sha256":/) {
-                    gsub(/.*"sha256": *"|"*,?$/, "");
-                    print;
-                    exit;
-                }
-            }
-        }
-    ' "$manifest"
+    sed -n "/\"${archive_name}\"/,/}/p" "$manifest" | grep '"sha256"' | head -n 1 | sed -E 's/.*"sha256":[[:space:]]*"([^"]+)".*/\1/'
 }
 
 if [ ! -f "$LOCAL_PY" ] || [ ! -f "$STAMP_FILE" ]; then

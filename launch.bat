@@ -42,7 +42,12 @@ if "%USE_HOST%"=="1" (
 :: 3. HYDRATE RUNTIME FROM LOCAL ARCHIVE (WITH SHA-256 VERIFICATION)
 :: ---------------------------------------------------------------------------
 set "SCRIPT_DIR=%~dp0"
+
+:: Architecture Detection (x86_64 vs ARM64)
 set "TARGET=windows-x86_64"
+if /i "%PROCESSOR_ARCHITECTURE%"=="ARM64" set "TARGET=windows-arm64"
+if /i "%PROCESSOR_ARCHITEW6432%"=="ARM64" set "TARGET=windows-arm64"
+
 set "ARCHIVE_PY=%SCRIPT_DIR%system\tools\archives\python-%TARGET%.tar.gz"
 set "MANIFEST_PATH=%SCRIPT_DIR%system\tools\tools_manifest.json"
 set "RUNTIME_ROOT=%TEMP%\kykloi_runtime_%TARGET%"

@@ -52,6 +52,18 @@
         "windows-x86_64": {
           "archive": "python-windows-x86_64.tar.gz",
           "sha256": "355ee61b8207b91574491b1c6dc9b0ebb4408fc56bfafe498f3ef439314b52dc"
+        },
+        "linux-arm64-musl": {
+          "archive": "python-linux-arm64-musl.tar.gz",
+          "sha256": "64bb304e59d5d6ed5eaae24e95e743a2420a8897d2f6c854b1438ff9cb47e432"
+        },
+        "linux-x86_64-musl": {
+          "archive": "python-linux-x86_64-musl.tar.gz",
+          "sha256": "e32685cf248d2f33b249816120774143b4b57578cb30de5b8dba3e54963765c3"
+        },
+        "windows-arm64": {
+          "archive": "python-windows-arm64.tar.gz",
+          "sha256": "c1b334c7b1db8f962b37a333d8362cab0ba7ebda1a7cce917fae56a1e0c8cbe7"
         }
       }
     }

@@ -603,6 +603,7 @@ def resolve_pandoc_binary(root_dir: Path) -> str:
         else ("arm64" if machine in ("arm64", "aarch64") else machine)
     )
     target = f"{'macos' if system == 'darwin' else system}-{arch}"
+    pandoc_target = "windows-x86_64" if target == "windows-arm64" else target
 
     if system == "windows":
         runtime_dir = Path(os.environ.get("TEMP", "/tmp")) / f"kykloi_runtime_{target}"
@@ -617,7 +618,7 @@ def resolve_pandoc_binary(root_dir: Path) -> str:
     archives_dir = root_dir / "system" / "tools" / "archives"
     manifest_path = root_dir / "system" / "tools" / "tools_manifest.json"
     ext = "zip" if system in ("windows", "darwin") else "tar.gz"
-    archive_path = archives_dir / f"pandoc-{target}.{ext}"
+    archive_path = archives_dir / f"pandoc-{pandoc_target}.{ext}"
     stamp_file = runtime_dir / ".verified_sha256"
 
     if pandoc_bin.is_file() and stamp_file.is_file():
@@ -630,12 +631,12 @@ def resolve_pandoc_binary(root_dir: Path) -> str:
         try:
             with open(manifest_path, "r", encoding="utf-8") as mf:
                 tools_manifest = json.load(mf)
-            expected_hash = tools_manifest["tools"]["pandoc"]["targets"][target][
+            expected_hash = tools_manifest["tools"]["pandoc"]["targets"][pandoc_target][
                 "sha256"
             ]
         except (KeyError, json.JSONDecodeError) as err:
             raise ValueError(
-                f"Failed to read Pandoc expected hash for {target} from manifest: {err}"
+                f"Failed to read Pandoc expected hash for {pandoc_target} from manifest: {err}"
             )
 
         logging.info("Verifying SHA-256 for %s...", archive_path.name)
