@@ -394,7 +394,12 @@ def _ghash_mult(x: int, y: int) -> int:
     return z
 
 
+_GHASH_TABLES_CACHE: dict[int, list[list[int]]] = {}
+
+
 def _init_ghash_tables(h: int) -> list[list[int]]:
+    if h in _GHASH_TABLES_CACHE:
+        return _GHASH_TABLES_CACHE[h]
     tables: list[list[int]] = []
     for j in range(16):
         shift = 8 * (15 - j)
@@ -404,6 +409,7 @@ def _init_ghash_tables(h: int) -> list[list[int]]:
             low_bit = (b & -b).bit_length() - 1
             table[b] = table[b & (b - 1)] ^ basis[low_bit]
         tables.append(table)
+    _GHASH_TABLES_CACHE[h] = tables
     return tables
 
 
