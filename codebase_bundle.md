@@ -49,28 +49,27 @@ kykloi/
 │   │   └── translate_links.lua
 │   ├── tools/
 │   │   ├── archives/
-│   │   │   ├── pandoc-linux-arm64.tar.gz
-│   │   │   ├── pandoc-linux-x86_64.tar.gz
-│   │   │   ├── pandoc-macos-arm64.zip
-│   │   │   ├── pandoc-macos-x86_64.zip
-│   │   │   ├── pandoc-windows-x86_64.zip
-│   │   │   ├── python-linux-arm64-musl.tar.gz
-│   │   │   ├── python-linux-arm64.tar.gz
-│   │   │   ├── python-linux-x86_64-musl.tar.gz
-│   │   │   ├── python-linux-x86_64.tar.gz
-│   │   │   ├── python-macos-arm64.tar.gz
-│   │   │   ├── python-macos-x86_64.tar.gz
-│   │   │   ├── python-windows-arm64.tar.gz.tar.gz
-│   │   │   └── python-windows-x86_64.tar.gz
-│   │   ├── tools_manifest copy.json
-│   │   └── tools_manifest.json
+│   │   │   ├── cpython-3.12.16+20261110-aarch64-apple-darwin-install_only.tar.gz
+│   │   │   ├── cpython-3.12.16+20261110-aarch64-pc-windows-msvc-install_only.tar.gz
+│   │   │   ├── cpython-3.12.16+20261110-aarch64-unknown-linux-gnu-install_only.tar.gz
+│   │   │   ├── cpython-3.12.16+20261110-aarch64-unknown-linux-musl-install_only.tar.gz
+│   │   │   ├── cpython-3.12.16+20261110-x86_64-apple-darwin-install_only.tar.gz
+│   │   │   ├── cpython-3.12.16+20261110-x86_64-pc-windows-msvc-install_only.tar.gz
+│   │   │   ├── cpython-3.12.16+20261110-x86_64-unknown-linux-gnu-install_only.tar.gz
+│   │   │   ├── cpython-3.12.16+20261110-x86_64-unknown-linux-musl-install_only.tar.gz
+│   │   │   ├── pandoc-3.14-arm64-macOS.zip
+│   │   │   ├── pandoc-3.14-linux-amd64.tar.gz
+│   │   │   ├── pandoc-3.14-linux-arm64.tar.gz
+│   │   │   ├── pandoc-3.14-windows-x86_64.zip
+│   │   │   └── pandoc-3.14-x86_64-macOS.zip
+│   │   ├── tools_manifest.json
+│   │   └── verify_manifest.py
 │   └── launch.py
 ├── .gitignore
 ├── .python-version
 ├── assemble_code_to_md.py
+├── author_context.md
 ├── hash_generator.py
-├── launch copy.bat
-├── launch copy.sh
 ├── launch.bat
 ├── launch.sh
 ├── pyproject.toml
@@ -278,7 +277,7 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    const mathElements = container.getElementsByClassName("math");
+    const mathElements = container.querySelectorAll(".math");
     for (let i = 0; i < mathElements.length; i++) {
       const el = mathElements[i];
       let tex = el.textContent.trim();
@@ -464,11 +463,37 @@ document.addEventListener("DOMContentLoaded", () => {
       passwordInput.disabled = true;
     }
 
-    try {
-      const html = await decryptEnvelope(password, rawPayload);
+    function sanitizeDecryptedHtml(untrustedHtml) {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(untrustedHtml, "text/html");
+      const blockedTags = ["SCRIPT", "IFRAME", "OBJECT", "EMBED"];
 
-      contentContainer.innerHTML = html;
-      contentContainer.style.display = "block";
+      doc.querySelectorAll("*").forEach((el) => {
+        if (blockedTags.includes(el.tagName)) {
+          el.remove();
+          return;
+        }
+        for (let i = el.attributes.length - 1; i >= 0; i--) {
+          const attr = el.attributes[i];
+          const name = attr.name.toLowerCase();
+          const val = attr.value.trim().toLowerCase();
+          if (
+            name.startsWith("on") ||
+            (name === "href" && val.startsWith("javascript:")) ||
+            (name === "src" && val.startsWith("javascript:"))
+          ) {
+            el.removeAttribute(attr.name);
+          }
+        }
+      });
+      return doc.body.innerHTML;
+    }
+
+      try {
+        const html = await decryptEnvelope(password, rawPayload);
+
+        contentContainer.innerHTML = sanitizeDecryptedHtml(html);
+        contentContainer.style.display = "block";
 
       payloadEl.textContent = "";
       if (lockContainer) {
@@ -1872,6 +1897,9 @@ def resolve_pandoc_binary(root_dir: Path) -> str:
     target = f"{'macos' if system == 'darwin' else system}-{arch}"
     pandoc_target = "windows-x86_64" if target == "windows-arm64" else target
 
+    archives_dir = root_dir / "system" / "tools" / "archives"
+    manifest_path = root_dir / "system" / "tools" / "tools_manifest.json"
+
     if system == "windows":
         runtime_dir = Path(os.environ.get("TEMP", "/tmp")) / f"kykloi_runtime_{target}"
         pandoc_bin = runtime_dir / "pandoc.exe"
@@ -1879,14 +1907,13 @@ def resolve_pandoc_binary(root_dir: Path) -> str:
         runtime_dir = Path(f"/tmp/kykloi_runtime_{target}")
         pandoc_bin = runtime_dir / "bin" / "pandoc"
 
-    if pandoc_bin.is_file() and os.access(pandoc_bin, os.X_OK):
-        return str(pandoc_bin.resolve())
-
-    archives_dir = root_dir / "system" / "tools" / "archives"
-    manifest_path = root_dir / "system" / "tools" / "tools_manifest.json"
     stamp_file = runtime_dir / ".verified_sha256"
 
-    if pandoc_bin.is_file() and stamp_file.is_file():
+    if (
+        pandoc_bin.is_file()
+        and stamp_file.is_file()
+        and (system == "windows" or os.access(pandoc_bin, os.X_OK))
+    ):
         return str(pandoc_bin.resolve())
 
     if not manifest_path.is_file():
@@ -2149,7 +2176,7 @@ def extract_metadata_fast(md_path: Path) -> tuple[Path, dict[str, str], bool]:
         with open(md_path, "r", encoding="utf-8") as f:
             full_content = f.read()
 
-        parsed = parse_frontmatter_robust(full_content[:16384])
+        parsed = parse_frontmatter_robust(full_content)
         meta["title"] = str(parsed.get("title", "")).strip()
         meta["date_edtf"] = str(
             parsed.get("date_edtf") or parsed.get("date", "")
@@ -2168,9 +2195,9 @@ def extract_metadata_fast(md_path: Path) -> tuple[Path, dict[str, str], bool]:
 
     if not meta["title"]:
         clean_stem = md_path.stem
-        parts = clean_stem.split(maxsplit=1)
-        if len(parts) > 1 and parts[0].isdigit() and len(parts[0]) in (8, 12, 14):
-            clean_stem = parts[1]
+        ts_match = re.match(r"^(\d{8}|\d{12}|\d{14})[-_\s]+(.+)$", clean_stem)
+        if ts_match:
+            clean_stem = ts_match.group(2)
         meta["title"] = clean_stem.replace("-", " ").replace("_", " ").title()
 
     return md_path, meta, has_citations
@@ -2327,7 +2354,7 @@ def compile_markdown_worker(task: CompileTask) -> tuple[Path, bool, Optional[str
         str(task.defaults_yaml),
         "--template",
         str(task.template_path),
-        f"--katex={task.relative_root}assets/katex/",
+        f"--math-method=katex:{task.relative_root}assets/katex/",
         "-V",
         f"relative_root={task.relative_root}",
         "-V",
@@ -2861,42 +2888,42 @@ end
         "linux-x86_64": {
           "archive": "cpython-3.12.16+20261110-x86_64-unknown-linux-gnu-install_only.tar.gz",
           "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261110/cpython-3.12.16+20261110-x86_64-unknown-linux-gnu-install_only.tar.gz",
-          "sha256": "c6648466ed3e4916a4d641d6cf0807b12a33a1e5a29d487fbbad0ea3b8541e20"
+          "sha256": "c2f87d4b4e8db3abddb0f116c6ccfc503d0cbdbb9ee8faacddad1b679ec12e99"
         },
         "linux-arm64": {
           "archive": "cpython-3.12.16+20261110-aarch64-unknown-linux-gnu-install_only.tar.gz",
           "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261110/cpython-3.12.16+20261110-aarch64-unknown-linux-gnu-install_only.tar.gz",
-          "sha256": "b6a41defec4975d94b4ff1950236e7383e5c02ba40ea48c9ec33c66087a35aab"
+          "sha256": "4792f81750282597fb2a3389fe18b945ed2ba6aad5e45ad406d122c58cb33081"
         },
         "macos-arm64": {
           "archive": "cpython-3.12.16+20261110-aarch64-apple-darwin-install_only.tar.gz",
           "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261110/cpython-3.12.16+20261110-aarch64-apple-darwin-install_only.tar.gz",
-          "sha256": "2f11b8aa3726bdbd87dd9eb76568412faddf4f47e26913fa45d6a2e424972acd"
+          "sha256": "e956e60bc9465d577ef8062059aa05cd3a2665b4b8678a2ed24e432368330b8f"
         },
         "macos-x86_64": {
           "archive": "cpython-3.12.16+20261110-x86_64-apple-darwin-install_only.tar.gz",
           "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261110/cpython-3.12.16+20261110-x86_64-apple-darwin-install_only.tar.gz",
-          "sha256": "b78a4c479f1964ec484880bee567568266f68da102269fb93a05fe8716b45f91"
+          "sha256": "83f2922437e6d546d0fcdb8c11f150a8e52787e8d9ea8651b1974e20908eb1bc"
         },
         "windows-x86_64": {
           "archive": "cpython-3.12.16+20261110-x86_64-pc-windows-msvc-install_only.tar.gz",
           "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261110/cpython-3.12.16+20261110-x86_64-pc-windows-msvc-install_only.tar.gz",
-          "sha256": "355ee61b8207b91574491b1c6dc9b0ebb4408fc56bfafe498f3ef439314b52dc"
+          "sha256": "e23fe5b16926de1d81661b1a97352e89fb167549c55a6825796ccd0f32ec7f1b"
         },
         "linux-arm64-musl": {
           "archive": "cpython-3.12.16+20261110-aarch64-unknown-linux-musl-install_only.tar.gz",
           "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261110/cpython-3.12.16+20261110-aarch64-unknown-linux-musl-install_only.tar.gz",
-          "sha256": "64bb304e59d5d6ed5eaae24e95e743a2420a8897d2f6c854b1438ff9cb47e432"
+          "sha256": "d92d39867d6f16d81876b683c088373e2a965407c2011ad9979ffb4859a8bdcb"
         },
         "linux-x86_64-musl": {
           "archive": "cpython-3.12.16+20261110-x86_64-unknown-linux-musl-install_only.tar.gz",
           "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261110/cpython-3.12.16+20261110-x86_64-unknown-linux-musl-install_only.tar.gz",
-          "sha256": "e32685cf248d2f33b249816120774143b4b57578cb30de5b8dba3e54963765c3"
+          "sha256": "4f38d67f42dd29535e49b0ccdd6bc25ac7748b2c4550de78d8879ea4076ee9b3"
         },
         "windows-arm64": {
           "archive": "cpython-3.12.16+20261110-aarch64-pc-windows-msvc-install_only.tar.gz",
           "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261110/cpython-3.12.16+20261110-aarch64-pc-windows-msvc-install_only.tar.gz",
-          "sha256": "c1b334c7b1db8f962b37a333d8362cab0ba7ebda1a7cce917fae56a1e0c8cbe7"
+          "sha256": "7122bf62a0cf601527ba62e19ca715d64db86b269765da23937e9ac7f968f39c"
         }
       }
     }
@@ -2974,11 +3001,14 @@ class KykloiVaultHandler(http.server.BaseHTTPRequestHandler):
         clean_path = urllib.parse.unquote(parsed.path)
 
         if not DIST_DIR.exists() or not any(DIST_DIR.iterdir()):
+            body = b"Vault unbuilt. Run compilation in CLI.\n"
             self.send_response(503)
             self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Connection", "close")
             self.end_headers()
             if send_body:
-                self.wfile.write(b"Vault unbuilt. Run compilation in CLI.\n")
+                self.wfile.write(body)
             return
 
         target_file = self._translate_dist_path(clean_path)
@@ -3069,6 +3099,8 @@ class KykloiVaultHandler(http.server.BaseHTTPRequestHandler):
     def _send_416(self, file_size: int):
         self.send_response(416)
         self.send_header("Content-Range", f"bytes */{file_size}")
+        self.send_header("Content-Length", "0")
+        self.send_header("Connection", "close")
         self.end_headers()
 
     def _stream_slice(self, filepath: str, start: int, length: int):
@@ -3131,8 +3163,12 @@ def execute_build(clean: bool = False, passphrase: str | None = None) -> int:
     if passphrase:
         cmd.extend(["--password", passphrase])
 
+    masked_cmd = [
+        "********" if i > 0 and cmd[i - 1] == "--password" else arg
+        for i, arg in enumerate(cmd)
+    ]
     print("\n" + "-" * 60)
-    print(f"[Compiler] Executing: {' '.join(cmd)}")
+    print(f"[Compiler] Executing: {' '.join(masked_cmd)}")
     print("-" * 60)
 
     res = subprocess.run(cmd, cwd=str(ROOT_DIR))
@@ -3249,6 +3285,33 @@ if __name__ == "__main__":
     main()
 ```
 
+## author_context.md
+
+```md
+#### 1. User Disclosures (Directly Reported)
+* **Vocation:** Practicing nurse; software development is conducted strictly as an amateur/hobbyist pursuit.
+* **Technical Background:** Self-disclosed as lacking the technical proficiency to author this codebase without large language model (LLM) generation.
+* **Methodology:** Engaged in "vibe-coding" (prompt-driven iterative code synthesis mediated by LLMs) over a period of approximately six months spanning hundreds of developmental iterations.
+* **Prototyping & Discarded Implementations:** Evaluated, integrated, and subsequently abandoned multiple alternative tools and architectures, including:
+  * In-browser encryption: StatiCrypt
+  * Search indexing engines: Pagefind, MiniSearch
+  * Cryptographic packages: `cryptography`, `pycryptodome`
+  * Architecture components: Dedicated Web UI (scrapped in favor of CLI/terminal workflow)
+  * Upstream dependencies: Multiple iterations and versions of Python and Pandoc
+* **Awareness of Technical Trade-Offs:** Identified performance deficiencies (notably pure-Python AES-GCM execution overhead) were consciously accepted as operational compromises or deferred to future iterations.
+
+#### 2. Codebase Forensic Artifacts (Empirically Derived)
+* **Digital Identity / Moniker:** Employs the branding identifier `JmB²` within the site navigation bar (`system/build/root/index.html`, `system/build/templates/md_to_static_html.html`).
+* **Knowledge Management Workflow:**
+  * Uses timestamped Zettelkasten-style file naming schemes (`YYYYMMDDHHMMSS-slug.md`, e.g., `20261109130247-project_kykloi_task_list.md`).
+  * Explicitly filters directory patterns (`.obsidian`, `.zettlr`, `.logseq`) in `build_site.py`, indicating past or concurrent usage of Obsidian, Zettlr, or Logseq as content authoring environments.
+* **Prior LLM Engagements:** Retains artifacts referencing other LLM interactions in the content tree (`content/202611/20261109171348-geminis_codebase_impression.md`).
+* **Development Environment:**
+  * File-naming patterns (e.g., `launch copy.bat`, `tools_manifest copy.json`) reflect local file duplication conventions standard to Windows Explorer.
+  * Dual-platform maintenance of `.bat` and `.sh` wrappers confirms active cross-platform deployment targeting Windows and POSIX-compliant environments (Linux/macOS).
+* **Threat Model Expectations:** Documented in `README.md` as seeking casual privacy against web scraping and automated bot ingestion for public static hosting, rather than defense against state-level or high-resource threat actors.
+```
+
 ## launch.bat
 
 ```bat
@@ -3269,28 +3332,36 @@ set "USE_HOST=0"
 if not "%KYKLOI_FORCE_FALLBACK%"=="1" (
     where python >nul 2>&1
     if !ERRORLEVEL! equ 0 (
+        set "HOST_MAJOR="
+        set "HOST_MINOR="
         for /f "tokens=1,2 delims=." %%a in ('python -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2^>nul') do (
             set "HOST_MAJOR=%%a"
             set "HOST_MINOR=%%b"
         )
-        if "!HOST_MAJOR!"=="%REQ_MAJ%" (
-            if !HOST_MINOR! geq %REQ_MIN% (
-                set "USE_HOST=1"
+        if defined HOST_MAJOR if defined HOST_MINOR (
+            if "!HOST_MAJOR!"=="%REQ_MAJ%" (
+                if !HOST_MINOR! geq %REQ_MIN% (
+                    set "USE_HOST=1"
+                )
             )
         )
     )
 )
 
-if "%USE_HOST%"=="1" (
-    for /f "delims=" %%i in ('where python') do (
-        set "HOST_PATH=%%i"
-        goto :host_resolved
-    )
-    :host_resolved
-    echo [Kykloi] Using host Python runtime: !HOST_PATH! (!HOST_MAJOR!.!HOST_MINOR!)
-    python system\launch.py %*
-    exit /b %ERRORLEVEL%
+if "%USE_HOST%"=="1" goto :run_host_python
+goto :skip_host_python
+
+:run_host_python
+for /f "delims=" %%i in ('where python') do (
+    set "HOST_PATH=%%i"
+    goto :host_resolved
 )
+:host_resolved
+echo [Kykloi] Using host Python runtime: !HOST_PATH! (!HOST_MAJOR!.!HOST_MINOR!)
+python system\launch.py %*
+exit /b %ERRORLEVEL%
+
+:skip_host_python
 
 :: ---------------------------------------------------------------------------
 :: 3. HYDRATE RUNTIME FROM LOCAL ARCHIVE (WITH SHA-256 VERIFICATION)
@@ -3515,11 +3586,18 @@ extract_python_field() {
     target="$1"
     field="$2"
     manifest="$3"
-    # Isolate specifically within the "python" section to prevent collision with pandoc targets
-    sed -n '/"python":/,/"tools":/p' "$manifest" | \
-        sed -n "/\"${target}\":/,/}/p" | \
-        grep "\"${field}\"" | head -n 1 | \
-        sed -E "s/.*\"${field}\":[[:space:]]*\"([^\"]+)\".*/\1/"
+    awk -v tgt="$target" -v fld="$field" '
+        BEGIN { in_py=0; in_tgt=0 }
+        /"python"[[:space:]]*:/ { in_py=1; next }
+        in_py && $0 ~ "\"" tgt "\"[[:space:]]*:" { in_tgt=1; next }
+        in_tgt && $0 ~ "\"" fld "\"[[:space:]]*:" {
+            sub(/.*"[^"]+"[[:space:]]*:[[:space:]]*"/, "")
+            sub(/".*/, "")
+            print $0
+            exit
+        }
+        in_tgt && /}[[:space:]]*,?[[:space:]]*$/ { in_tgt=0 }
+    ' "$manifest"
 }
 
 if [ ! -f "$LOCAL_PY" ] || [ ! -f "$STAMP_FILE" ]; then

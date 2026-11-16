@@ -46,6 +46,7 @@ INCLUDED_FILES = {
     "launch.bat",
     "launch.sh",
     "tools_manifest.json",
+    "author_context.md",
 }
 
 # Optional overrides for markdown syntax highlighting; unlisted extensions

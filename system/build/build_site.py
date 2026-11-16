@@ -605,6 +605,9 @@ def resolve_pandoc_binary(root_dir: Path) -> str:
     target = f"{'macos' if system == 'darwin' else system}-{arch}"
     pandoc_target = "windows-x86_64" if target == "windows-arm64" else target
 
+    archives_dir = root_dir / "system" / "tools" / "archives"
+    manifest_path = root_dir / "system" / "tools" / "tools_manifest.json"
+
     if system == "windows":
         runtime_dir = Path(os.environ.get("TEMP", "/tmp")) / f"kykloi_runtime_{target}"
         pandoc_bin = runtime_dir / "pandoc.exe"
@@ -612,16 +615,14 @@ def resolve_pandoc_binary(root_dir: Path) -> str:
         runtime_dir = Path(f"/tmp/kykloi_runtime_{target}")
         pandoc_bin = runtime_dir / "bin" / "pandoc"
 
-        archives_dir = root_dir / "system" / "tools" / "archives"
-        manifest_path = root_dir / "system" / "tools" / "tools_manifest.json"
-        stamp_file = runtime_dir / ".verified_sha256"
+    stamp_file = runtime_dir / ".verified_sha256"
 
-        if (
-            pandoc_bin.is_file()
-            and stamp_file.is_file()
-            and os.access(pandoc_bin, os.X_OK)
-        ):
-            return str(pandoc_bin.resolve())
+    if (
+        pandoc_bin.is_file()
+        and stamp_file.is_file()
+        and (system == "windows" or os.access(pandoc_bin, os.X_OK))
+    ):
+        return str(pandoc_bin.resolve())
 
     if not manifest_path.is_file():
         raise FileNotFoundError(f"Tools manifest missing at {manifest_path}")
@@ -883,7 +884,7 @@ def extract_metadata_fast(md_path: Path) -> tuple[Path, dict[str, str], bool]:
         with open(md_path, "r", encoding="utf-8") as f:
             full_content = f.read()
 
-        parsed = parse_frontmatter_robust(full_content[:16384])
+        parsed = parse_frontmatter_robust(full_content)
         meta["title"] = str(parsed.get("title", "")).strip()
         meta["date_edtf"] = str(
             parsed.get("date_edtf") or parsed.get("date", "")

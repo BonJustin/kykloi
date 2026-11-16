@@ -132,11 +132,18 @@ extract_python_field() {
     target="$1"
     field="$2"
     manifest="$3"
-    # Isolate specifically within the "python" section to prevent collision with pandoc targets
-    sed -n '/"python":/,/"tools":/p' "$manifest" | \
-        sed -n "/\"${target}\":/,/}/p" | \
-        grep "\"${field}\"" | head -n 1 | \
-        sed -E "s/.*\"${field}\":[[:space:]]*\"([^\"]+)\".*/\1/"
+    awk -v tgt="$target" -v fld="$field" '
+        BEGIN { in_py=0; in_tgt=0 }
+        /"python"[[:space:]]*:/ { in_py=1; next }
+        in_py && $0 ~ "\"" tgt "\"[[:space:]]*:" { in_tgt=1; next }
+        in_tgt && $0 ~ "\"" fld "\"[[:space:]]*:" {
+            sub(/.*"[^"]+"[[:space:]]*:[[:space:]]*"/, "")
+            sub(/".*/, "")
+            print $0
+            exit
+        }
+        in_tgt && /}[[:space:]]*,?[[:space:]]*$/ { in_tgt=0 }
+    ' "$manifest"
 }
 
 if [ ! -f "$LOCAL_PY" ] || [ ! -f "$STAMP_FILE" ]; then

@@ -71,7 +71,7 @@
         "linux-x86_64-musl": {
           "archive": "cpython-3.12.16+20261110-x86_64-unknown-linux-musl-install_only.tar.gz",
           "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261110/cpython-3.12.16+20261110-x86_64-unknown-linux-musl-install_only.tar.gz",
-          "sha256": "c2f87d4b4e8db3abddb0f116c6ccfc503d0cbdbb9ee8faacddad1b679ec12e99"
+          "sha256": "4f38d67f42dd29535e49b0ccdd6bc25ac7748b2c4550de78d8879ea4076ee9b3"
         },
         "windows-arm64": {
           "archive": "cpython-3.12.16+20261110-aarch64-pc-windows-msvc-install_only.tar.gz",
