@@ -76,17 +76,7 @@ compute_sha256() {
 extract_expected_hash() {
     archive_name="$1"
     manifest="$2"
-    awk -v target="\"${archive_name}\"" '
-        $0 ~ target {
-            while (getline > 0) {
-                if ($0 ~ /"sha256":/) {
-                    gsub(/.*"sha256": *"|"*,?$/, "");
-                    print;
-                    exit;
-                }
-            }
-        }
-    ' "$manifest"
+    sed -n "/\"${archive_name}\"/,/}/p" "$manifest" | grep '"sha256"' | head -n 1 | sed -E 's/.*"sha256":[[:space:]]*"([^"]+)".*/\1/'
 }
 
 if [ ! -f "$LOCAL_PY" ] || [ ! -f "$STAMP_FILE" ]; then
@@ -127,3 +117,9 @@ if [ ! -f "$LOCAL_PY" ] || [ ! -f "$STAMP_FILE" ]; then
         xattr -dr com.apple.quarantine "$RUNTIME_ROOT" 2>/dev/null || true
     fi
 fi
+
+# ---------------------------------------------------------------------------
+# 4. EXECUTE APPLICATION LAUNCHER
+# ---------------------------------------------------------------------------
+echo "[Kykloi] Using fallback Python runtime: $LOCAL_PY"
+exec "$LOCAL_PY" "$SCRIPT_DIR/system/launch.py" "$@"

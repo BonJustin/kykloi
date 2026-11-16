@@ -33,9 +33,6 @@ EXCLUDED_DIRS = {
 INCLUDED_FILES = {
     "pyproject.toml",
     "README.md",
-    "admin.html",
-    "app.css",
-    "app.js",
     "style.css",
     "decrypt.js",
     "pico_search.js",

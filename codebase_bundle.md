@@ -18,11 +18,6 @@ kykloi/
 │   └── pandoc_markdown.md
 ├── dist/ (contents excluded)
 ├── system/
-│   ├── admin/
-│   │   ├── admin.html
-│   │   ├── app.css
-│   │   ├── app.js
-│   │   └── pico.css
 │   ├── build/
 │   │   ├── __pycache__/ (contents excluded)
 │   │   ├── assets/
@@ -79,326 +74,6 @@ kykloi/
 ```
 
 # Source Files
-
-## system/admin/admin.html
-
-```html
-<!doctype html>
-<html lang="en" data-theme="light">
-<head>
-  <meta charset="utf-8">
-  <title>Kykloi Control Hub</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
-  <!-- Self-Contained Local Assets -->
-  <link rel="stylesheet" href="pico.css">
-  <link rel="stylesheet" href="app.css">
-</head>
-<body class="container">
-  <header class="hub-header">
-    <div class="hub-header-brand">
-        <h1>Kykloi Control Hub</h1>
-        <div>
-            <a id="btn-open-vault" href="/" target="_blank" role="button" class="secondary outline btn-sm">Open Vault</a>
-            <button id="btn-shutdown-server" class="secondary outline btn-sm" style="color: var(--pico-color-red-500); margin-left: 0.35rem;">Stop Appliance</button>
-            <span class="hub-brand-badge" style="margin-left: 0.5rem;">JmB² Appliance</span>
-        </div>
-    </div>
-    <p class="hub-subtitle">Deterministic Archival SSG Maintenance Plane</p>
-    <hr />
-  </header>
-
-  <main>
-    <article>
-      <header><strong>Site Compiler Orchestration</strong></header>
-
-      <form id="build-form" onsubmit="return false;">
-        <div class="control-grid">
-          <input
-            type="password"
-            id="build-passphrase"
-            placeholder="Passphrase for /secure/ notes..."
-            autocomplete="off"
-          />
-          <label class="clean-toggle">
-            <input type="checkbox" id="clean-build" />
-            <span>Purge Dist</span>
-          </label>
-          <button type="button" id="btn-run-build">Compile Site</button>
-        </div>
-      </form>
-
-      <div class="status-bar">
-        <div class="status-indicator-group">
-          <span id="app-status-badge" class="status-badge"></span>
-          <span id="app-status-text">Appliance Ready</span>
-        </div>
-        <button id="btn-clear-console" class="secondary outline btn-sm">Clear Terminal</button>
-      </div>
-
-      <div id="console-output">Awaiting command...</div>
-    </article>
-  </main>
-
-  <footer class="hub-footer">
-    <hr />
-    <small>Zero-Dependency Local Appliance Model</small>
-  </footer>
-
-  <script src="app.js"></script>
-</body>
-</html>
-```
-
-## system/admin/app.css
-
-```css
-/* admin/app.css - Kykloi Control Hub Operational Styling */
-
-body {
-  padding-top: 1.5rem;
-  max-width: 85ch;
-  margin-inline: auto;
-}
-
-.hub-header {
-  margin-bottom: 1.5rem;
-}
-
-.hub-header-brand {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-}
-
-.hub-header-brand h1 {
-  margin-bottom: 0;
-  font-size: 1.75rem;
-}
-
-.hub-brand-badge {
-  font-size: 1.1rem;
-  font-weight: bold;
-  color: var(--pico-primary);
-}
-
-.hub-subtitle {
-  color: var(--pico-muted-color);
-  margin-bottom: 0.5rem;
-}
-
-.control-grid {
-  display: grid;
-  grid-template-columns: 1fr auto auto;
-  gap: 1rem;
-  align-items: center;
-  margin-bottom: 1rem;
-}
-
-.clean-toggle {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin-bottom: 0;
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.status-bar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 0.5rem;
-}
-
-.status-indicator-group {
-  display: flex;
-  align-items: center;
-  font-size: 0.85rem;
-  font-weight: bold;
-}
-
-.status-badge {
-  display: inline-block;
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  background-color: var(--pico-color-green-500, #2ecc71);
-  margin-right: 0.5rem;
-}
-
-.status-badge.busy {
-  background-color: var(--pico-color-amber-500, #f39c12);
-}
-
-.status-badge.error {
-  background-color: var(--pico-color-red-500, #e74c3c);
-}
-
-.btn-sm {
-  padding: 0.2rem 0.6rem;
-  font-size: 0.75rem;
-}
-
-#console-output {
-  background: #0f141c;
-  color: #39ff14;
-  font-family: ui-monospace, SFMono-Regular, "Cascadia Code", Consolas, monospace;
-  font-size: 0.85rem;
-  line-height: 1.45;
-  padding: 1rem;
-  border-radius: var(--pico-border-radius);
-  min-height: 260px;
-  max-height: 480px;
-  overflow-y: auto;
-  white-space: pre-wrap;
-  word-break: break-all;
-}
-
-.hub-footer {
-  text-align: center;
-  color: var(--pico-muted-color);
-}
-```
-
-## system/admin/app.js
-
-```javascript
-/* admin/app.js - Kykloi Control Hub Client Engine */
-"use strict";
-
-document.addEventListener("DOMContentLoaded", () => {
-  // =========================================================================
-  // 1. DOM ELEMENT CACHE
-  // =========================================================================
-  const statusBadge = document.getElementById("app-status-badge");
-  const statusText = document.getElementById("app-status-text");
-  const consoleEl = document.getElementById("console-output");
-  const runBuildBtn = document.getElementById("btn-run-build");
-  const clearConsoleBtn = document.getElementById("btn-clear-console");
-  const cleanCheckbox = document.getElementById("clean-build");
-  const passwordInput = document.getElementById("build-passphrase");
-  const openVaultBtn = document.getElementById("btn-open-vault");
-
-  // =========================================================================
-  // 2. STATE & UI HELPERS
-  // =========================================================================
-  function setStatus(state, message) {
-    if (!statusBadge || !statusText) return;
-    statusBadge.className = "status-badge";
-    if (state === "busy") statusBadge.classList.add("busy");
-    if (state === "error") statusBadge.classList.add("error");
-    statusText.textContent = message;
-  }
-
-  function appendConsole(text) {
-    if (!consoleEl) return;
-    consoleEl.textContent += text;
-    consoleEl.scrollTop = consoleEl.scrollHeight;
-  }
-
-  // =========================================================================
-  // 3. TERMINAL CONSOLE ACTIONS
-  // =========================================================================
-  if (clearConsoleBtn && consoleEl) {
-    clearConsoleBtn.addEventListener("click", () => {
-      consoleEl.textContent = "";
-    });
-  }
-
-  // =========================================================================
-  // 4. COMPILATION IPC BRIDGE (POST /api/build)
-  // =========================================================================
-  if (runBuildBtn) {
-    runBuildBtn.addEventListener("click", async () => {
-      runBuildBtn.disabled = true;
-      setStatus("busy", "Compiling Site...");
-      appendConsole(`\n>>> [${new Date().toLocaleTimeString()}] Triggering build pipeline...\n`);
-
-      const payload = {
-        clean: cleanCheckbox ? cleanCheckbox.checked : false,
-        password: passwordInput && passwordInput.value.trim() ? passwordInput.value.trim() : undefined,
-        verbose: false,
-      };
-
-      try {
-        const response = await fetch("/api/build", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-
-        // 409: Server-side build lock active
-        if (response.status === 409) {
-          const errorText = await response.text();
-          appendConsole(`\n[REJECTED] ${errorText}\n`);
-          setStatus("busy", "Build Already Running");
-          return;
-        }
-
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status} from control daemon`);
-        }
-
-        // Process chunked stream in real time
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder("utf-8");
-
-        while (true) {
-          const { value, done } = await reader.read();
-          if (done) break;
-          const textChunk = decoder.decode(value, { stream: true });
-          appendConsole(textChunk);
-        }
-
-        setStatus("idle", "Build Complete");
-      } catch (err) {
-        appendConsole(`\n[FATAL IPC ERROR] ${err.message}\n`);
-        setStatus("error", "Execution Failed");
-      } finally {
-        runBuildBtn.disabled = false;
-      }
-    });
-  }
-
-  // =========================================================================
-  // 5. VAULT VIEWER ORCHESTRATION
-  // =========================================================================
-  if (openVaultBtn) {
-    openVaultBtn.addEventListener("click", () => {
-      appendConsole(`\n[Kykloi] Opening vault reader in new tab...\n`);
-    });
-  }
-
-  // =========================================================================
-  // 6. APPLIANCE LIFECYCLE (EXPLICIT SHUTDOWN)
-  // =========================================================================
-  const shutdownBtn = document.getElementById("btn-shutdown-server");
-
-  if (shutdownBtn) {
-    shutdownBtn.addEventListener("click", async () => {
-      if (!confirm("Shut down the Kykloi appliance server?")) return;
-
-      shutdownBtn.disabled = true;
-      setStatus("error", "Appliance Stopped");
-      appendConsole("\n[Kykloi] Shutdown signal dispatched. Daemon terminating...\n");
-
-      try {
-        await fetch("/api/shutdown", { method: "POST" });
-      } catch (_) {
-        // Socket closure breaks connection
-      }
-
-      document.body.innerHTML = `
-        <main class="container" style="text-align: center; padding-top: 5rem;">
-          <h1>Appliance Offline</h1>
-          <p style="color: var(--pico-muted-color);">The local daemon has been cleanly terminated. You may safely close this tab.</p>
-        </main>
-      `;
-    });
-  }
-});
-```
 
 ## system/build/assets/css/style.css
 
@@ -3201,7 +2876,6 @@ Features CLI argument parsing, defensive MIME registration, and IPC vault orches
 
 import argparse
 import http.server
-import json
 import mimetypes
 
 # ===========================================================================
@@ -3213,14 +2887,12 @@ import socketserver
 import subprocess
 import sys
 import threading
-import time
 import urllib.parse
 import webbrowser
 from pathlib import Path
 
 SYSTEM_DIR = Path(__file__).resolve().parent
 ROOT_DIR = SYSTEM_DIR.parent
-ADMIN_DIR = SYSTEM_DIR / "admin"
 DIST_DIR = ROOT_DIR / "dist"
 BUILD_SCRIPT = SYSTEM_DIR / "build" / "build_site.py"
 
@@ -3233,77 +2905,41 @@ mimetypes.add_type("image/svg+xml", ".svg")
 mimetypes.add_type("text/css", ".css")
 mimetypes.add_type("application/javascript", ".js")
 
-BUILD_LOCK = threading.Lock()
 RANGE_REGEX = re.compile(r"^bytes=(\d*)-(\d*)$")
 
 # ===========================================================================
-# 2. UNIFIED REQUEST HANDLER & IPC ENGINE
+# 2. VAULT STATIC SERVER HANDLER
 # ===========================================================================
 
 
-class KykloiApplianceHandler(http.server.BaseHTTPRequestHandler):
-    server_version = "KykloiAppliance/0.5"
+class KykloiVaultHandler(http.server.BaseHTTPRequestHandler):
+    server_version = "KykloiServer/0.6"
     protocol_version = "HTTP/1.1"
 
     def guess_mime(self, filepath: str) -> str:
         mime, _ = mimetypes.guess_type(filepath)
         return mime or "application/octet-stream"
 
-    # -----------------------------------------------------------------------
-    # ROUTING DISPATCH
-    # -----------------------------------------------------------------------
+    def log_message(self, format: str, *args):
+        # Silence access logs to keep the interactive CLI uncluttered
+        pass
+
     def do_HEAD(self):
         self._dispatch_get(send_body=False)
 
     def do_GET(self):
         self._dispatch_get(send_body=True)
 
-    def do_POST(self):
-        clean_path = urllib.parse.urlsplit(self.path).path
-        if clean_path == "/api/build":
-            self._handle_build_ipc()
-            return
-        if clean_path == "/api/shutdown":
-            self._handle_shutdown_ipc()
-            return
-        self.send_error(404, "Unknown API Endpoint")
-
     def _dispatch_get(self, send_body: bool):
         parsed = urllib.parse.urlsplit(self.path)
         clean_path = urllib.parse.unquote(parsed.path)
 
-        # 1. Admin UI Namespace
-        if clean_path == "/admin":
-            self.send_response(302)
-            self.send_header("Location", "/admin/")
-            self.end_headers()
-            return
-
-        if clean_path.startswith("/admin/"):
-            rel_admin = clean_path[len("/admin/") :]
-            if rel_admin in ("", "index.html"):
-                target = ADMIN_DIR / "admin.html"
-            else:
-                target = (ADMIN_DIR / rel_admin).resolve()
-
-            try:
-                target.relative_to(ADMIN_DIR.resolve())
-            except ValueError:
-                self.send_error(403, "Forbidden")
-                return
-
-            if not target.is_file():
-                self.send_error(404, "Admin Asset Not Found")
-                return
-
-            self._serve_static_file(str(target), send_body)
-            return
-
-        # 2. Vault Dist Namespace
         if not DIST_DIR.exists() or not any(DIST_DIR.iterdir()):
-            self.send_response(302)
-            self.send_header("Location", "/admin/")
+            self.send_response(503)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
             self.end_headers()
+            if send_body:
+                self.wfile.write(b"Vault unbuilt. Run compilation in CLI.\n")
             return
 
         target_file = self._translate_dist_path(clean_path)
@@ -3313,9 +2949,6 @@ class KykloiApplianceHandler(http.server.BaseHTTPRequestHandler):
 
         self._serve_static_file(target_file, send_body)
 
-    # -----------------------------------------------------------------------
-    # DIST FILE RESOLUTION & RFC 7233 RANGE STREAMING
-    # -----------------------------------------------------------------------
     def _translate_dist_path(self, clean_path: str) -> str | None:
         stripped = clean_path.lstrip("/")
         target = (DIST_DIR / stripped).resolve()
@@ -3415,100 +3048,9 @@ class KykloiApplianceHandler(http.server.BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError):
             pass
 
-    # -----------------------------------------------------------------------
-    # COMPILATION IPC
-    # -----------------------------------------------------------------------
-    def _send_chunk(self, data: bytes):
-        if not data:
-            return
-        chunk = f"{len(data):X}\r\n".encode("ascii") + data + b"\r\n"
-        self.wfile.write(chunk)
-        self.wfile.flush()
-
-    def _handle_build_ipc(self):
-        if not BUILD_LOCK.acquire(blocking=False):
-            self.send_response(409)
-            self.send_header("Content-Type", "text/plain; charset=utf-8")
-            msg = b"Conflict: A build process is already active. Request rejected.\n"
-            self.send_header("Content-Length", str(len(msg)))
-            self.send_header("Cache-Control", "no-cache")
-            self.end_headers()
-            self.wfile.write(msg)
-            return
-
-        try:
-            content_length = int(self.headers.get("Content-Length", 0))
-            body = (
-                self.rfile.read(content_length).decode("utf-8")
-                if content_length > 0
-                else "{}"
-            )
-
-            try:
-                params = json.loads(body)
-            except json.JSONDecodeError:
-                params = {}
-
-            flags = []
-            if params.get("clean"):
-                flags.append("--clean")
-            if params.get("verbose"):
-                flags.append("--verbose")
-            if params.get("password"):
-                flags.extend(["--password", str(params["password"])])
-
-            cmd = [sys.executable, "-u", str(BUILD_SCRIPT)] + flags
-
-            self.send_response(200)
-            self.send_header("Content-Type", "text/plain; charset=utf-8")
-            self.send_header("Transfer-Encoding", "chunked")
-            self.send_header("Cache-Control", "no-cache")
-            self.end_headers()
-
-            self._send_chunk(
-                f"[Kykloi IPC] Executing: {' '.join(cmd)}\n\n".encode("utf-8")
-            )
-
-            proc = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                stdin=subprocess.DEVNULL,
-                cwd=str(ROOT_DIR),
-                text=True,
-                bufsize=1,
-            )
-
-            try:
-                for line in iter(proc.stdout.readline, ""):
-                    self._send_chunk(line.encode("utf-8"))
-                proc.stdout.close()
-                code = proc.wait()
-                self._send_chunk(
-                    f"\n[Kykloi IPC] Build finished with exit code {code}.\n".encode(
-                        "utf-8"
-                    )
-                )
-            except (BrokenPipeError, ConnectionResetError):
-                proc.kill()
-            finally:
-                self.wfile.write(b"0\r\n\r\n")
-                self.wfile.flush()
-
-        finally:
-            BUILD_LOCK.release()
-
-    def _handle_shutdown_ipc(self):
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Cache-Control", "no-cache")
-        self.end_headers()
-        self.wfile.write(b'{"status":"shutting_down"}')
-        threading.Thread(target=self.server.shutdown, daemon=True).start()
-
 
 # ===========================================================================
-# 3. CLI & INITIALIZATION
+# 3. BACKGROUND SERVER ORCHESTRATION
 # ===========================================================================
 
 
@@ -3517,70 +3059,151 @@ class ThreadedServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
     daemon_threads = True
 
 
+def start_background_server(
+    host: str, start_port: int
+) -> tuple[ThreadedServer, int, str]:
+    max_attempts = 15
+    for offset in range(max_attempts):
+        candidate_port = start_port + offset
+        try:
+            server = ThreadedServer((host, candidate_port), KykloiVaultHandler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            url = f"http://{host}:{candidate_port}/"
+            return server, candidate_port, url
+        except OSError as e:
+            if e.errno in (98, 48, 10048):
+                continue
+            raise
+    raise RuntimeError(
+        f"Unable to bind to an open port between {start_port} and {start_port + max_attempts - 1}"
+    )
+
+
+# ===========================================================================
+# 4. COMPILER INVOCATION & INTERACTIVE CLI
+# ===========================================================================
+
+
+def execute_build(clean: bool = False, passphrase: str | None = None) -> int:
+    cmd = [sys.executable, str(BUILD_SCRIPT)]
+    if clean:
+        cmd.append("--clean")
+    if passphrase:
+        cmd.extend(["--password", passphrase])
+
+    print("\n" + "-" * 60)
+    print(f"[Compiler] Executing: {' '.join(cmd)}")
+    print("-" * 60)
+
+    res = subprocess.run(cmd, cwd=str(ROOT_DIR))
+    print("-" * 60)
+    return res.returncode
+
+
 def parse_args():
-    p = argparse.ArgumentParser(description="Kykloi Appliance Daemon.")
+    p = argparse.ArgumentParser(description="Kykloi Vault Engine & Local Appliance.")
     p.add_argument(
         "--host",
         type=str,
         default="127.0.0.1",
         help="Bind interface (default: 127.0.0.1)",
     )
-    p.add_argument("--port", type=int, default=8000, help="Start port (default: 8000)")
+    p.add_argument("--port", type=int, default=8000, help="Base port (default: 8000)")
+    p.add_argument("--build", action="store_true", help="Compile and exit immediately.")
     p.add_argument(
-        "--browser",
+        "--clean",
         action="store_true",
-        help="Launch browser upon startup (defaults to headless).",
+        help="Perform clean rebuild when combined with --build.",
+    )
+    p.add_argument(
+        "--password",
+        type=str,
+        default=os.environ.get("KYKLOI_ENCRYPT_KEY"),
+        help="Passphrase for /secure/ notes.",
     )
     return p.parse_args()
+
+
+def interactive_menu(vault_url: str, initial_password: str | None):
+    session_password = initial_password
+
+    while True:
+        vault_ready = DIST_DIR.exists() and any(DIST_DIR.iterdir())
+        status_line = (
+            f"Vault: Ready ({vault_url})" if vault_ready else "Vault: Not Compiled"
+        )
+        pw_status = "Set" if session_password else "Not Set"
+
+        print("\n==================== KYKLOI CONTROL PLANE ====================")
+        print(f"  Status:     {status_line}")
+        print(f"  Passphrase: [{pw_status}]")
+        print("==============================================================")
+        print("  [1] Compile Site (Incremental)")
+        print("  [2] Rebuild Site (Clean Purge)")
+        print("  [3] Set / Update Secure Passphrase")
+        print("  [4] Open Vault in Default Browser")
+        print("  [0] Exit")
+        print("==============================================================")
+
+        try:
+            choice = input("Select an option [0-4]: ").strip()
+        except (KeyboardInterrupt, EOFError):
+            print("\n")
+            break
+
+        if choice == "1":
+            execute_build(clean=False, passphrase=session_password)
+        elif choice == "2":
+            execute_build(clean=True, passphrase=session_password)
+        elif choice == "3":
+            import getpass
+
+            try:
+                pw = getpass.getpass(
+                    "Enter passphrase for /secure/ notes (leave empty to clear): "
+                )
+                session_password = pw.strip() or None
+                if session_password:
+                    print("[Config] Passphrase stored in active session memory.")
+                else:
+                    print("[Config] Passphrase cleared.")
+            except (KeyboardInterrupt, EOFError):
+                print("\n[Config] Passphrase entry cancelled.")
+        elif choice == "4":
+            if not vault_ready:
+                print("\n[!] Vault must be compiled before opening in browser.")
+            else:
+                print(f"\n[Browser] Opening {vault_url} ...")
+                webbrowser.open(vault_url)
+        elif choice == "0":
+            break
+        else:
+            print("\n[!] Invalid selection.")
 
 
 def main():
     args = parse_args()
 
-    if not ADMIN_DIR.exists() or not (ADMIN_DIR / "admin.html").is_file():
-        sys.stderr.write(f"[FATAL] Admin UI missing in {ADMIN_DIR}\n")
+    # Headless execution bypass
+    if args.build:
+        code = execute_build(clean=args.clean, passphrase=args.password)
+        sys.exit(code)
+
+    # Start background daemon
+    try:
+        server, port, vault_url = start_background_server(args.host, args.port)
+    except Exception as err:
+        sys.stderr.write(f"[FATAL] Server initialization failed: {err}\n")
         sys.exit(1)
-
-    server = None
-    port = args.port
-    max_attempts = 15
-
-    for offset in range(max_attempts):
-        candidate_port = port + offset
-        try:
-            server = ThreadedServer((args.host, candidate_port), KykloiApplianceHandler)
-            port = candidate_port
-            break
-        except OSError as e:
-            if e.errno in (98, 48, 10048):
-                continue
-            raise
-
-    if server is None:
-        sys.stderr.write("[FATAL] Could not bind to an open port.\n")
-        sys.exit(1)
-
-    admin_url = f"http://{args.host}:{port}/admin/"
-    vault_url = f"http://{args.host}:{port}/"
-
-    print("=" * 64)
-    print("  Project Kykloi — Unified Appliance Daemon")
-    print(f"  Admin:  {admin_url}")
-    print(f"  Vault:  {vault_url}")
-    print(f"  Mode:   {'Browser' if args.browser else 'Headless'}")
-    print("=" * 64)
-
-    if args.browser:
-        threading.Thread(
-            target=lambda: (time.sleep(0.3), webbrowser.open(admin_url)), daemon=True
-        ).start()
 
     try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        print("\n[Kykloi] Shutting down appliance daemon...")
+        interactive_menu(vault_url, args.password)
     finally:
+        print("\n[Kykloi] Shutting down local server and closing ports...")
+        server.shutdown()
         server.server_close()
+        print("[Kykloi] Shutdown complete.")
 
 
 if __name__ == "__main__":
@@ -3834,6 +3457,12 @@ if [ ! -f "$LOCAL_PY" ] || [ ! -f "$STAMP_FILE" ]; then
         xattr -dr com.apple.quarantine "$RUNTIME_ROOT" 2>/dev/null || true
     fi
 fi
+
+# ---------------------------------------------------------------------------
+# 4. EXECUTE APPLICATION LAUNCHER
+# ---------------------------------------------------------------------------
+echo "[Kykloi] Using fallback Python runtime: $LOCAL_PY"
+exec "$LOCAL_PY" "$SCRIPT_DIR/system/launch.py" "$@"
 ```
 
 ## pyproject.toml
