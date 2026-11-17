@@ -1,4 +1,3 @@
-/* search_worker.js - Kykloi SQLite3 WASM FTS5 Search Worker */
 "use strict";
 
 importScripts("sqlite3.js");
@@ -8,9 +7,6 @@ let db = null;
 let initPromise = null;
 const messageQueue = [];
 
-/**
- * Initializes the SQLite3 WASM runtime and deserializes search.db into memory.
- */
 async function initDatabase(dbUrl) {
   if (db) return;
 
@@ -49,10 +45,6 @@ async function initDatabase(dbUrl) {
   }
 }
 
-/**
- * Builds candidate FTS5 queries.
- * Supports advanced syntax (quotes, column filters, boolean operators) with a safe prefix fallback.
- */
 function buildFtsQueries(rawQuery) {
   const trimmed = rawQuery.trim();
   if (!trimmed) return [];
@@ -76,9 +68,6 @@ function buildFtsQueries(rawQuery) {
   return [fallbackQuery].filter(Boolean);
 }
 
-/**
- * Returns the 50 most recent documents (default view for empty query).
- */
 function getRecentDocuments(searchId) {
   if (!db) return;
 
@@ -119,9 +108,6 @@ function getRecentDocuments(searchId) {
   }
 }
 
-/**
- * Executes full-text search against the docs_fts virtual table.
- */
 function executeSearch(query, searchId) {
   const trimmed = (query || "").trim();
 
@@ -166,7 +152,6 @@ function executeSearch(query, searchId) {
       executionSuccess = true;
       break;
     } catch (err) {
-      // Loop falls back to the safe prefix query if advanced syntax threw an error
     }
   }
 

@@ -61,7 +61,6 @@ figcaption {
     color: var(--pico-muted-color);
 }
 
-/* Remove underlines from all links by default and on hover */
 a:not([role="button"]) {
     --pico-text-decoration: none;
     --text-decoration: none;
@@ -83,22 +82,18 @@ li {
     margin-bottom: calc(var(--pico-typography-spacing-vertical) * 0.25);
 }
 
-/* Level 1: Solid round bullets (disc) */
 main ul li {
     list-style-type: disc;
 }
 
-/* Level 2: Hollow bullets (circle) */
 main ul ul li {
     list-style-type: circle;
 }
 
-/* Level 3: Solid round bullets */
 main ul ul ul li {
     list-style-type: disc;
 }
 
-/* Level 4: Hollow bullets */
 main ul ul ul ul li {
     list-style-type: circle;
 }

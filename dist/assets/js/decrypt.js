@@ -33,7 +33,7 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    const mathElements = container.getElementsByClassName("math");
+    const mathElements = container.querySelectorAll(".math");
     for (let i = 0; i < mathElements.length; i++) {
       const el = mathElements[i];
       let tex = el.textContent.trim();
@@ -219,11 +219,37 @@ document.addEventListener("DOMContentLoaded", () => {
       passwordInput.disabled = true;
     }
 
-    try {
-      const html = await decryptEnvelope(password, rawPayload);
+    function sanitizeDecryptedHtml(untrustedHtml) {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(untrustedHtml, "text/html");
+      const blockedTags = ["SCRIPT", "IFRAME", "OBJECT", "EMBED"];
 
-      contentContainer.innerHTML = html;
-      contentContainer.style.display = "block";
+      doc.querySelectorAll("*").forEach((el) => {
+        if (blockedTags.includes(el.tagName)) {
+          el.remove();
+          return;
+        }
+        for (let i = el.attributes.length - 1; i >= 0; i--) {
+          const attr = el.attributes[i];
+          const name = attr.name.toLowerCase();
+          const val = attr.value.trim().toLowerCase();
+          if (
+            name.startsWith("on") ||
+            (name === "href" && val.startsWith("javascript:")) ||
+            (name === "src" && val.startsWith("javascript:"))
+          ) {
+            el.removeAttribute(attr.name);
+          }
+        }
+      });
+      return doc.body.innerHTML;
+    }
+
+      try {
+        const html = await decryptEnvelope(password, rawPayload);
+
+        contentContainer.innerHTML = sanitizeDecryptedHtml(html);
+        contentContainer.style.display = "block";
 
       payloadEl.textContent = "";
       if (lockContainer) {

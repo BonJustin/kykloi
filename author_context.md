@@ -1,4 +1,5 @@
 #### 1. User Disclosures (Directly Reported)
+
 * **Vocation:** Practicing nurse; software development is conducted strictly as an amateur/hobbyist pursuit.
 * **Technical Background:** Self-disclosed as lacking the technical proficiency to author this codebase without large language model (LLM) generation.
 * **Methodology:** Engaged in "vibe-coding" (prompt-driven iterative code synthesis mediated by LLMs) over a period of approximately six months spanning hundreds of developmental iterations.
@@ -11,6 +12,7 @@
 * **Awareness of Technical Trade-Offs:** Identified performance deficiencies (notably pure-Python AES-GCM execution overhead) were consciously accepted as operational compromises or deferred to future iterations.
 
 #### 2. Codebase Forensic Artifacts (Empirically Derived)
+
 * **Digital Identity / Moniker:** Employs the branding identifier `JmB²` within the site navigation bar (`system/build/root/index.html`, `system/build/templates/md_to_static_html.html`).
 * **Knowledge Management Workflow:**
   * Uses timestamped Zettelkasten-style file naming schemes (`YYYYMMDDHHMMSS-slug.md`, e.g., `20261109130247-project_kykloi_task_list.md`).
