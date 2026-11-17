@@ -6,18 +6,16 @@ kykloi/
 ├── .github/ (contents excluded)
 ├── .venv/ (contents excluded)
 ├── content/
-│   ├── 202611/
-│   │   ├── 20261109130247-project_kykloi_task_list.md
-│   │   └── 20261109171348-geminis_codebase_impression.md
-│   ├── media/
-│   │   └── test_artemis_2.jpg
-│   ├── secure/
-│   │   ├── media/
-│   │   │   └── test_artemis_2.jpg
-│   │   └── 20261031165927-nested-directory-test.md
-│   └── pandoc_markdown.md
+│   └── kykloi/
+│       ├── media/
+│       │   └── test_artemis_2.jpg
+│       ├── secure/
+│       │   └── media/
+│       │       └── test_artemis_2.jpg
+│       └── 20261116170353-kykloi-introduction.md
 ├── dist/ (contents excluded)
 ├── system/
+│   ├── __pycache__/ (contents excluded)
 │   ├── build/
 │   │   ├── __pycache__/ (contents excluded)
 │   │   ├── assets/
@@ -64,7 +62,9 @@ kykloi/
 │   │   │   └── pandoc-3.14-x86_64-macOS.zip
 │   │   ├── tools_manifest.json
 │   │   └── verify_manifest.py
-│   └── launch.py
+│   ├── kykloi.log
+│   ├── launch.py
+│   └── logger.py
 ├── .gitignore
 ├── .python-version
 ├── assemble_code_to_md.py
@@ -1286,6 +1286,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
+APP_DIR = Path(__file__).resolve().parent
+SYSTEM_DIR = APP_DIR.parent
+if str(SYSTEM_DIR) not in sys.path:
+    sys.path.insert(0, str(SYSTEM_DIR))
+
+from logger import get_logger, setup_logging, timed_step
+
 # ===========================================================================
 # 1. PURE-PYTHON AES-256-GCM ENGINE & TABLE-DRIVEN GHASH
 # ===========================================================================
@@ -1781,8 +1788,6 @@ def is_junk_path(path: Path, root: Optional[Path] = None) -> bool:
     return path.name.lower() in JUNK_FILE_EXTENSIONS
 
 
-APP_DIR = Path(__file__).resolve().parent
-SYSTEM_DIR = APP_DIR.parent
 PROJECT_ROOT = SYSTEM_DIR.parent
 SRC = PROJECT_ROOT / "content"
 DST = PROJECT_ROOT / "dist"
@@ -1845,6 +1850,12 @@ def parse_args():
         default=os.environ.get("KYKLOI_ENCRYPT_KEY"),
         help="Secure passphrase.",
     )
+    p.add_argument(
+        "--log-file",
+        type=str,
+        default=None,
+        help="Destination path for persistent diagnostic logs.",
+    )
     return p.parse_args()
 
 
@@ -1854,11 +1865,6 @@ def parse_args():
 
 
 def resolve_pandoc_binary(root_dir: Path) -> str:
-    """Resolves the Pandoc executable.
-    1. Checks hydrated temporary runtime directory (hermetic determinism).
-    2. Hydrates on demand from system/tools/archives/ if present.
-    3. Falls back to host system PATH only if no local archive exists.
-    """
     system = platform.system().lower()
     machine = platform.machine().lower()
     arch = (
@@ -1904,9 +1910,10 @@ def resolve_pandoc_binary(root_dir: Path) -> str:
 
     archive_path = archives_dir / archive_name
     ext = "zip" if archive_name.endswith(".zip") else "tar.gz"
+    log = get_logger("pandoc")
 
     if archive_path.is_file():
-        logging.info("Verifying SHA-256 for %s...", archive_path.name)
+        log.info("Verifying integrity checksum for %s...", archive_path.name)
         actual_hash = compute_file_hash(archive_path)
         if actual_hash != expected_hash:
             raise ValueError(
@@ -1915,8 +1922,10 @@ def resolve_pandoc_binary(root_dir: Path) -> str:
                 f"  Actual:   {actual_hash}"
             )
 
-        logging.info(
-            "Hydrating Pandoc from %s to %s...", archive_path.name, runtime_dir
+        log.info(
+            "Extracting isolated Pandoc runtime: %s -> %s",
+            archive_path.name,
+            runtime_dir,
         )
         runtime_dir.mkdir(parents=True, exist_ok=True)
 
@@ -2162,7 +2171,7 @@ def extract_metadata_fast(md_path: Path) -> tuple[Path, dict[str, str], bool]:
         has_citations = bool(CITATION_PATTERN.search(full_content))
 
     except OSError as err:
-        logging.warning("Error reading %s: %s", md_path.name, err)
+        get_logger("frontmatter").warning("Error reading %s: %s", md_path.name, err)
 
     if not meta["title"]:
         clean_stem = md_path.stem
@@ -2227,10 +2236,11 @@ def build_sqlite_search_index(
         conn.close()
 
         tmp_path.replace(out_path)
-        logging.info(
-            "Compiled SQLite FTS5 index (%d records, %d bytes).",
+        get_logger("search").info(
+            "Generated search index: %d record(s) indexed (%d bytes) at %s",
             len(records),
             out_path.stat().st_size,
+            out_path.name,
         )
 
     except Exception:
@@ -2404,23 +2414,30 @@ def find_vault_bibliography(src_root: Path) -> Optional[Path]:
 
 def main():
     args = parse_args()
-    logging.basicConfig(
-        level=logging.DEBUG if args.verbose else logging.INFO,
-        format="%(levelname)s: %(message)s",
+    log_file_path = Path(args.log_file).resolve() if args.log_file else None
+    log = setup_logging(
+        subsystem="compiler",
+        verbose=args.verbose,
+        log_file=log_file_path,
+        enable_console=True,
     )
 
-    try:
-        verify_cryptographic_engine()
-    except RuntimeError as err:
-        logging.critical(str(err))
-        sys.exit(1)
+    with timed_step(
+        log, "Cryptographic Self-Test (NIST AES-256-GCM KAT)", logging.DEBUG
+    ):
+        try:
+            verify_cryptographic_engine()
+        except RuntimeError as err:
+            log.critical("Cryptographic verification failure: %s", err)
+            sys.exit(1)
 
-    try:
-        pandoc_bin = resolve_pandoc_binary(PROJECT_ROOT)
-        logging.info("Resolved Pandoc executable: %s", pandoc_bin)
-    except FileNotFoundError as err:
-        logging.critical(str(err))
-        sys.exit(1)
+    with timed_step(log, "Pandoc Binary Resolution", logging.DEBUG):
+        try:
+            pandoc_bin = resolve_pandoc_binary(PROJECT_ROOT)
+            log.info("Resolved Pandoc executable: %s", pandoc_bin)
+        except FileNotFoundError as err:
+            log.critical("Toolchain dependency error: %s", err)
+            sys.exit(1)
 
     for path, desc in [
         (SRC, "Source directory"),
@@ -2429,7 +2446,7 @@ def main():
         (LUA_FILTER, "Lua link translation filter"),
     ]:
         if not path.exists():
-            logging.error("Configuration error: %s missing at %s", desc, path)
+            log.error("Missing required pipeline dependency: %s at %s", desc, path)
             sys.exit(1)
 
     if args.clean:
@@ -2451,7 +2468,7 @@ def main():
     )
 
     if global_deps_changed:
-        logging.info("Core templates/configurations modified. Recompiling site.")
+        log.info("Core templates/toolchain modified. Triggering full re-compilation.")
 
     expected_outputs: set[Path] = set()
     compile_tasks: list[CompileTask] = []
@@ -2467,7 +2484,7 @@ def main():
     passphrase = args.password
     if has_secure_files and not passphrase and not args.dry_run:
         if not sys.stdin.isatty():
-            logging.error(
+            log.error(
                 "Passphrase required for /secure/ notes in non-interactive environment. "
                 "Provide --password or set KYKLOI_ENCRYPT_KEY."
             )
@@ -2476,11 +2493,11 @@ def main():
         try:
             passphrase = getpass.getpass("Enter passphrase for /secure/ notes: ")
         except (OSError, EOFError):
-            logging.error("Terminal disconnected: Unable to prompt for passphrase.")
+            log.error("Terminal disconnected: Unable to prompt for passphrase.")
             sys.exit(1)
 
         if not passphrase:
-            logging.error("Passphrase required for secure notes.")
+            log.error("Passphrase required for secure notes.")
             sys.exit(1)
 
     passphrase_changed = False
@@ -2490,7 +2507,9 @@ def main():
         old_key_fingerprint = old_manifest.get("__PASSPHRASE_FINGERPRINT__")
         if old_manifest and old_key_fingerprint != current_key_fingerprint:
             passphrase_changed = True
-            logging.info("Passphrase rotation detected. Re-encrypting payloads.")
+            log.info(
+                "Passphrase rotation detected. Invalidating encrypted document cache."
+            )
 
     asset_sync_jobs: list[tuple[Path, Path]] = []
 
@@ -2658,48 +2677,63 @@ def main():
                 if not target.exists() or old_manifest.get(manifest_key) != h:
                     asset_sync_jobs.append((p, target))
 
-    orphans_pruned = prune_orphans(
-        dst_dir=DST, expected_files=expected_outputs, dry_run=args.dry_run
-    )
-    if orphans_pruned:
-        logging.info("Pruned %d orphaned artifact(s).", orphans_pruned)
+    with timed_step(log, "Artifact Pruning", logging.DEBUG):
+        orphans_pruned = prune_orphans(
+            dst_dir=DST, expected_files=expected_outputs, dry_run=args.dry_run
+        )
+        if orphans_pruned:
+            log.info("Pruned %d orphaned artifact(s) from target.", orphans_pruned)
 
-    for src_file, target_file in asset_sync_jobs:
-        if not args.dry_run:
-            target_file.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src_file, target_file)
+    if asset_sync_jobs:
+        log.info("Synchronizing %d static/media asset(s)...", len(asset_sync_jobs))
+        for src_file, target_file in asset_sync_jobs:
+            if not args.dry_run:
+                target_file.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src_file, target_file)
+            log.debug("Synchronized asset: %s -> %s", src_file.name, target_file.name)
 
     failed = 0
 
     if encrypt_blob_tasks:
-        logging.info("Encrypting %d media blob(s)...", len(encrypt_blob_tasks))
-        with concurrent.futures.ProcessPoolExecutor(
-            max_workers=args.workers
-        ) as executor:
-            futures = [
-                executor.submit(encrypt_blob_worker, t) for t in encrypt_blob_tasks
-            ]
-            for future in concurrent.futures.as_completed(futures):
-                path, ok, err = future.result()
-                if not ok:
-                    failed += 1
-                    logging.error("Failed to encrypt blob %s: %s", path.name, err)
+        log.info("Encrypting %d binary blob(s)...", len(encrypt_blob_tasks))
+        with timed_step(
+            log, f"Binary Blob Encryption ({len(encrypt_blob_tasks)} items)"
+        ):
+            with concurrent.futures.ProcessPoolExecutor(
+                max_workers=args.workers
+            ) as executor:
+                futures = [
+                    executor.submit(encrypt_blob_worker, t) for t in encrypt_blob_tasks
+                ]
+                for future in concurrent.futures.as_completed(futures):
+                    path, ok, err = future.result()
+                    if not ok:
+                        failed += 1
+                        log.error("Failed to encrypt blob %s: %s", path.name, err)
+                    else:
+                        log.debug("Encrypted binary asset: %s", path.name)
 
     if compile_tasks:
-        logging.info("Compiling %d documents...", len(compile_tasks))
-        with concurrent.futures.ProcessPoolExecutor(
-            max_workers=args.workers
-        ) as executor:
-            futures = [
-                executor.submit(compile_markdown_worker, t) for t in compile_tasks
-            ]
-            for future in concurrent.futures.as_completed(futures):
-                path, ok, err = future.result()
-                if not ok:
-                    failed += 1
-                    logging.error("Error compiling %s: %s", path.name, err)
+        log.info("Compiling %d Markdown document(s)...", len(compile_tasks))
+        with timed_step(log, f"Markdown Compilation ({len(compile_tasks)} documents)"):
+            with concurrent.futures.ProcessPoolExecutor(
+                max_workers=args.workers
+            ) as executor:
+                futures = [
+                    executor.submit(compile_markdown_worker, t) for t in compile_tasks
+                ]
+                for future in concurrent.futures.as_completed(futures):
+                    path, ok, err = future.result()
+                    if not ok:
+                        failed += 1
+                        log.error("Compilation error in %s: %s", path.name, err)
+                    else:
+                        log.debug("Compiled: %s", path.name)
     else:
-        logging.info("All documents are up-to-date.")
+        log.info(
+            "Document compilation cache hit. All %d documents are up-to-date.",
+            len(md_files),
+        )
 
     if failed == 0:
         search_index_needed = (
@@ -2719,9 +2753,12 @@ def main():
             )
 
         save_manifest(MANIFEST_FILE, new_manifest, args.dry_run)
-        logging.info("Pipeline completed successfully.")
+        log.info("Build pipeline completed successfully.")
     else:
-        logging.error("Build failed with %d error(s). Manifest retained.", failed)
+        log.error(
+            "Build failed with %d error(s). Build manifest retained in prior state.",
+            failed,
+        )
         sys.exit(1)
 
 
@@ -2904,16 +2941,13 @@ end
 #!/usr/bin/env python3
 """
 system/launch.py - Autonomous Control Hub Daemon for Project Kykloi.
-Features CLI argument parsing, defensive MIME registration, and IPC vault orchestration.
+Features CLI argument parsing, defensive MIME registration, centralized telemetry,
+and IPC vault orchestration.
 """
 
 import argparse
 import http.server
 import mimetypes
-
-# ===========================================================================
-# 1. PATH RESOLUTION & DEFENSIVE MIME REGISTRATION
-# ===========================================================================
 import os
 import re
 import socketserver
@@ -2924,10 +2958,18 @@ import urllib.parse
 import webbrowser
 from pathlib import Path
 
+# ===========================================================================
+# 1. PATH RESOLUTION, MODULE SETUP & DEFENSIVE MIME REGISTRATION
+# ===========================================================================
 SYSTEM_DIR = Path(__file__).resolve().parent
 ROOT_DIR = SYSTEM_DIR.parent
 DIST_DIR = ROOT_DIR / "dist"
 BUILD_SCRIPT = SYSTEM_DIR / "build" / "build_site.py"
+
+if str(SYSTEM_DIR) not in sys.path:
+    sys.path.insert(0, str(SYSTEM_DIR))
+
+from logger import get_logger, setup_logging
 
 mimetypes.init()
 mimetypes.add_type("application/wasm", ".wasm")
@@ -2954,8 +2996,17 @@ class KykloiVaultHandler(http.server.BaseHTTPRequestHandler):
         return mime or "application/octet-stream"
 
     def log_message(self, format: str, *args):
-        # Silence access logs to keep the interactive CLI uncluttered
-        pass
+        logger = get_logger("server")
+        msg = format % args
+        code_match = re.search(r'"\s+(\d{3})\s+', msg)
+        status_code = int(code_match.group(1)) if code_match else 200
+
+        if status_code >= 500:
+            logger.error("%s - %s", self.address_string(), msg)
+        elif status_code >= 400:
+            logger.warning("%s - %s", self.address_string(), msg)
+        else:
+            logger.debug("%s - %s", self.address_string(), msg)
 
     def do_HEAD(self):
         self._dispatch_get(send_body=False)
@@ -3123,23 +3174,31 @@ def start_background_server(
 # ===========================================================================
 
 
-def execute_build(clean: bool = False, passphrase: str | None = None) -> int:
+def execute_build(
+    clean: bool = False,
+    passphrase: str | None = None,
+    log_file: str | None = None,
+) -> int:
+    logger = get_logger("launcher")
     cmd = [sys.executable, str(BUILD_SCRIPT)]
     if clean:
         cmd.append("--clean")
     if passphrase:
         cmd.extend(["--password", passphrase])
+    if log_file:
+        cmd.extend(["--log-file", log_file])
 
     masked_cmd = [
         "********" if i > 0 and cmd[i - 1] == "--password" else arg
         for i, arg in enumerate(cmd)
     ]
-    print("\n" + "-" * 60)
-    print(f"[Compiler] Executing: {' '.join(masked_cmd)}")
-    print("-" * 60)
+    logger.info("Executing build: %s", " ".join(masked_cmd))
 
     res = subprocess.run(cmd, cwd=str(ROOT_DIR))
-    print("-" * 60)
+    if res.returncode == 0:
+        logger.info("Compilation process exited normally (code 0).")
+    else:
+        logger.error("Compilation process failed with exit code %d.", res.returncode)
     return res.returncode
 
 
@@ -3164,11 +3223,27 @@ def parse_args():
         default=os.environ.get("KYKLOI_ENCRYPT_KEY"),
         help="Passphrase for /secure/ notes.",
     )
+    p.add_argument(
+        "--log-file",
+        type=str,
+        default=None,
+        help="Path to persistent log file on disk.",
+    )
+    p.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Enable granular debug telemetry in console output.",
+    )
     return p.parse_args()
 
 
-def interactive_menu(vault_url: str, initial_password: str | None):
+def interactive_menu(
+    vault_url: str,
+    initial_password: str | None,
+    log_file: str | None = None,
+):
     session_password = initial_password
+    logger = get_logger("menu")
 
     while True:
         vault_ready = DIST_DIR.exists() and any(DIST_DIR.iterdir())
@@ -3195,9 +3270,9 @@ def interactive_menu(vault_url: str, initial_password: str | None):
             break
 
         if choice == "1":
-            execute_build(clean=False, passphrase=session_password)
+            execute_build(clean=False, passphrase=session_password, log_file=log_file)
         elif choice == "2":
-            execute_build(clean=True, passphrase=session_password)
+            execute_build(clean=True, passphrase=session_password, log_file=log_file)
         elif choice == "3":
             import getpass
 
@@ -3207,53 +3282,197 @@ def interactive_menu(vault_url: str, initial_password: str | None):
                 )
                 session_password = pw.strip() or None
                 if session_password:
-                    print("[Config] Passphrase stored in active session memory.")
+                    logger.info("Passphrase stored in active session memory.")
                 else:
-                    print("[Config] Passphrase cleared.")
+                    logger.info("Passphrase cleared.")
             except (KeyboardInterrupt, EOFError):
-                print("\n[Config] Passphrase entry cancelled.")
+                print()
+                logger.warning("Passphrase input aborted by user.")
         elif choice == "4":
             if not vault_ready:
-                print("\n[!] Vault must be compiled before opening in browser.")
+                logger.warning("Vault must be compiled before opening in browser.")
             else:
-                print(f"\n[Browser] Opening {vault_url} ...")
+                logger.info("Opening browser target: %s", vault_url)
                 webbrowser.open(vault_url)
         elif choice == "0":
             break
         else:
-            print("\n[!] Invalid selection.")
+            logger.warning("Unrecognized menu option: %s", choice)
 
 
 def main():
     args = parse_args()
+    log_file_path = Path(args.log_file).resolve() if args.log_file else None
+    logger = setup_logging(
+        subsystem="launcher",
+        verbose=args.verbose,
+        log_file=log_file_path,
+        enable_console=True,
+    )
 
     if args.build:
-        code = execute_build(clean=args.clean, passphrase=args.password)
+        code = execute_build(
+            clean=args.clean,
+            passphrase=args.password,
+            log_file=args.log_file,
+        )
         sys.exit(code)
 
     try:
         server, port, vault_url = start_background_server(args.host, args.port)
+        logger.info("Vault daemon online at %s (bound to port %d)", vault_url, port)
     except Exception as err:
-        sys.stderr.write(f"[FATAL] Server initialization failed: {err}\n")
+        logger.critical("Local static server failed to bind: %s", err)
         sys.exit(1)
 
     try:
-        interactive_menu(vault_url, args.password)
+        interactive_menu(vault_url, args.password, log_file=args.log_file)
     finally:
-        print("\n[Kykloi] Shutting down local server and closing ports...")
+        logger.info("Shutting down vault server daemon...")
         server.shutdown()
         server.server_close()
-        print("[Kykloi] Shutdown complete.")
+        logger.info("Daemon cleanly terminated.")
 
 
 if __name__ == "__main__":
     main()
 ```
 
+## system/logger.py
+
+```python
+"""
+system/logger.py - Centralized Telemetry and Logging Engine for Project Kykloi.
+Provides ANSI colorized terminal streams, persistent file sinks, and routine tracing.
+"""
+
+import contextlib
+import logging
+import os
+import sys
+import time
+from pathlib import Path
+from typing import Optional
+
+# Enable Virtual Terminal Processing on Windows 10+ for ANSI escape codes
+if sys.platform == "win32":
+    os.system("")
+
+DEFAULT_LOG_FILE = Path(__file__).resolve().parent / "kykloi.log"
+
+
+class AnsiColorFormatter(logging.Formatter):
+    """Formats log records with ANSI colors for interactive terminal displays."""
+
+    RESET = "\033[0m"
+    DIM = "\033[2m"
+    BOLD = "\033[1m"
+
+    COLORS = {
+        logging.DEBUG: "\033[36m",  # Cyan
+        logging.INFO: "\033[32m",  # Green
+        logging.WARNING: "\033[33m",  # Yellow
+        logging.ERROR: "\033[31m",  # Red
+        logging.CRITICAL: "\033[1;31m",  # Bold Red
+    }
+
+    def format(self, record: logging.LogRecord) -> str:
+        color = self.COLORS.get(record.levelno, self.RESET)
+        time_str = self.formatTime(record, "%H:%M:%S")
+        name = record.name
+        if name.startswith("kykloi."):
+            name = name[7:]
+
+        lvl_name = f"{record.levelname:<5}"
+        prefix = f"{self.DIM}[{time_str}]{self.RESET} {color}{lvl_name}{self.RESET} {self.DIM}[{name}]{self.RESET}"
+        message = record.getMessage()
+
+        if record.exc_info:
+            if not record.exc_text:
+                record.exc_text = self.formatException(record.exc_info)
+        if record.exc_text:
+            message = f"{message}\n{record.exc_text}"
+        if record.stack_info:
+            message = f"{message}\n{self.formatStack(record.stack_info)}"
+
+        return f"{prefix} {message}"
+
+
+class PlainFileFormatter(logging.Formatter):
+    """Deterministic plain-text formatter for file logging with ISO-8601 timestamps."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        time_str = self.formatTime(record, "%Y-%m-%d %H:%M:%S")
+        lvl_name = f"{record.levelname:<8}"
+        name = record.name
+        message = record.getMessage()
+
+        if record.exc_info:
+            if not record.exc_text:
+                record.exc_text = self.formatException(record.exc_info)
+        if record.exc_text:
+            message = f"{message}\n{record.exc_text}"
+        if record.stack_info:
+            message = f"{message}\n{self.formatStack(record.stack_info)}"
+
+        return f"{time_str} | {lvl_name} | {name:<24} | {message}"
+
+
+def setup_logging(
+    subsystem: str = "core",
+    verbose: bool = False,
+    log_file: Optional[Path] = None,
+    enable_console: bool = True,
+) -> logging.Logger:
+    """Configures the root Kykloi logger with console and optional file handlers."""
+    root_logger = logging.getLogger("kykloi")
+    root_logger.setLevel(logging.DEBUG)
+
+    for handler in list(root_logger.handlers):
+        root_logger.removeHandler(handler)
+
+    if enable_console:
+        console_handler = logging.StreamHandler(sys.stdout)
+        console_handler.setLevel(logging.DEBUG if verbose else logging.INFO)
+        console_handler.setFormatter(AnsiColorFormatter())
+        root_logger.addHandler(console_handler)
+
+    target_log_file = log_file if log_file is not None else DEFAULT_LOG_FILE
+    if target_log_file:
+        target_log_file.parent.mkdir(parents=True, exist_ok=True)
+        file_handler = logging.FileHandler(target_log_file, mode="a", encoding="utf-8")
+        file_handler.setLevel(logging.DEBUG)
+        file_handler.setFormatter(PlainFileFormatter())
+        root_logger.addHandler(file_handler)
+
+    return logging.getLogger(f"kykloi.{subsystem}")
+
+
+def get_logger(subsystem: str) -> logging.Logger:
+    """Retrieves a scoped child logger."""
+    return logging.getLogger(f"kykloi.{subsystem}")
+
+
+@contextlib.contextmanager
+def timed_step(logger: logging.Logger, operation_name: str, level: int = logging.INFO):
+    """Context manager for tracing operational subroutines with duration telemetry."""
+    start_time = time.perf_counter()
+    logger.log(level, "STARTED: %s", operation_name)
+    try:
+        yield
+        elapsed = (time.perf_counter() - start_time) * 1000.0
+        logger.log(level, "FINISHED: %s (%.2f ms)", operation_name, elapsed)
+    except Exception as err:
+        elapsed = (time.perf_counter() - start_time) * 1000.0
+        logger.error("FAILED: %s after %.2f ms: %s", operation_name, elapsed, err)
+        raise
+```
+
 ## author_context.md
 
 ```md
 #### 1. User Disclosures (Directly Reported)
+
 * **Vocation:** Practicing nurse; software development is conducted strictly as an amateur/hobbyist pursuit.
 * **Technical Background:** Self-disclosed as lacking the technical proficiency to author this codebase without large language model (LLM) generation.
 * **Methodology:** Engaged in "vibe-coding" (prompt-driven iterative code synthesis mediated by LLMs) over a period of approximately six months spanning hundreds of developmental iterations.
@@ -3266,6 +3485,7 @@ if __name__ == "__main__":
 * **Awareness of Technical Trade-Offs:** Identified performance deficiencies (notably pure-Python AES-GCM execution overhead) were consciously accepted as operational compromises or deferred to future iterations.
 
 #### 2. Codebase Forensic Artifacts (Empirically Derived)
+
 * **Digital Identity / Moniker:** Employs the branding identifier `JmB²` within the site navigation bar (`system/build/root/index.html`, `system/build/templates/md_to_static_html.html`).
 * **Knowledge Management Workflow:**
   * Uses timestamped Zettelkasten-style file naming schemes (`YYYYMMDDHHMMSS-slug.md`, e.g., `20261109130247-project_kykloi_task_list.md`).

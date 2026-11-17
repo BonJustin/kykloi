@@ -47,6 +47,7 @@ INCLUDED_FILES = {
     "launch.sh",
     "tools_manifest.json",
     "author_context.md",
+    "logger.py",
 }
 
 # Optional overrides for markdown syntax highlighting; unlisted extensions
