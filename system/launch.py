@@ -1,16 +1,13 @@
 #!/usr/bin/env python3
 """
 system/launch.py - Autonomous Control Hub Daemon for Project Kykloi.
-Features CLI argument parsing, defensive MIME registration, and IPC vault orchestration.
+Features CLI argument parsing, defensive MIME registration, centralized telemetry,
+and IPC vault orchestration.
 """
 
 import argparse
 import http.server
 import mimetypes
-
-# ===========================================================================
-# 1. PATH RESOLUTION & DEFENSIVE MIME REGISTRATION
-# ===========================================================================
 import os
 import re
 import socketserver
@@ -21,10 +18,18 @@ import urllib.parse
 import webbrowser
 from pathlib import Path
 
+# ===========================================================================
+# 1. PATH RESOLUTION, MODULE SETUP & DEFENSIVE MIME REGISTRATION
+# ===========================================================================
 SYSTEM_DIR = Path(__file__).resolve().parent
 ROOT_DIR = SYSTEM_DIR.parent
 DIST_DIR = ROOT_DIR / "dist"
 BUILD_SCRIPT = SYSTEM_DIR / "build" / "build_site.py"
+
+if str(SYSTEM_DIR) not in sys.path:
+    sys.path.insert(0, str(SYSTEM_DIR))
+
+from logger import get_logger, setup_logging
 
 mimetypes.init()
 mimetypes.add_type("application/wasm", ".wasm")
@@ -51,8 +56,17 @@ class KykloiVaultHandler(http.server.BaseHTTPRequestHandler):
         return mime or "application/octet-stream"
 
     def log_message(self, format: str, *args):
-        # Silence access logs to keep the interactive CLI uncluttered
-        pass
+        logger = get_logger("server")
+        msg = format % args
+        code_match = re.search(r'"\s+(\d{3})\s+', msg)
+        status_code = int(code_match.group(1)) if code_match else 200
+
+        if status_code >= 500:
+            logger.error("%s - %s", self.address_string(), msg)
+        elif status_code >= 400:
+            logger.warning("%s - %s", self.address_string(), msg)
+        else:
+            logger.debug("%s - %s", self.address_string(), msg)
 
     def do_HEAD(self):
         self._dispatch_get(send_body=False)
@@ -220,23 +234,31 @@ def start_background_server(
 # ===========================================================================
 
 
-def execute_build(clean: bool = False, passphrase: str | None = None) -> int:
+def execute_build(
+    clean: bool = False,
+    passphrase: str | None = None,
+    log_file: str | None = None,
+) -> int:
+    logger = get_logger("launcher")
     cmd = [sys.executable, str(BUILD_SCRIPT)]
     if clean:
         cmd.append("--clean")
     if passphrase:
         cmd.extend(["--password", passphrase])
+    if log_file:
+        cmd.extend(["--log-file", log_file])
 
     masked_cmd = [
         "********" if i > 0 and cmd[i - 1] == "--password" else arg
         for i, arg in enumerate(cmd)
     ]
-    print("\n" + "-" * 60)
-    print(f"[Compiler] Executing: {' '.join(masked_cmd)}")
-    print("-" * 60)
+    logger.info("Executing build: %s", " ".join(masked_cmd))
 
     res = subprocess.run(cmd, cwd=str(ROOT_DIR))
-    print("-" * 60)
+    if res.returncode == 0:
+        logger.info("Compilation process exited normally (code 0).")
+    else:
+        logger.error("Compilation process failed with exit code %d.", res.returncode)
     return res.returncode
 
 
@@ -261,11 +283,27 @@ def parse_args():
         default=os.environ.get("KYKLOI_ENCRYPT_KEY"),
         help="Passphrase for /secure/ notes.",
     )
+    p.add_argument(
+        "--log-file",
+        type=str,
+        default=None,
+        help="Path to persistent log file on disk.",
+    )
+    p.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Enable granular debug telemetry in console output.",
+    )
     return p.parse_args()
 
 
-def interactive_menu(vault_url: str, initial_password: str | None):
+def interactive_menu(
+    vault_url: str,
+    initial_password: str | None,
+    log_file: str | None = None,
+):
     session_password = initial_password
+    logger = get_logger("menu")
 
     while True:
         vault_ready = DIST_DIR.exists() and any(DIST_DIR.iterdir())
@@ -292,9 +330,9 @@ def interactive_menu(vault_url: str, initial_password: str | None):
             break
 
         if choice == "1":
-            execute_build(clean=False, passphrase=session_password)
+            execute_build(clean=False, passphrase=session_password, log_file=log_file)
         elif choice == "2":
-            execute_build(clean=True, passphrase=session_password)
+            execute_build(clean=True, passphrase=session_password, log_file=log_file)
         elif choice == "3":
             import getpass
 
@@ -304,43 +342,56 @@ def interactive_menu(vault_url: str, initial_password: str | None):
                 )
                 session_password = pw.strip() or None
                 if session_password:
-                    print("[Config] Passphrase stored in active session memory.")
+                    logger.info("Passphrase stored in active session memory.")
                 else:
-                    print("[Config] Passphrase cleared.")
+                    logger.info("Passphrase cleared.")
             except (KeyboardInterrupt, EOFError):
-                print("\n[Config] Passphrase entry cancelled.")
+                print()
+                logger.warning("Passphrase input aborted by user.")
         elif choice == "4":
             if not vault_ready:
-                print("\n[!] Vault must be compiled before opening in browser.")
+                logger.warning("Vault must be compiled before opening in browser.")
             else:
-                print(f"\n[Browser] Opening {vault_url} ...")
+                logger.info("Opening browser target: %s", vault_url)
                 webbrowser.open(vault_url)
         elif choice == "0":
             break
         else:
-            print("\n[!] Invalid selection.")
+            logger.warning("Unrecognized menu option: %s", choice)
 
 
 def main():
     args = parse_args()
+    log_file_path = Path(args.log_file).resolve() if args.log_file else None
+    logger = setup_logging(
+        subsystem="launcher",
+        verbose=args.verbose,
+        log_file=log_file_path,
+        enable_console=True,
+    )
 
     if args.build:
-        code = execute_build(clean=args.clean, passphrase=args.password)
+        code = execute_build(
+            clean=args.clean,
+            passphrase=args.password,
+            log_file=args.log_file,
+        )
         sys.exit(code)
 
     try:
         server, port, vault_url = start_background_server(args.host, args.port)
+        logger.info("Vault daemon online at %s (bound to port %d)", vault_url, port)
     except Exception as err:
-        sys.stderr.write(f"[FATAL] Server initialization failed: {err}\n")
+        logger.critical("Local static server failed to bind: %s", err)
         sys.exit(1)
 
     try:
-        interactive_menu(vault_url, args.password)
+        interactive_menu(vault_url, args.password, log_file=args.log_file)
     finally:
-        print("\n[Kykloi] Shutting down local server and closing ports...")
+        logger.info("Shutting down vault server daemon...")
         server.shutdown()
         server.server_close()
-        print("[Kykloi] Shutdown complete.")
+        logger.info("Daemon cleanly terminated.")
 
 
 if __name__ == "__main__":

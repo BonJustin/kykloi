@@ -85,7 +85,6 @@ def setup_logging(
     root_logger = logging.getLogger("kykloi")
     root_logger.setLevel(logging.DEBUG)
 
-    # Clear existing handlers to prevent duplicate lines on re-initialization
     for handler in list(root_logger.handlers):
         root_logger.removeHandler(handler)
 

@@ -27,7 +27,7 @@ SYSTEM_DIR = APP_DIR.parent
 if str(SYSTEM_DIR) not in sys.path:
     sys.path.insert(0, str(SYSTEM_DIR))
 
-from logger import get_logger
+from logger import get_logger, setup_logging, timed_step
 
 # ===========================================================================
 # 1. PURE-PYTHON AES-256-GCM ENGINE & TABLE-DRIVEN GHASH
@@ -601,11 +601,6 @@ def parse_args():
 
 
 def resolve_pandoc_binary(root_dir: Path) -> str:
-    """Resolves the Pandoc executable.
-    1. Checks hydrated temporary runtime directory (hermetic determinism).
-    2. Hydrates on demand from system/tools/archives/ if present.
-    3. Falls back to host system PATH only if no local archive exists.
-    """
     system = platform.system().lower()
     machine = platform.machine().lower()
     arch = (
@@ -912,7 +907,7 @@ def extract_metadata_fast(md_path: Path) -> tuple[Path, dict[str, str], bool]:
         has_citations = bool(CITATION_PATTERN.search(full_content))
 
     except OSError as err:
-        logging.warning("Error reading %s: %s", md_path.name, err)
+        get_logger("frontmatter").warning("Error reading %s: %s", md_path.name, err)
 
     if not meta["title"]:
         clean_stem = md_path.stem
@@ -1425,17 +1420,15 @@ def main():
         if orphans_pruned:
             log.info("Pruned %d orphaned artifact(s) from target.", orphans_pruned)
 
-        if asset_sync_jobs:
-            log.info("Synchronizing %d static/media asset(s)...", len(asset_sync_jobs))
-            for src_file, target_file in asset_sync_jobs:
-                if not args.dry_run:
-                    target_file.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(src_file, target_file)
-                log.debug(
-                    "Synchronized asset: %s -> %s", src_file.name, target_file.name
-                )
+    if asset_sync_jobs:
+        log.info("Synchronizing %d static/media asset(s)...", len(asset_sync_jobs))
+        for src_file, target_file in asset_sync_jobs:
+            if not args.dry_run:
+                target_file.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src_file, target_file)
+            log.debug("Synchronized asset: %s -> %s", src_file.name, target_file.name)
 
-        failed = 0
+    failed = 0
 
     if encrypt_blob_tasks:
         log.info("Encrypting %d binary blob(s)...", len(encrypt_blob_tasks))
@@ -1496,9 +1489,12 @@ def main():
             )
 
         save_manifest(MANIFEST_FILE, new_manifest, args.dry_run)
-        logging.info("Pipeline completed successfully.")
+        log.info("Build pipeline completed successfully.")
     else:
-        logging.error("Build failed with %d error(s). Manifest retained.", failed)
+        log.error(
+            "Build failed with %d error(s). Build manifest retained in prior state.",
+            failed,
+        )
         sys.exit(1)
 
 
