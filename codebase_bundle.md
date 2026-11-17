@@ -146,7 +146,6 @@ figcaption {
     color: var(--pico-muted-color);
 }
 
-/* Remove underlines from all links by default and on hover */
 a:not([role="button"]) {
     --pico-text-decoration: none;
     --text-decoration: none;
@@ -168,22 +167,18 @@ li {
     margin-bottom: calc(var(--pico-typography-spacing-vertical) * 0.25);
 }
 
-/* Level 1: Solid round bullets (disc) */
 main ul li {
     list-style-type: disc;
 }
 
-/* Level 2: Hollow bullets (circle) */
 main ul ul li {
     list-style-type: circle;
 }
 
-/* Level 3: Solid round bullets */
 main ul ul ul li {
     list-style-type: disc;
 }
 
-/* Level 4: Hollow bullets */
 main ul ul ul ul li {
     list-style-type: circle;
 }
@@ -525,7 +520,6 @@ document.addEventListener("DOMContentLoaded", () => {
 ## system/build/assets/js/pico_search.js
 
 ```javascript
-/* pico_search.js - Kykloi SQLite3 FTS5 Search Hub Driver */
 "use strict";
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -555,7 +549,6 @@ document.addEventListener("DOMContentLoaded", () => {
         const { type, query, searchId, hits, hasMore, isDefault, error } = e.data || {};
 
         if (type === "ready") {
-          // Immediately display the 50 most recent notes upon initialization
           if (bodyInput.value.trim() === "") {
             dispatchSearch("", bodyResults);
           }
@@ -664,7 +657,6 @@ document.addEventListener("DOMContentLoaded", () => {
     debouncedSearch(e.target.value, bodyResults);
   });
 
-  // Handle nav search button click on index page
   if (navSearchBtn) {
     navSearchBtn.addEventListener("click", (e) => {
       e.preventDefault();
@@ -673,17 +665,14 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // Handle focus request if navigated from a note with ?focus=1
   if (window.location.search.includes("focus=1")) {
     bodyInput.focus();
   }
 
-  // Desktop default focus on load
   if (window.innerWidth > 768) {
     bodyInput.focus();
   }
 
-  // Keyboard shortcuts (/ or Ctrl+K / Cmd+K to focus search on index)
   window.addEventListener("keydown", (e) => {
     const isModifierK = (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k";
     const isSlash = e.key === "/" && !["INPUT", "TEXTAREA"].includes(document.activeElement?.tagName);
@@ -695,7 +684,6 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  // Pre-initialize background worker
   initWorker();
 });
 ```
@@ -703,7 +691,6 @@ document.addEventListener("DOMContentLoaded", () => {
 ## system/build/assets/js/search_worker.js
 
 ```javascript
-/* search_worker.js - Kykloi SQLite3 WASM FTS5 Search Worker */
 "use strict";
 
 importScripts("sqlite3.js");
@@ -713,9 +700,6 @@ let db = null;
 let initPromise = null;
 const messageQueue = [];
 
-/**
- * Initializes the SQLite3 WASM runtime and deserializes search.db into memory.
- */
 async function initDatabase(dbUrl) {
   if (db) return;
 
@@ -754,10 +738,6 @@ async function initDatabase(dbUrl) {
   }
 }
 
-/**
- * Builds candidate FTS5 queries.
- * Supports advanced syntax (quotes, column filters, boolean operators) with a safe prefix fallback.
- */
 function buildFtsQueries(rawQuery) {
   const trimmed = rawQuery.trim();
   if (!trimmed) return [];
@@ -781,9 +761,6 @@ function buildFtsQueries(rawQuery) {
   return [fallbackQuery].filter(Boolean);
 }
 
-/**
- * Returns the 50 most recent documents (default view for empty query).
- */
 function getRecentDocuments(searchId) {
   if (!db) return;
 
@@ -824,9 +801,6 @@ function getRecentDocuments(searchId) {
   }
 }
 
-/**
- * Executes full-text search against the docs_fts virtual table.
- */
 function executeSearch(query, searchId) {
   const trimmed = (query || "").trim();
 
@@ -871,7 +845,6 @@ function executeSearch(query, searchId) {
       executionSuccess = true;
       break;
     } catch (err) {
-      // Loop falls back to the safe prefix query if advanced syntax threw an error
     }
   }
 
@@ -1228,7 +1201,6 @@ self.onmessage = (e) => {
                         <p style="color: var(--pico-muted-color); font-size: 0.9rem;">
                             The contents of this document are encrypted. Enter the passphrase to decrypt.
                         </p>
-                        <!-- Form with complete browser/extension password save suppression -->
                         <form id="kykloi-decrypt-form" autocomplete="off" onsubmit="return false;">
                             <fieldset role="group">
                                 <input
@@ -1983,7 +1955,6 @@ def resolve_pandoc_binary(root_dir: Path) -> str:
                             stamp_file.write_text(actual_hash, encoding="utf-8")
                             return str(target_file.resolve())
 
-    # Fall back to host system PATH only if local archive is not packaged
     sys_pandoc = shutil.which("pandoc")
     if sys_pandoc:
         return sys_pandoc
@@ -2790,10 +2761,6 @@ fail-if-warnings: false
 ## system/build/translate_links.lua
 
 ```lua
--- translate_links.lua
--- 1. Rewrites relative markdown links (.md) to HTML (.html)
--- 2. Appends .enc to media targets and tags attributes when KYKLOI_SECURE_BUILD is active
-
 local is_secure = os.getenv("KYKLOI_SECURE_BUILD") == "1"
 
 local function is_external(url)
@@ -3260,12 +3227,10 @@ def interactive_menu(vault_url: str, initial_password: str | None):
 def main():
     args = parse_args()
 
-    # Headless execution bypass
     if args.build:
         code = execute_build(clean=args.clean, passphrase=args.password)
         sys.exit(code)
 
-    # Start background daemon
     try:
         server, port, vault_url = start_background_server(args.host, args.port)
     except Exception as err:

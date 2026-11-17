@@ -22,6 +22,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
+APP_DIR = Path(__file__).resolve().parent
+SYSTEM_DIR = APP_DIR.parent
+if str(SYSTEM_DIR) not in sys.path:
+    sys.path.insert(0, str(SYSTEM_DIR))
+
+from logger import get_logger
+
 # ===========================================================================
 # 1. PURE-PYTHON AES-256-GCM ENGINE & TABLE-DRIVEN GHASH
 # ===========================================================================
@@ -517,8 +524,6 @@ def is_junk_path(path: Path, root: Optional[Path] = None) -> bool:
     return path.name.lower() in JUNK_FILE_EXTENSIONS
 
 
-APP_DIR = Path(__file__).resolve().parent
-SYSTEM_DIR = APP_DIR.parent
 PROJECT_ROOT = SYSTEM_DIR.parent
 SRC = PROJECT_ROOT / "content"
 DST = PROJECT_ROOT / "dist"
@@ -581,6 +586,12 @@ def parse_args():
         default=os.environ.get("KYKLOI_ENCRYPT_KEY"),
         help="Secure passphrase.",
     )
+    p.add_argument(
+        "--log-file",
+        type=str,
+        default=None,
+        help="Destination path for persistent diagnostic logs.",
+    )
     return p.parse_args()
 
 
@@ -640,9 +651,10 @@ def resolve_pandoc_binary(root_dir: Path) -> str:
 
     archive_path = archives_dir / archive_name
     ext = "zip" if archive_name.endswith(".zip") else "tar.gz"
+    log = get_logger("pandoc")
 
     if archive_path.is_file():
-        logging.info("Verifying SHA-256 for %s...", archive_path.name)
+        log.info("Verifying integrity checksum for %s...", archive_path.name)
         actual_hash = compute_file_hash(archive_path)
         if actual_hash != expected_hash:
             raise ValueError(
@@ -651,8 +663,10 @@ def resolve_pandoc_binary(root_dir: Path) -> str:
                 f"  Actual:   {actual_hash}"
             )
 
-        logging.info(
-            "Hydrating Pandoc from %s to %s...", archive_path.name, runtime_dir
+        log.info(
+            "Extracting isolated Pandoc runtime: %s -> %s",
+            archive_path.name,
+            runtime_dir,
         )
         runtime_dir.mkdir(parents=True, exist_ok=True)
 
@@ -963,10 +977,11 @@ def build_sqlite_search_index(
         conn.close()
 
         tmp_path.replace(out_path)
-        logging.info(
-            "Compiled SQLite FTS5 index (%d records, %d bytes).",
+        get_logger("search").info(
+            "Generated search index: %d record(s) indexed (%d bytes) at %s",
             len(records),
             out_path.stat().st_size,
+            out_path.name,
         )
 
     except Exception:
@@ -1140,23 +1155,30 @@ def find_vault_bibliography(src_root: Path) -> Optional[Path]:
 
 def main():
     args = parse_args()
-    logging.basicConfig(
-        level=logging.DEBUG if args.verbose else logging.INFO,
-        format="%(levelname)s: %(message)s",
+    log_file_path = Path(args.log_file).resolve() if args.log_file else None
+    log = setup_logging(
+        subsystem="compiler",
+        verbose=args.verbose,
+        log_file=log_file_path,
+        enable_console=True,
     )
 
-    try:
-        verify_cryptographic_engine()
-    except RuntimeError as err:
-        logging.critical(str(err))
-        sys.exit(1)
+    with timed_step(
+        log, "Cryptographic Self-Test (NIST AES-256-GCM KAT)", logging.DEBUG
+    ):
+        try:
+            verify_cryptographic_engine()
+        except RuntimeError as err:
+            log.critical("Cryptographic verification failure: %s", err)
+            sys.exit(1)
 
-    try:
-        pandoc_bin = resolve_pandoc_binary(PROJECT_ROOT)
-        logging.info("Resolved Pandoc executable: %s", pandoc_bin)
-    except FileNotFoundError as err:
-        logging.critical(str(err))
-        sys.exit(1)
+    with timed_step(log, "Pandoc Binary Resolution", logging.DEBUG):
+        try:
+            pandoc_bin = resolve_pandoc_binary(PROJECT_ROOT)
+            log.info("Resolved Pandoc executable: %s", pandoc_bin)
+        except FileNotFoundError as err:
+            log.critical("Toolchain dependency error: %s", err)
+            sys.exit(1)
 
     for path, desc in [
         (SRC, "Source directory"),
@@ -1165,7 +1187,7 @@ def main():
         (LUA_FILTER, "Lua link translation filter"),
     ]:
         if not path.exists():
-            logging.error("Configuration error: %s missing at %s", desc, path)
+            log.error("Missing required pipeline dependency: %s at %s", desc, path)
             sys.exit(1)
 
     if args.clean:
@@ -1187,7 +1209,7 @@ def main():
     )
 
     if global_deps_changed:
-        logging.info("Core templates/configurations modified. Recompiling site.")
+        log.info("Core templates/toolchain modified. Triggering full re-compilation.")
 
     expected_outputs: set[Path] = set()
     compile_tasks: list[CompileTask] = []
@@ -1203,7 +1225,7 @@ def main():
     passphrase = args.password
     if has_secure_files and not passphrase and not args.dry_run:
         if not sys.stdin.isatty():
-            logging.error(
+            log.error(
                 "Passphrase required for /secure/ notes in non-interactive environment. "
                 "Provide --password or set KYKLOI_ENCRYPT_KEY."
             )
@@ -1212,11 +1234,11 @@ def main():
         try:
             passphrase = getpass.getpass("Enter passphrase for /secure/ notes: ")
         except (OSError, EOFError):
-            logging.error("Terminal disconnected: Unable to prompt for passphrase.")
+            log.error("Terminal disconnected: Unable to prompt for passphrase.")
             sys.exit(1)
 
         if not passphrase:
-            logging.error("Passphrase required for secure notes.")
+            log.error("Passphrase required for secure notes.")
             sys.exit(1)
 
     passphrase_changed = False
@@ -1226,7 +1248,9 @@ def main():
         old_key_fingerprint = old_manifest.get("__PASSPHRASE_FINGERPRINT__")
         if old_manifest and old_key_fingerprint != current_key_fingerprint:
             passphrase_changed = True
-            logging.info("Passphrase rotation detected. Re-encrypting payloads.")
+            log.info(
+                "Passphrase rotation detected. Invalidating encrypted document cache."
+            )
 
     asset_sync_jobs: list[tuple[Path, Path]] = []
 
@@ -1394,48 +1418,65 @@ def main():
                 if not target.exists() or old_manifest.get(manifest_key) != h:
                     asset_sync_jobs.append((p, target))
 
-    orphans_pruned = prune_orphans(
-        dst_dir=DST, expected_files=expected_outputs, dry_run=args.dry_run
-    )
-    if orphans_pruned:
-        logging.info("Pruned %d orphaned artifact(s).", orphans_pruned)
+    with timed_step(log, "Artifact Pruning", logging.DEBUG):
+        orphans_pruned = prune_orphans(
+            dst_dir=DST, expected_files=expected_outputs, dry_run=args.dry_run
+        )
+        if orphans_pruned:
+            log.info("Pruned %d orphaned artifact(s) from target.", orphans_pruned)
 
-    for src_file, target_file in asset_sync_jobs:
-        if not args.dry_run:
-            target_file.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src_file, target_file)
+        if asset_sync_jobs:
+            log.info("Synchronizing %d static/media asset(s)...", len(asset_sync_jobs))
+            for src_file, target_file in asset_sync_jobs:
+                if not args.dry_run:
+                    target_file.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(src_file, target_file)
+                log.debug(
+                    "Synchronized asset: %s -> %s", src_file.name, target_file.name
+                )
 
-    failed = 0
+        failed = 0
 
     if encrypt_blob_tasks:
-        logging.info("Encrypting %d media blob(s)...", len(encrypt_blob_tasks))
-        with concurrent.futures.ProcessPoolExecutor(
-            max_workers=args.workers
-        ) as executor:
-            futures = [
-                executor.submit(encrypt_blob_worker, t) for t in encrypt_blob_tasks
-            ]
-            for future in concurrent.futures.as_completed(futures):
-                path, ok, err = future.result()
-                if not ok:
-                    failed += 1
-                    logging.error("Failed to encrypt blob %s: %s", path.name, err)
+        log.info("Encrypting %d binary blob(s)...", len(encrypt_blob_tasks))
+        with timed_step(
+            log, f"Binary Blob Encryption ({len(encrypt_blob_tasks)} items)"
+        ):
+            with concurrent.futures.ProcessPoolExecutor(
+                max_workers=args.workers
+            ) as executor:
+                futures = [
+                    executor.submit(encrypt_blob_worker, t) for t in encrypt_blob_tasks
+                ]
+                for future in concurrent.futures.as_completed(futures):
+                    path, ok, err = future.result()
+                    if not ok:
+                        failed += 1
+                        log.error("Failed to encrypt blob %s: %s", path.name, err)
+                    else:
+                        log.debug("Encrypted binary asset: %s", path.name)
 
     if compile_tasks:
-        logging.info("Compiling %d documents...", len(compile_tasks))
-        with concurrent.futures.ProcessPoolExecutor(
-            max_workers=args.workers
-        ) as executor:
-            futures = [
-                executor.submit(compile_markdown_worker, t) for t in compile_tasks
-            ]
-            for future in concurrent.futures.as_completed(futures):
-                path, ok, err = future.result()
-                if not ok:
-                    failed += 1
-                    logging.error("Error compiling %s: %s", path.name, err)
+        log.info("Compiling %d Markdown document(s)...", len(compile_tasks))
+        with timed_step(log, f"Markdown Compilation ({len(compile_tasks)} documents)"):
+            with concurrent.futures.ProcessPoolExecutor(
+                max_workers=args.workers
+            ) as executor:
+                futures = [
+                    executor.submit(compile_markdown_worker, t) for t in compile_tasks
+                ]
+                for future in concurrent.futures.as_completed(futures):
+                    path, ok, err = future.result()
+                    if not ok:
+                        failed += 1
+                        log.error("Compilation error in %s: %s", path.name, err)
+                    else:
+                        log.debug("Compiled: %s", path.name)
     else:
-        logging.info("All documents are up-to-date.")
+        log.info(
+            "Document compilation cache hit. All %d documents are up-to-date.",
+            len(md_files),
+        )
 
     if failed == 0:
         search_index_needed = (
