@@ -2,7 +2,7 @@
 """
 system/launch.py - Autonomous Control Hub Daemon for Project Kykloi.
 Features CLI argument parsing, defensive MIME registration, centralized telemetry,
-and IPC vault orchestration.
+cryptographic engine inspection, and IPC vault orchestration.
 """
 
 import argparse
@@ -28,7 +28,10 @@ BUILD_SCRIPT = SYSTEM_DIR / "build" / "build_site.py"
 
 if str(SYSTEM_DIR) not in sys.path:
     sys.path.insert(0, str(SYSTEM_DIR))
+if str(SYSTEM_DIR / "build") not in sys.path:
+    sys.path.insert(0, str(SYSTEM_DIR / "build"))
 
+from build_site import ACTIVE_ENGINE_NAME, _resolve_active_crypto_engine
 from logger import get_logger, setup_logging
 
 mimetypes.init()
@@ -262,6 +265,38 @@ def execute_build(
     return res.returncode
 
 
+def print_crypto_diagnostics():
+    engine_name, _ = _resolve_active_crypto_engine()
+    is_pure_python = "Pure-Python" in engine_name
+
+    print("\n================== KYKLOI CRYPTOGRAPHIC STATUS ==================")
+    print(f"  Current Engine:     {engine_name}")
+    print(
+        f"  Execution Mode:     {'BASELINE FALLBACK (Unaccelerated)' if is_pure_python else 'HARDWARE ACCELERATED'}"
+    )
+    print(f"  Active Interpreter: {sys.executable}")
+    print("=================================================================")
+
+    if is_pure_python:
+        print("\n[!] Pure-Python fallback is active. Build operations on large secure")
+        print("    media files will experience reduced throughput (~1 MB/s).\n")
+        print("    To enable hardware acceleration:")
+        print(
+            "    1. Ensure a standard host Python (>=3.10) is installed on your path."
+        )
+        print(
+            "    2. Install the optional compiled primitive package in that environment:"
+        )
+        print("         pip install cryptography")
+        print("       or:")
+        print("         pip install pycryptodome\n")
+        print("    The launch script will automatically detect host Python and bind")
+        print("    to the accelerated cryptographic engine on the next run.")
+    else:
+        print("\n[+] System is fully optimized. Cryptographic operations will use")
+        print("    native C-ABI / hardware intrinsics (AES-NI / NEON).\n")
+
+
 def parse_args():
     p = argparse.ArgumentParser(description="Kykloi Vault Engine & Local Appliance.")
     p.add_argument(
@@ -294,6 +329,11 @@ def parse_args():
         action="store_true",
         help="Enable granular debug telemetry in console output.",
     )
+    p.add_argument(
+        "--crypto-info",
+        action="store_true",
+        help="Inspect active cryptographic acceleration engine and exit.",
+    )
     return p.parse_args()
 
 
@@ -312,19 +352,26 @@ def interactive_menu(
         )
         pw_status = "Set" if session_password else "Not Set"
 
+        is_fallback = "Pure-Python" in ACTIVE_ENGINE_NAME
+        crypto_tag = (
+            f"{ACTIVE_ENGINE_NAME} [SLOW]" if is_fallback else ACTIVE_ENGINE_NAME
+        )
+
         print("\n==================== KYKLOI CONTROL PLANE ====================")
         print(f"  Status:     {status_line}")
         print(f"  Passphrase: [{pw_status}]")
+        print(f"  Crypto:     [{crypto_tag}]")
         print("==============================================================")
         print("  [1] Compile Site (Incremental)")
         print("  [2] Rebuild Site (Clean Purge)")
         print("  [3] Set / Update Secure Passphrase")
         print("  [4] Open Vault in Default Browser")
+        print("  [5] Cryptographic Acceleration Diagnostics")
         print("  [0] Exit")
         print("==============================================================")
 
         try:
-            choice = input("Select an option [0-4]: ").strip()
+            choice = input("Select an option [0-5]: ").strip()
         except (KeyboardInterrupt, EOFError):
             print("\n")
             break
@@ -354,6 +401,8 @@ def interactive_menu(
             else:
                 logger.info("Opening browser target: %s", vault_url)
                 webbrowser.open(vault_url)
+        elif choice == "5":
+            print_crypto_diagnostics()
         elif choice == "0":
             break
         else:
@@ -362,6 +411,11 @@ def interactive_menu(
 
 def main():
     args = parse_args()
+
+    if args.crypto_info:
+        print_crypto_diagnostics()
+        sys.exit(0)
+
     log_file_path = Path(args.log_file).resolve() if args.log_file else None
     logger = setup_logging(
         subsystem="launcher",

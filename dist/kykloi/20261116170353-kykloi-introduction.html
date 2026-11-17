@@ -13,7 +13,7 @@
 
                   <meta
             name="keywords"
-            content="Kykloi, Documentation, Unrelated Tag"
+            content="kykloi, documentation"
         />
          
         <title>Kykloi - Introduction</title>
@@ -119,247 +119,19 @@
                                                 <section id="introduction" class="level1">
                                                 <h1>Introduction</h1>
                                                 <p><em><strong>Kykloi</strong> is a simple, portable, archival personal knowlege base and website generator.</em></p>
-                                                <section id="tasks" class="level2">
-                                                <h2>Tasks</h2>
+                                                <p><strong>Tasks</strong></p>
                                                 <ul>
                                                 <li>Test from USB on Windows.</li>
+                                                <li>Default to user <code>cache</code> on POSIX systems, fallback to <code>tmp</code>.</li>
+                                                <li>Opportunistic use system level AES-256-GCM, host Python <code>cryptography</code> package, with fallback to built-in pure Python.</li>
+                                                <li>Installation routines for various use-cases.
+                                                <ul>
+                                                <li>USB flash drive</li>
+                                                <li>Github Actions/Pages dual repository.</li>
+                                                <li>Local developer environment.</li>
+                                                </ul></li>
+                                                <li>Test citation engine!</li>
                                                 </ul>
-                                                <div class="sourceCode" id="cb1"><pre class="sourceCode powershell"><code class="sourceCode powershell"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="fu">Remove-Item</span> <span class="op">-</span>Recurse <span class="op">-</span>Force <span class="st">&quot;</span><span class="va">$env</span><span class="op">:</span><span class="va">TEMP</span><span class="st">\kykloi_runtime_windows-x86_64&quot;</span></span></code></pre></div>
-                                                </section>
-                                                <section id="cli" class="level2">
-                                                <h2>CLI</h2>
-                                                <p>Here is the complete reference of all CLI commands, arguments, and environment variables across the Kykloi launcher and Python toolchain scripts.</p>
-                                                <hr />
-                                                <section id="root-launchers-launch.bat-and-launch.sh" class="level3">
-                                                <h3>1. Root Launchers (<code>launch.bat</code> and <code>launch.sh</code>)</h3>
-                                                <p>All arguments passed to the root scripts are forwarded directly into <code>system/launch.py</code>.</p>
-                                                <table>
-                                                <colgroup>
-                                                <col style="width: 50%" />
-                                                <col style="width: 50%" />
-                                                </colgroup>
-                                                <thead>
-                                                <tr>
-                                                <th style="text-align: left;">Argument / Flag</th>
-                                                <th style="text-align: left;">Description</th>
-                                                </tr>
-                                                </thead>
-                                                <tbody>
-                                                <tr>
-                                                <td style="text-align: left;"><code>[any launch.py argument]</code></td>
-                                                <td style="text-align: left;">Passed directly through to <code>system/launch.py</code> (e.g. <code>launch.bat --build --clean</code>).</td>
-                                                </tr>
-                                                <tr>
-                                                <td style="text-align: left;"><code>--force-fallback</code></td>
-                                                <td style="text-align: left;"><em>(When using the revised scripts)</em> Bypasses host Python detection and forces extraction and execution of the bundled portable Python archive.</td>
-                                                </tr>
-                                                </tbody>
-                                                </table>
-                                                <section id="controlling-environment-variables" class="level4">
-                                                <h4>Controlling Environment Variables</h4>
-                                                <table>
-                                                <colgroup>
-                                                <col style="width: 33%" />
-                                                <col style="width: 33%" />
-                                                <col style="width: 33%" />
-                                                </colgroup>
-                                                <thead>
-                                                <tr>
-                                                <th style="text-align: left;">Environment Variable</th>
-                                                <th style="text-align: left;">Values</th>
-                                                <th style="text-align: left;">Description</th>
-                                                </tr>
-                                                </thead>
-                                                <tbody>
-                                                <tr>
-                                                <td style="text-align: left;"><code>KYKLOI_FORCE_FALLBACK</code></td>
-                                                <td style="text-align: left;"><code>1</code></td>
-                                                <td style="text-align: left;">Forces both <code>.bat</code> and <code>.sh</code> to ignore host Python and unpack/run the offline archive.</td>
-                                                </tr>
-                                                <tr>
-                                                <td style="text-align: left;"><code>KYKLOI_ENCRYPT_KEY</code></td>
-                                                <td style="text-align: left;"><code>&lt;passphrase&gt;</code></td>
-                                                <td style="text-align: left;">Pre-populates the encryption/decryption passphrase for <code>/secure/</code> documents.</td>
-                                                </tr>
-                                                <tr>
-                                                <td style="text-align: left;"><code>REQ_MAJ</code></td>
-                                                <td style="text-align: left;"><code>3</code> (default)</td>
-                                                <td style="text-align: left;">Minimum required host Python major version.</td>
-                                                </tr>
-                                                <tr>
-                                                <td style="text-align: left;"><code>REQ_MIN</code></td>
-                                                <td style="text-align: left;"><code>10</code> (default)</td>
-                                                <td style="text-align: left;">Minimum required host Python minor version.</td>
-                                                </tr>
-                                                <tr>
-                                                <td style="text-align: left;"><code>KYKLOI_LIBC</code> <em>(Linux only)</em></td>
-                                                <td style="text-align: left;"><code>gnu</code> or <code>musl</code></td>
-                                                <td style="text-align: left;">Overrides automatic <code>libc</code> dynamic linker detection on Linux.</td>
-                                                </tr>
-                                                </tbody>
-                                                </table>
-                                                <hr />
-                                                </section>
-                                                </section>
-                                                <section id="vault-appliance-controller-systemlaunch.py" class="level3">
-                                                <h3>2. Vault Appliance Controller (<code>system/launch.py</code>)</h3>
-                                                <p>Controls the background HTTP server daemon and interactive terminal menu. Can be invoked directly via <code>python system/launch.py [args]</code> or through the root launchers.</p>
-                                                <table>
-                                                <colgroup>
-                                                <col style="width: 33%" />
-                                                <col style="width: 33%" />
-                                                <col style="width: 33%" />
-                                                </colgroup>
-                                                <thead>
-                                                <tr>
-                                                <th style="text-align: left;">Argument</th>
-                                                <th style="text-align: left;">Type / Default</th>
-                                                <th style="text-align: left;">Description</th>
-                                                </tr>
-                                                </thead>
-                                                <tbody>
-                                                <tr>
-                                                <td style="text-align: left;"><code>--build</code></td>
-                                                <td style="text-align: left;"><em>Flag</em></td>
-                                                <td style="text-align: left;">Non-interactive mode. Runs the compiler and immediately exits without starting the web server or interactive menu.</td>
-                                                </tr>
-                                                <tr>
-                                                <td style="text-align: left;"><code>--clean</code></td>
-                                                <td style="text-align: left;"><em>Flag</em></td>
-                                                <td style="text-align: left;">When combined with <code>--build</code>, forces a complete purge of <code>dist/</code> and the build manifest before compiling.</td>
-                                                </tr>
-                                                <tr>
-                                                <td style="text-align: left;"><code>--password</code></td>
-                                                <td style="text-align: left;"><code>STRING</code></td>
-                                                <td style="text-align: left;">Passphrase used to compile encrypted documents and media in <code>/secure/</code> directories.</td>
-                                                </tr>
-                                                <tr>
-                                                <td style="text-align: left;"><code>--host</code></td>
-                                                <td style="text-align: left;"><code>127.0.0.1</code></td>
-                                                <td style="text-align: left;">Local network interface IP to bind the static HTTP server.</td>
-                                                </tr>
-                                                <tr>
-                                                <td style="text-align: left;"><code>--port</code></td>
-                                                <td style="text-align: left;"><code>8000</code></td>
-                                                <td style="text-align: left;">Base port for the web server (automatically checks up to 15 ports if busy).</td>
-                                                </tr>
-                                                <tr>
-                                                <td style="text-align: left;"><code>--verbose</code></td>
-                                                <td style="text-align: left;"><em>Flag</em></td>
-                                                <td style="text-align: left;">Outputs detailed debug-level logs to the console.</td>
-                                                </tr>
-                                                <tr>
-                                                <td style="text-align: left;"><code>--log-file</code></td>
-                                                <td style="text-align: left;"><code>PATH</code></td>
-                                                <td style="text-align: left;">Custom path to write plain-text diagnostic log output (defaults to <code>system/kykloi.log</code>).</td>
-                                                </tr>
-                                                <tr>
-                                                <td style="text-align: left;"><code>-h</code>, <code>--help</code></td>
-                                                <td style="text-align: left;"><em>Flag</em></td>
-                                                <td style="text-align: left;">Shows the CLI help message.</td>
-                                                </tr>
-                                                </tbody>
-                                                </table>
-                                                <section id="common-usage-examples" class="level4">
-                                                <h4>Common Usage Examples</h4>
-                                                <div class="sourceCode" id="cb2"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Start server and interactive menu with debug output</span></span>
-<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="ex">launch.bat</span> <span class="at">--verbose</span></span>
-<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a><span class="co"># Headless clean build with a passphrase (CI or automated backup)</span></span>
-<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a><span class="ex">launch.bat</span> <span class="at">--build</span> <span class="at">--clean</span> <span class="at">--password</span> <span class="st">&quot;mysecretkey&quot;</span></span>
-<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a><span class="co"># Host on custom port</span></span>
-<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a><span class="ex">launch.bat</span> <span class="at">--port</span> 9000</span></code></pre></div>
-                                                <hr />
-                                                </section>
-                                                </section>
-                                                <section id="static-site-compiler-systembuildbuild_site.py" class="level3">
-                                                <h3>3. Static Site Compiler (<code>system/build/build_site.py</code>)</h3>
-                                                <p>The standalone compiler engine. Can be run directly via <code>python system/build/build_site.py [args]</code>.</p>
-                                                <table>
-                                                <colgroup>
-                                                <col style="width: 33%" />
-                                                <col style="width: 33%" />
-                                                <col style="width: 33%" />
-                                                </colgroup>
-                                                <thead>
-                                                <tr>
-                                                <th style="text-align: left;">Argument</th>
-                                                <th style="text-align: left;">Type / Default</th>
-                                                <th style="text-align: left;">Description</th>
-                                                </tr>
-                                                </thead>
-                                                <tbody>
-                                                <tr>
-                                                <td style="text-align: left;"><code>--clean</code></td>
-                                                <td style="text-align: left;"><em>Flag</em></td>
-                                                <td style="text-align: left;">Deletes <code>dist/</code> and <code>.build_manifest.json</code> before building to force a 100% full recompile.</td>
-                                                </tr>
-                                                <tr>
-                                                <td style="text-align: left;"><code>--dry-run</code></td>
-                                                <td style="text-align: left;"><em>Flag</em></td>
-                                                <td style="text-align: left;">Simulates the compilation, encryption, and indexing pipeline without writing any files to disk.</td>
-                                                </tr>
-                                                <tr>
-                                                <td style="text-align: left;"><code>--password</code></td>
-                                                <td style="text-align: left;"><code>STRING</code></td>
-                                                <td style="text-align: left;">Passphrase used to encrypt content in <code>/secure/</code> directories with pure-Python AES-256-GCM.</td>
-                                                </tr>
-                                                <tr>
-                                                <td style="text-align: left;"><code>--workers</code></td>
-                                                <td style="text-align: left;"><em>CPU Count</em> or <code>4</code></td>
-                                                <td style="text-align: left;">Number of parallel worker processes to use for markdown rendering and media encryption.</td>
-                                                </tr>
-                                                <tr>
-                                                <td style="text-align: left;"><code>--verbose</code></td>
-                                                <td style="text-align: left;"><em>Flag</em></td>
-                                                <td style="text-align: left;">Prints granular debug timing logs and worker task transitions.</td>
-                                                </tr>
-                                                <tr>
-                                                <td style="text-align: left;"><code>--log-file</code></td>
-                                                <td style="text-align: left;"><code>PATH</code></td>
-                                                <td style="text-align: left;">Custom log destination path.</td>
-                                                </tr>
-                                                <tr>
-                                                <td style="text-align: left;"><code>-h</code>, <code>--help</code></td>
-                                                <td style="text-align: left;"><em>Flag</em></td>
-                                                <td style="text-align: left;">Shows the CLI help message.</td>
-                                                </tr>
-                                                </tbody>
-                                                </table>
-                                                <section id="common-usage-examples-1" class="level4">
-                                                <h4>Common Usage Examples</h4>
-                                                <div class="sourceCode" id="cb3"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Test build without writing to disk</span></span>
-<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="ex">python</span> system/build/build_site.py <span class="at">--dry-run</span> <span class="at">--verbose</span></span>
-<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a><span class="co"># Fast parallel clean rebuild utilizing 8 CPU cores</span></span>
-<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a><span class="ex">python</span> system/build/build_site.py <span class="at">--clean</span> <span class="at">--workers</span> 8 <span class="at">--password</span> <span class="st">&quot;mysecretkey&quot;</span></span></code></pre></div>
-                                                <hr />
-                                                </section>
-                                                </section>
-                                                <section id="toolchain-verifier-systemtoolsverify_manifest.py" class="level3">
-                                                <h3>4. Toolchain Verifier (<code>system/tools/verify_manifest.py</code>)</h3>
-                                                <p>Audits the bundled offline tools in <code>system/tools/archives/</code>.</p>
-                                                <table>
-                                                <colgroup>
-                                                <col style="width: 50%" />
-                                                <col style="width: 50%" />
-                                                </colgroup>
-                                                <thead>
-                                                <tr>
-                                                <th style="text-align: left;">Command</th>
-                                                <th style="text-align: left;">Description</th>
-                                                </tr>
-                                                </thead>
-                                                <tbody>
-                                                <tr>
-                                                <td style="text-align: left;"><code>python system/tools/verify_manifest.py</code></td>
-                                                <td style="text-align: left;">Scans all compressed <code>.tar.gz</code> and <code>.zip</code> archives in <code>system/tools/archives/</code> and validates their SHA-256 checksums against <code>system/tools/tools_manifest.json</code>. Exits with <code>0</code> on success or non-zero on mismatch.</td>
-                                                </tr>
-                                                </tbody>
-                                                </table>
-                                                </section>
-                                                </section>
                                                 </section>
                             </div>
         </main>

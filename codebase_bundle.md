@@ -12,7 +12,8 @@ kykloi/
 │       ├── secure/
 │       │   └── media/
 │       │       └── test_artemis_2.jpg
-│       └── 20261116170353-kykloi-introduction.md
+│       ├── 20261116170353-kykloi-introduction.md
+│       └── 20261117053719-kykloi-cryptography.md
 ├── dist/ (contents excluded)
 ├── system/
 │   ├── __pycache__/ (contents excluded)
@@ -42,6 +43,7 @@ kykloi/
 │   │   ├── templates/
 │   │   │   └── md_to_static_html.html
 │   │   ├── .build_manifest.json
+│   │   ├── build_site copy.py
 │   │   ├── build_site.py
 │   │   ├── pandoc_md_to_static_html.yaml
 │   │   └── translate_links.lua
@@ -63,6 +65,7 @@ kykloi/
 │   │   ├── tools_manifest.json
 │   │   └── verify_manifest.py
 │   ├── kykloi.log
+│   ├── launch copy.py
 │   ├── launch.py
 │   └── logger.py
 ├── .gitignore
@@ -199,7 +202,7 @@ header.site_header {
 }
 
 main {
-    max-width: 65ch;
+    max-width: 78ch;
     margin-inline: auto;
 }
 
@@ -1266,11 +1269,18 @@ __KYKLOI_ENCRYPTED_PAYLOAD__
 """
 system/build/build_site.py - Zero-Dependency Deterministic SSG Compiler.
 Part of Project Kykloi (v0.5.0).
+Features Tiered Multi-Engine AES-256-GCM Acceleration with Deterministic Fallback.
+Priority Order:
+  1. Native OS C-ABI Shared Libraries (Windows CNG bcrypt.dll / System OpenSSL libcrypto)
+  2. Host Python Compiled Packages (cryptography / pycryptodome)
+  3. Pure-Python Baseline Engine (Guaranteed Zero-Dependency Fallback)
 """
 
 import argparse
 import base64
 import concurrent.futures
+import ctypes
+import ctypes.util
 import getpass
 import hashlib
 import json
@@ -1284,7 +1294,7 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional, Tuple
 
 APP_DIR = Path(__file__).resolve().parent
 SYSTEM_DIR = APP_DIR.parent
@@ -1294,7 +1304,7 @@ if str(SYSTEM_DIR) not in sys.path:
 from logger import get_logger, setup_logging, timed_step
 
 # ===========================================================================
-# 1. PURE-PYTHON AES-256-GCM ENGINE & TABLE-DRIVEN GHASH
+# 1. PURE-PYTHON AES-256-GCM ENGINE & TABLE-DRIVEN GHASH (TIER 3 BASELINE)
 # ===========================================================================
 
 S_BOX = [
@@ -1707,7 +1717,7 @@ def _ghash_block(t: list[list[int]], x: int) -> int:
 
 def pure_aes_gcm_encrypt(
     key: bytes, iv: bytes, plaintext: bytes
-) -> tuple[bytes, bytes]:
+) -> Tuple[bytes, bytes]:
     if len(key) != 32 or len(iv) != 12:
         raise ValueError("Key must be 32 bytes and IV must be 12 bytes.")
 
@@ -1746,20 +1756,380 @@ def pure_aes_gcm_encrypt(
     return ciphertext_bytes, tag
 
 
-def verify_cryptographic_engine():
-    kat_key = bytes.fromhex("00" * 32)
-    kat_iv = bytes.fromhex("00" * 12)
-    kat_pt = bytes.fromhex("00" * 16)
-    expected_ct = bytes.fromhex("cea7403d4d606b6e074ec5d3baf39d18")
-    expected_tag = bytes.fromhex("d0d1c8a799996bf0265b98b5d48ab919")
+# ===========================================================================
+# 2. ACCELERATED CRYPTO ENGINES
+# ===========================================================================
 
-    ct, tag = pure_aes_gcm_encrypt(kat_key, kat_iv, kat_pt)
-    if ct != expected_ct or tag != expected_tag:
-        raise RuntimeError("CRITICAL: NIST KAT verification failed for AES-GCM engine.")
+# --- TIER 1: Native OS C-ABI via ctypes ---
+
+
+class _BCRYPT_AUTHENTICATED_CIPHER_MODE_INFO(ctypes.Structure):
+    _fields_ = [
+        ("cbSize", ctypes.c_ulong),
+        ("dwInfoVersion", ctypes.c_ulong),
+        ("pbNonce", ctypes.c_void_p),
+        ("cbNonce", ctypes.c_ulong),
+        ("pbAuthData", ctypes.c_void_p),
+        ("cbAuthData", ctypes.c_ulong),
+        ("pbTag", ctypes.c_void_p),
+        ("cbTag", ctypes.c_ulong),
+        ("pbMacContext", ctypes.c_void_p),
+        ("cbMacContext", ctypes.c_ulong),
+        ("cbAAD", ctypes.c_ulong),
+        ("cbData", ctypes.c_ulonglong),
+        ("dwFlags", ctypes.c_ulong),
+    ]
+
+
+_CNG_ALG_HANDLE: Optional[ctypes.c_void_p] = None
+
+
+def _init_windows_cng() -> Optional[
+    Callable[[bytes, bytes, bytes], Tuple[bytes, bytes]]
+]:
+    global _CNG_ALG_HANDLE
+    if sys.platform != "win32":
+        return None
+
+    try:
+        bcrypt = ctypes.windll.bcrypt  # type: ignore[attr-defined]
+
+        alg_handle = ctypes.c_void_p()
+        status = bcrypt.BCryptOpenAlgorithmProvider(
+            ctypes.byref(alg_handle),
+            ctypes.c_wchar_p("AES"),
+            None,
+            ctypes.c_ulong(0),
+        )
+        if status != 0:
+            return None
+
+        chain_mode = "ChainingModeGCM\0".encode("utf-16le")
+        status = bcrypt.BCryptSetProperty(
+            alg_handle,
+            ctypes.c_wchar_p("ChainingMode"),
+            chain_mode,
+            ctypes.c_ulong(len(chain_mode)),
+            ctypes.c_ulong(0),
+        )
+        if status != 0:
+            bcrypt.BCryptCloseAlgorithmProvider(alg_handle, ctypes.c_ulong(0))
+            return None
+
+        _CNG_ALG_HANDLE = alg_handle
+
+        def _encrypt_cng(
+            key: bytes, iv: bytes, plaintext: bytes
+        ) -> Tuple[bytes, bytes]:
+            key_handle = ctypes.c_void_p()
+            st = bcrypt.BCryptGenerateSymmetricKey(
+                _CNG_ALG_HANDLE,
+                ctypes.byref(key_handle),
+                None,
+                ctypes.c_ulong(0),
+                ctypes.c_char_p(key),
+                ctypes.c_ulong(len(key)),
+                ctypes.c_ulong(0),
+            )
+            if st != 0:
+                raise RuntimeError(f"BCryptGenerateSymmetricKey error: {hex(st)}")
+
+            try:
+                c_iv = ctypes.create_string_buffer(iv, len(iv))
+                c_tag = ctypes.create_string_buffer(16)
+
+                auth_info = _BCRYPT_AUTHENTICATED_CIPHER_MODE_INFO()
+                auth_info.cbSize = ctypes.sizeof(_BCRYPT_AUTHENTICATED_CIPHER_MODE_INFO)
+                auth_info.dwInfoVersion = 1
+                auth_info.pbNonce = ctypes.cast(c_iv, ctypes.c_void_p)
+                auth_info.cbNonce = len(iv)
+                auth_info.pbTag = ctypes.cast(c_tag, ctypes.c_void_p)
+                auth_info.cbTag = 16
+
+                pt_len = len(plaintext)
+                out_buf = ctypes.create_string_buffer(pt_len)
+                bytes_done = ctypes.c_ulong(0)
+
+                st = bcrypt.BCryptEncrypt(
+                    key_handle,
+                    ctypes.c_char_p(plaintext),
+                    ctypes.c_ulong(pt_len),
+                    ctypes.byref(auth_info),
+                    None,
+                    ctypes.c_ulong(0),
+                    out_buf,
+                    ctypes.c_ulong(pt_len),
+                    ctypes.byref(bytes_done),
+                    ctypes.c_ulong(0),
+                )
+                if st != 0:
+                    raise RuntimeError(f"BCryptEncrypt error: {hex(st)}")
+
+                return bytes(out_buf.raw[: bytes_done.value]), bytes(c_tag.raw)
+            finally:
+                bcrypt.BCryptDestroyKey(key_handle)
+
+        return _encrypt_cng
+    except Exception:
+        return None
+
+
+def _find_posix_libcrypto() -> Optional[ctypes.CDLL]:
+    names = ["crypto", "libcrypto"]
+    for name in names:
+        path = ctypes.util.find_library(name)
+        if path:
+            try:
+                return ctypes.CDLL(path)
+            except OSError:
+                pass
+
+    if os.name == "posix":
+        try:
+            import ssl  # noqa: F401
+
+            proc_lib = ctypes.CDLL(None)
+            if hasattr(proc_lib, "EVP_aes_256_gcm"):
+                return proc_lib
+        except Exception:
+            pass
+
+        try:
+            import _ssl
+
+            return ctypes.CDLL(_ssl.__file__)
+        except Exception:
+            pass
+
+    candidates = [
+        "libcrypto.so.3",
+        "libcrypto.so.1.1",
+        "libcrypto.so",
+        "/usr/lib/libcrypto.so",
+        "/usr/lib/libcrypto.dylib",
+        "/opt/homebrew/lib/libcrypto.dylib",
+        "/usr/local/lib/libcrypto.dylib",
+    ]
+    for p in candidates:
+        try:
+            return ctypes.CDLL(p)
+        except OSError:
+            continue
+    return None
+
+
+def _init_posix_openssl() -> Optional[
+    Callable[[bytes, bytes, bytes], Tuple[bytes, bytes]]
+]:
+    lib = _find_posix_libcrypto()
+    if not lib:
+        return None
+
+    try:
+        lib.EVP_CIPHER_CTX_new.restype = ctypes.c_void_p
+        lib.EVP_CIPHER_CTX_new.argtypes = []
+
+        lib.EVP_CIPHER_CTX_free.restype = None
+        lib.EVP_CIPHER_CTX_free.argtypes = [ctypes.c_void_p]
+
+        lib.EVP_aes_256_gcm.restype = ctypes.c_void_p
+        lib.EVP_aes_256_gcm.argtypes = []
+
+        lib.EVP_EncryptInit_ex.restype = ctypes.c_int
+        lib.EVP_EncryptInit_ex.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+            ctypes.c_char_p,
+            ctypes.c_char_p,
+        ]
+
+        lib.EVP_CIPHER_CTX_ctrl.restype = ctypes.c_int
+        lib.EVP_CIPHER_CTX_ctrl.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_void_p,
+        ]
+
+        lib.EVP_EncryptUpdate.restype = ctypes.c_int
+        lib.EVP_EncryptUpdate.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_char_p,
+            ctypes.POINTER(ctypes.c_int),
+            ctypes.c_char_p,
+            ctypes.c_int,
+        ]
+
+        lib.EVP_EncryptFinal_ex.restype = ctypes.c_int
+        lib.EVP_EncryptFinal_ex.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_char_p,
+            ctypes.POINTER(ctypes.c_int),
+        ]
+
+        EVP_CTRL_GCM_SET_IVLEN = 0x9
+        EVP_CTRL_GCM_GET_TAG = 0x10
+
+        def _encrypt_openssl(
+            key: bytes, iv: bytes, plaintext: bytes
+        ) -> Tuple[bytes, bytes]:
+            ctx = lib.EVP_CIPHER_CTX_new()
+            if not ctx:
+                raise RuntimeError("EVP_CIPHER_CTX_new allocation failure.")
+
+            try:
+                cipher = lib.EVP_aes_256_gcm()
+                if lib.EVP_EncryptInit_ex(ctx, cipher, None, None, None) != 1:
+                    raise RuntimeError("EVP_EncryptInit_ex cipher bind failed.")
+
+                if (
+                    lib.EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_IVLEN, len(iv), None)
+                    != 1
+                ):
+                    raise RuntimeError(
+                        "EVP_CIPHER_CTX_ctrl IV length assignment failed."
+                    )
+
+                if lib.EVP_EncryptInit_ex(ctx, None, None, key, iv) != 1:
+                    raise RuntimeError(
+                        "EVP_EncryptInit_ex key/iv initialization failed."
+                    )
+
+                pt_len = len(plaintext)
+                c_ct = ctypes.create_string_buffer(pt_len + 16)
+                out_len = ctypes.c_int(0)
+
+                if pt_len > 0:
+                    if (
+                        lib.EVP_EncryptUpdate(
+                            ctx, c_ct, ctypes.byref(out_len), plaintext, pt_len
+                        )
+                        != 1
+                    ):
+                        raise RuntimeError("EVP_EncryptUpdate failed.")
+
+                total_len = out_len.value
+                final_len = ctypes.c_int(0)
+                if (
+                    lib.EVP_EncryptFinal_ex(
+                        ctx, ctypes.byref(c_ct, total_len), ctypes.byref(final_len)
+                    )
+                    != 1
+                ):
+                    raise RuntimeError("EVP_EncryptFinal_ex failed.")
+                total_len += final_len.value
+
+                tag = ctypes.create_string_buffer(16)
+                if lib.EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, 16, tag) != 1:
+                    raise RuntimeError("EVP_CIPHER_CTX_ctrl tag extraction failed.")
+
+                return bytes(c_ct.raw[:total_len]), bytes(tag.raw)
+            finally:
+                lib.EVP_CIPHER_CTX_free(ctx)
+
+        return _encrypt_openssl
+    except Exception:
+        return None
+
+
+# --- TIER 2: Python Site Packages (cryptography / pycryptodome) ---
+
+
+def _init_py_cryptography() -> Optional[
+    Callable[[bytes, bytes, bytes], Tuple[bytes, bytes]]
+]:
+    try:
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+        def _encrypt(key: bytes, iv: bytes, plaintext: bytes) -> Tuple[bytes, bytes]:
+            ct_tag = AESGCM(key).encrypt(iv, plaintext, None)
+            return ct_tag[:-16], ct_tag[-16:]
+
+        return _encrypt
+    except ImportError:
+        return None
+
+
+def _init_py_cryptodome() -> Optional[
+    Callable[[bytes, bytes, bytes], Tuple[bytes, bytes]]
+]:
+    try:
+        from Cryptodome.Cipher import AES  # type: ignore[import-not-found]
+
+        def _encrypt(key: bytes, iv: bytes, plaintext: bytes) -> Tuple[bytes, bytes]:
+            cipher = AES.new(key, AES.MODE_GCM, nonce=iv)
+            ct, tag = cipher.encrypt_and_digest(plaintext)
+            return ct, tag
+
+        return _encrypt
+    except ImportError:
+        return None
 
 
 # ===========================================================================
-# 2. PATHS & HYGIENE
+# 3. ENGINE DISPATCHER & NIST KAT VERIFICATION
+# ===========================================================================
+
+KAT_KEY = bytes.fromhex("00" * 32)
+KAT_IV = bytes.fromhex("00" * 12)
+KAT_PT = bytes.fromhex("00" * 16)
+KAT_EXPECTED_CT = bytes.fromhex("cea7403d4d606b6e074ec5d3baf39d18")
+KAT_EXPECTED_TAG = bytes.fromhex("d0d1c8a799996bf0265b98b5d48ab919")
+
+
+def _test_engine_kat(fn: Callable[[bytes, bytes, bytes], Tuple[bytes, bytes]]) -> bool:
+    try:
+        ct, tag = fn(KAT_KEY, KAT_IV, KAT_PT)
+        return ct == KAT_EXPECTED_CT and tag == KAT_EXPECTED_TAG
+    except Exception:
+        return False
+
+
+def _resolve_active_crypto_engine() -> Tuple[
+    str, Callable[[bytes, bytes, bytes], Tuple[bytes, bytes]]
+]:
+    # Priority Tier 1: Native OS C-ABI via ctypes
+    cng_fn = _init_windows_cng()
+    if cng_fn and _test_engine_kat(cng_fn):
+        return "Windows CNG (bcrypt.dll / AES-NI)", cng_fn
+
+    openssl_fn = _init_posix_openssl()
+    if openssl_fn and _test_engine_kat(openssl_fn):
+        return "System OpenSSL EVP (libcrypto / AES-NI / NEON)", openssl_fn
+
+    # Priority Tier 2: Compiled Site Packages
+    crypto_fn = _init_py_cryptography()
+    if crypto_fn and _test_engine_kat(crypto_fn):
+        return "Python cryptography (OpenSSL C-Extension)", crypto_fn
+
+    cryptodome_fn = _init_py_cryptodome()
+    if cryptodome_fn and _test_engine_kat(cryptodome_fn):
+        return "Python pycryptodome (Hardware Accelerated)", cryptodome_fn
+
+    # Priority Tier 3: Pure-Python Fallback Baseline
+    if _test_engine_kat(pure_aes_gcm_encrypt):
+        return "Pure-Python AES-GCM (Zero-Dependency Fallback)", pure_aes_gcm_encrypt
+
+    raise RuntimeError("CRITICAL: All cryptographic engines failed NIST KAT self-test.")
+
+
+ACTIVE_ENGINE_NAME, ACTIVE_ENCRYPT_FN = _resolve_active_crypto_engine()
+
+
+def aes_gcm_encrypt(key: bytes, iv: bytes, plaintext: bytes) -> Tuple[bytes, bytes]:
+    return ACTIVE_ENCRYPT_FN(key, iv, plaintext)
+
+
+def verify_cryptographic_engine():
+    if not _test_engine_kat(ACTIVE_ENCRYPT_FN):
+        raise RuntimeError(
+            f"CRITICAL: NIST KAT verification failed for active engine: {ACTIVE_ENGINE_NAME}"
+        )
+
+
+# ===========================================================================
+# 4. PATHS & HYGIENE
 # ===========================================================================
 
 JUNK_DIR_NAMES = {
@@ -1860,7 +2230,7 @@ def parse_args():
 
 
 # ===========================================================================
-# 3. BINARY RESOLUTION & CRYPTOGRAPHIC UTILITIES
+# 5. BINARY RESOLUTION & CRYPTOGRAPHIC UTILITIES
 # ===========================================================================
 
 
@@ -1882,7 +2252,14 @@ def resolve_pandoc_binary(root_dir: Path) -> str:
         runtime_dir = Path(os.environ.get("TEMP", "/tmp")) / f"kykloi_runtime_{target}"
         pandoc_bin = runtime_dir / "pandoc.exe"
     else:
-        runtime_dir = Path(f"/tmp/kykloi_runtime_{target}")
+        xdg_cache = os.environ.get("XDG_CACHE_HOME")
+        if xdg_cache and Path(xdg_cache).is_dir():
+            base_runtime = Path(xdg_cache)
+        elif (Path.home() / ".cache").exists():
+            base_runtime = Path.home() / ".cache"
+        else:
+            base_runtime = Path("/tmp")
+        runtime_dir = base_runtime / f"kykloi_runtime_{target}"
         pandoc_bin = runtime_dir / "bin" / "pandoc"
 
     stamp_file = runtime_dir / ".verified_sha256"
@@ -2021,7 +2398,7 @@ def encrypt_payload(html_content: str, passphrase: str) -> str:
     iv = os.urandom(12)
     key = derive_key(passphrase, salt)
     pt_bytes = html_content.encode("utf-8")
-    ciphertext, tag = pure_aes_gcm_encrypt(key, iv, pt_bytes)
+    ciphertext, tag = aes_gcm_encrypt(key, iv, pt_bytes)
     envelope = salt + iv + ciphertext + tag
     return base64.b64encode(envelope).decode("ascii")
 
@@ -2033,7 +2410,7 @@ def encrypt_binary_file(src_path: Path, dst_path: Path, passphrase: str) -> None
     salt = os.urandom(16)
     iv = os.urandom(12)
     key = derive_key(passphrase, salt)
-    ciphertext, tag = pure_aes_gcm_encrypt(key, iv, plaintext)
+    ciphertext, tag = aes_gcm_encrypt(key, iv, plaintext)
     envelope = salt + iv + ciphertext + tag
 
     dst_path.parent.mkdir(parents=True, exist_ok=True)
@@ -2066,7 +2443,7 @@ def save_manifest(manifest_path: Path, manifest: dict, dry_run: bool):
 
 
 # ===========================================================================
-# 4. FRONTMATTER & METADATA-ONLY SQLITE FTS5
+# 6. FRONTMATTER & METADATA-ONLY SQLITE FTS5
 # ===========================================================================
 
 
@@ -2250,7 +2627,7 @@ def build_sqlite_search_index(
 
 
 # ===========================================================================
-# 5. COMPILATION WORKERS
+# 7. COMPILATION WORKERS
 # ===========================================================================
 
 
@@ -2400,7 +2777,7 @@ def prune_orphans(dst_dir: Path, expected_files: set[Path], dry_run: bool) -> in
 
 
 # ===========================================================================
-# 6. PIPELINE ORCHESTRATION
+# 8. PIPELINE ORCHESTRATION
 # ===========================================================================
 
 
@@ -2427,6 +2804,7 @@ def main():
     ):
         try:
             verify_cryptographic_engine()
+            log.info("Cryptographic accelerator active: [%s]", ACTIVE_ENGINE_NAME)
         except RuntimeError as err:
             log.critical("Cryptographic verification failure: %s", err)
             sys.exit(1)
@@ -2942,7 +3320,7 @@ end
 """
 system/launch.py - Autonomous Control Hub Daemon for Project Kykloi.
 Features CLI argument parsing, defensive MIME registration, centralized telemetry,
-and IPC vault orchestration.
+cryptographic engine inspection, and IPC vault orchestration.
 """
 
 import argparse
@@ -2968,7 +3346,10 @@ BUILD_SCRIPT = SYSTEM_DIR / "build" / "build_site.py"
 
 if str(SYSTEM_DIR) not in sys.path:
     sys.path.insert(0, str(SYSTEM_DIR))
+if str(SYSTEM_DIR / "build") not in sys.path:
+    sys.path.insert(0, str(SYSTEM_DIR / "build"))
 
+from build_site import ACTIVE_ENGINE_NAME, _resolve_active_crypto_engine
 from logger import get_logger, setup_logging
 
 mimetypes.init()
@@ -3202,6 +3583,38 @@ def execute_build(
     return res.returncode
 
 
+def print_crypto_diagnostics():
+    engine_name, _ = _resolve_active_crypto_engine()
+    is_pure_python = "Pure-Python" in engine_name
+
+    print("\n================== KYKLOI CRYPTOGRAPHIC STATUS ==================")
+    print(f"  Current Engine:     {engine_name}")
+    print(
+        f"  Execution Mode:     {'BASELINE FALLBACK (Unaccelerated)' if is_pure_python else 'HARDWARE ACCELERATED'}"
+    )
+    print(f"  Active Interpreter: {sys.executable}")
+    print("=================================================================")
+
+    if is_pure_python:
+        print("\n[!] Pure-Python fallback is active. Build operations on large secure")
+        print("    media files will experience reduced throughput (~1 MB/s).\n")
+        print("    To enable hardware acceleration:")
+        print(
+            "    1. Ensure a standard host Python (>=3.10) is installed on your path."
+        )
+        print(
+            "    2. Install the optional compiled primitive package in that environment:"
+        )
+        print("         pip install cryptography")
+        print("       or:")
+        print("         pip install pycryptodome\n")
+        print("    The launch script will automatically detect host Python and bind")
+        print("    to the accelerated cryptographic engine on the next run.")
+    else:
+        print("\n[+] System is fully optimized. Cryptographic operations will use")
+        print("    native C-ABI / hardware intrinsics (AES-NI / NEON).\n")
+
+
 def parse_args():
     p = argparse.ArgumentParser(description="Kykloi Vault Engine & Local Appliance.")
     p.add_argument(
@@ -3234,6 +3647,11 @@ def parse_args():
         action="store_true",
         help="Enable granular debug telemetry in console output.",
     )
+    p.add_argument(
+        "--crypto-info",
+        action="store_true",
+        help="Inspect active cryptographic acceleration engine and exit.",
+    )
     return p.parse_args()
 
 
@@ -3252,19 +3670,26 @@ def interactive_menu(
         )
         pw_status = "Set" if session_password else "Not Set"
 
+        is_fallback = "Pure-Python" in ACTIVE_ENGINE_NAME
+        crypto_tag = (
+            f"{ACTIVE_ENGINE_NAME} [SLOW]" if is_fallback else ACTIVE_ENGINE_NAME
+        )
+
         print("\n==================== KYKLOI CONTROL PLANE ====================")
         print(f"  Status:     {status_line}")
         print(f"  Passphrase: [{pw_status}]")
+        print(f"  Crypto:     [{crypto_tag}]")
         print("==============================================================")
         print("  [1] Compile Site (Incremental)")
         print("  [2] Rebuild Site (Clean Purge)")
         print("  [3] Set / Update Secure Passphrase")
         print("  [4] Open Vault in Default Browser")
+        print("  [5] Cryptographic Acceleration Diagnostics")
         print("  [0] Exit")
         print("==============================================================")
 
         try:
-            choice = input("Select an option [0-4]: ").strip()
+            choice = input("Select an option [0-5]: ").strip()
         except (KeyboardInterrupt, EOFError):
             print("\n")
             break
@@ -3294,6 +3719,8 @@ def interactive_menu(
             else:
                 logger.info("Opening browser target: %s", vault_url)
                 webbrowser.open(vault_url)
+        elif choice == "5":
+            print_crypto_diagnostics()
         elif choice == "0":
             break
         else:
@@ -3302,6 +3729,11 @@ def interactive_menu(
 
 def main():
     args = parse_args()
+
+    if args.crypto_info:
+        print_crypto_diagnostics()
+        sys.exit(0)
+
     log_file_path = Path(args.log_file).resolve() if args.log_file else None
     logger = setup_logging(
         subsystem="launcher",
@@ -3769,12 +4201,18 @@ esac
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 MANIFEST_PATH="$SCRIPT_DIR/system/tools/tools_manifest.json"
 
-# Support hardened systems where /tmp is mounted noexec
-BASE_RUNTIME="/tmp"
-if [ -n "$XDG_RUNTIME_DIR" ] && [ -w "$XDG_RUNTIME_DIR" ]; then
-    BASE_RUNTIME="$XDG_RUNTIME_DIR"
-elif [ -d "$HOME/.cache" ] && [ -w "$HOME/.cache" ]; then
-    BASE_RUNTIME="$HOME/.cache"
+# Prioritize persistent user cache over /tmp to prevent noexec mount execution traps
+if [ -n "$XDG_CACHE_HOME" ] && [ -w "$XDG_CACHE_HOME" ]; then
+    BASE_RUNTIME="$XDG_CACHE_HOME"
+elif [ -n "$HOME" ] && [ -w "$HOME" ]; then
+    mkdir -p "$HOME/.cache" 2>/dev/null || true
+    if [ -d "$HOME/.cache" ] && [ -w "$HOME/.cache" ]; then
+        BASE_RUNTIME="$HOME/.cache"
+    else
+        BASE_RUNTIME="/tmp"
+    fi
+else
+    BASE_RUNTIME="/tmp"
 fi
 
 RUNTIME_ROOT="${BASE_RUNTIME}/kykloi_runtime_${TARGET}"
