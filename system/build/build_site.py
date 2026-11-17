@@ -618,7 +618,14 @@ def resolve_pandoc_binary(root_dir: Path) -> str:
         runtime_dir = Path(os.environ.get("TEMP", "/tmp")) / f"kykloi_runtime_{target}"
         pandoc_bin = runtime_dir / "pandoc.exe"
     else:
-        runtime_dir = Path(f"/tmp/kykloi_runtime_{target}")
+        xdg_cache = os.environ.get("XDG_CACHE_HOME")
+        if xdg_cache and Path(xdg_cache).is_dir():
+            base_runtime = Path(xdg_cache)
+        elif (Path.home() / ".cache").exists():
+            base_runtime = Path.home() / ".cache"
+        else:
+            base_runtime = Path("/tmp")
+        runtime_dir = base_runtime / f"kykloi_runtime_{target}"
         pandoc_bin = runtime_dir / "bin" / "pandoc"
 
     stamp_file = runtime_dir / ".verified_sha256"

@@ -3504,6 +3504,22 @@ def timed_step(logger: logging.Logger, operation_name: str, level: int = logging
 setlocal enabledelayedexpansion
 
 :: ---------------------------------------------------------------------------
+:: 0. PARSE CLI FLAGS (e.g. --force-fallback)
+:: ---------------------------------------------------------------------------
+set "PASSTHROUGH_ARGS="
+
+:parse_args
+if "%~1"=="" goto :done_parse_args
+if /i "%~1"=="--force-fallback" (
+    set "KYKLOI_FORCE_FALLBACK=1"
+) else (
+    set "PASSTHROUGH_ARGS=!PASSTHROUGH_ARGS! %1"
+)
+shift
+goto :parse_args
+:done_parse_args
+
+:: ---------------------------------------------------------------------------
 :: 1. CONFIGURATION & VERSION CONSTRAINTS
 :: ---------------------------------------------------------------------------
 if "%REQ_MAJ%"=="" set "REQ_MAJ=3"
@@ -3543,7 +3559,7 @@ for /f "delims=" %%i in ('where python') do (
 )
 :host_resolved
 echo [Kykloi] Using host Python runtime: !HOST_PATH! (!HOST_MAJOR!.!HOST_MINOR!)
-python system\launch.py %*
+python system\launch.py %PASSTHROUGH_ARGS%
 exit /b %ERRORLEVEL%
 
 :skip_host_python
@@ -3630,7 +3646,7 @@ tar -xzf "%ARCHIVE_PY%" -C "%RUNTIME_ROOT%" --strip-components=1
 :: 4. EXECUTE APPLICATION LAUNCHER
 :: ---------------------------------------------------------------------------
 echo [Kykloi] Using fallback Python runtime: %LOCAL_PY%
-"%LOCAL_PY%" "%SCRIPT_DIR%system\launch.py" %*
+"%LOCAL_PY%" "%SCRIPT_DIR%system\launch.py" %PASSTHROUGH_ARGS%
 exit /b %ERRORLEVEL%
 ```
 
@@ -3642,6 +3658,18 @@ set -e
 
 REQ_MAJ="${REQ_MAJ:-3}"
 REQ_MIN="${REQ_MIN:-10}"
+
+# ---------------------------------------------------------------------------
+# 0. PARSE CLI FLAGS (e.g. --force-fallback)
+# ---------------------------------------------------------------------------
+for arg do
+    if [ "$arg" = "--force-fallback" ]; then
+        KYKLOI_FORCE_FALLBACK=1
+    else
+        set -- "$@" "$arg"
+    fi
+    shift
+done
 
 # ---------------------------------------------------------------------------
 # 1. EVALUATE HOST PYTHON

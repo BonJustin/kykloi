@@ -114,12 +114,18 @@ esac
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 MANIFEST_PATH="$SCRIPT_DIR/system/tools/tools_manifest.json"
 
-# Support hardened systems where /tmp is mounted noexec
-BASE_RUNTIME="/tmp"
-if [ -n "$XDG_RUNTIME_DIR" ] && [ -w "$XDG_RUNTIME_DIR" ]; then
-    BASE_RUNTIME="$XDG_RUNTIME_DIR"
-elif [ -d "$HOME/.cache" ] && [ -w "$HOME/.cache" ]; then
-    BASE_RUNTIME="$HOME/.cache"
+# Prioritize persistent user cache over /tmp to prevent noexec mount execution traps
+if [ -n "$XDG_CACHE_HOME" ] && [ -w "$XDG_CACHE_HOME" ]; then
+    BASE_RUNTIME="$XDG_CACHE_HOME"
+elif [ -n "$HOME" ] && [ -w "$HOME" ]; then
+    mkdir -p "$HOME/.cache" 2>/dev/null || true
+    if [ -d "$HOME/.cache" ] && [ -w "$HOME/.cache" ]; then
+        BASE_RUNTIME="$HOME/.cache"
+    else
+        BASE_RUNTIME="/tmp"
+    fi
+else
+    BASE_RUNTIME="/tmp"
 fi
 
 RUNTIME_ROOT="${BASE_RUNTIME}/kykloi_runtime_${TARGET}"
