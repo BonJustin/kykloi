@@ -6,89 +6,89 @@ keywords: ["kykloi", "documentation", "cryptography", "encryption", "aes-gcm", "
 
 # Cryptographic Architecture & Acceleration
 
-Project Kykloi implements client-side authenticated symmetric encryption to secure confidential Markdown notes and embedded binary assets (images, PDFs, documents) located within any `/secure/` directory.
+Project Kykloi uses client-side encryption to protect private Markdown notes and attachments (such as images and PDFs) stored in any `/secure/` folder.
+
+Files are encrypted before they leave your computer. When viewed on the web, decryption happens entirely inside your browser, meaning unencrypted content is never sent across the network.
 
 ---
 
-## 1. Cryptographic Primitives & Specifications
+## 1. Security Specifications
 
-Kykloi adheres to modern cryptographic standards designed to execute in zero-trust static hosting environments:
+Kykloi relies on industry-standard encryption practices:
 
-* **Cipher:** **AES-256-GCM** (Galois/Counter Mode, 256-bit key length, 128-bit authentication tag, 96-bit unique IV).
-* **Key Derivation Function:** **PBKDF2-HMAC-SHA256** using 100,000 iterations and a cryptographically random 128-bit salt generated per artifact.
-* **Client-Side Decryption:** Executed in the browser via the W3C standard **WebCrypto API** (`SubtleCrypto`), ensuring plaintexts never traverse the network in decrypted form.
-* **Payload Envelope Format:** Encrypted outputs are serialized as binary or Base64 envelopes comprising:
-  $$\text{Payload} = [\text{Salt (16 bytes)}] \parallel [\text{IV (12 bytes)}] \parallel [\text{Ciphertext}] \parallel [\text{Auth Tag (16 bytes)}]$$
-
----
-
-## 2. The Acceleration Problem
-
-Encrypting small Markdown text files produces minimal execution overhead. However, encrypting multi-megabyte media attachments (e.g., high-resolution photography, diagrams) in interpreted, pure-Python code requires billions of Galois Field arithmetic operations ($\text{GF}(2^{128})$). 
-
-A pure-Python AES-GCM engine processes data at approximately **$1\text{ MB/s}$ to $2\text{ MB/s}$ per core**. Under this baseline rate, a vault with $100\text{ MB}$ of secure media requires over a minute to compile.
-
-In contrast, compiled native implementations leveraging dedicated CPU instruction sets (**Intel/AMD AES-NI** or **ARMv8 NEON Crypto**) process data at **$1,500\text{ MB/s}$ to $3,000\text{ MB/s}$**, completing identical builds in fractions of a second.
+* **Encryption Standard:** **AES-256-GCM**. This provides both confidentiality (keeping data secret) and integrity verification (detecting any tampering).
+* **Password Protection:** **PBKDF2-HMAC-SHA256** with 100,000 iterations and a unique, random salt for each file. This slows down brute-force password guessing attacks.
+* **In-Browser Decryption:** Handled by the browser's built-in **WebCrypto API**. Decryption occurs locally on your device using your passphrase.
+* **Encrypted File Structure:** Each encrypted item bundles four components together:
+  * **Salt:** Used to derive the key from your passphrase.
+  * **Initialization Vector (IV):** Ensures identical files encrypt differently every time.
+  * **Ciphertext:** The encrypted content.
+  * **Authentication Tag:** Verifies the content has not been modified.
 
 ---
 
-## 3. Tiered Engine Resolution Hierarchy
+## 2. Why Hardware Acceleration Matters
 
-To resolve this bottleneck without violating Kykloi's zero-dependency archival guarantee, `build_site.py` dynamically resolves the fastest available engine using a prioritized three-tier fallback pipeline. Every candidate engine must validate against the official **NIST SP 800-38D Known Answer Test (KAT)** before activation.
+Encrypting text notes takes milliseconds. However, encrypting large media files (such as high-resolution images or documents) requires substantial processing power:
 
-### Tier 1: Native OS C-ABI (Automatic & Out-of-the-Box)
-Kykloi binds directly to shared C libraries already present in the host operating system using Python's standard `ctypes` foreign function interface. This tier requires **no Python packages, no host Python installation, and no administrative configuration**:
-* **Windows (All versions $\ge$ Vista):** Binds to Windows Cryptography Next Generation (`bcrypt.dll`). Executes hardware AES-NI instructions natively.
-* **Linux (Debian, Ubuntu, Fedora, Arch, Alpine):** Binds to standard system OpenSSL (`libcrypto.so.3` or `libcrypto.so.1.1`).
-* **macOS:** Binds to resident OpenSSL dynamic libraries or the runtime's internal `_ssl` object.
+* **Pure-Python (No Acceleration):** Processes data at roughly **1 to 2 MB per second**. Encrypting a site with 100 MB of attachments can take over a minute.
+* **Hardware Acceleration:** Uses dedicated instructions built into modern processors (Intel/AMD AES-NI or Apple/ARM NEON) to process data at **1,500 to 3,000 MB per second**. The same 100 MB of data compiles in a fraction of a second.
 
-### Tier 2: Host Python Packages (Optional Auxiliary)
-If running inside a stripped container or specialized chroot where native OS C-libraries are unmapped, Kykloi inspects the Python interpreter for pre-compiled cryptographic wheels:
+---
+
+## 3. How Kykloi Selects an Encryption Engine
+
+When you build your site, Kykloi checks your system and automatically selects the fastest available encryption engine using a three-tier system:
+
+### Tier 1: System-Level Hardware Acceleration (Default & Recommended)
+Kykloi accesses the secure libraries already installed on your operating system. This provides hardware-accelerated speed with **zero extra installation required**:
+* **Windows:** Uses the built-in Windows Cryptography API (`bcrypt.dll`).
+* **Linux:** Uses the system OpenSSL library (`libcrypto.so`).
+* **macOS:** Uses resident system cryptographic libraries.
+
+### Tier 2: Python Cryptography Packages (Optional)
+If your operating system libraries cannot be reached (for example, inside certain restricted containers), Kykloi looks for installed Python packages such as:
 * `cryptography`
 * `pycryptodome`
 
-### Tier 3: Pure-Python Engine (Archival Baseline)
-If all external and OS-level acceleration primitives are unavailable, Kykloi falls back to its built-in pure-Python AES-256-GCM implementation. The build process remains operational and deterministic, with zero external dependencies.
+### Tier 3: Pure-Python Engine (Built-in Fallback)
+If no hardware acceleration or external libraries are available, Kykloi falls back to its internal Python engine. The build will still succeed and produce valid encrypted files, but compiling large attachments will take longer.
 
 ---
 
-## 4. Diagnostics & Environment Verification
+## 4. Checking Your Acceleration Status
 
-### Inspecting Engine Status
-
-To inspect which cryptographic accelerator is currently mapped to your Kykloi environment:
+You can check which engine your system is using via the command line:
 
 ```bash
 # Windows
 launch.bat --crypto-info
 
-# POSIX (Linux / macOS)
+# Linux / macOS
 ./launch.sh --crypto-info
 ```
 
-Alternatively, launch the interactive Control Plane and select **Option [5] (Cryptographic Acceleration Diagnostics)**.
+Alternatively, open the interactive launcher menu and select **Option [5] (Cryptographic Acceleration Diagnostics)**.
 
-The diagnostic utility reports the active engine:
-* `Windows CNG (bcrypt.dll / AES-NI)` $\rightarrow$ Fully optimized.
-* `System OpenSSL EVP (libcrypto / AES-NI / NEON)` $\rightarrow$ Fully optimized.
-* `Python cryptography (OpenSSL C-Extension)` $\rightarrow$ Fully optimized.
-* `Pure-Python AES-GCM (Zero-Dependency Fallback)` $\rightarrow$ Baseline fallback mode active.
+### Interpreting the Results
+* **`Windows CNG` or `System OpenSSL`:** Hardware acceleration is active. No action needed.
+* **`Python cryptography`:** Accelerated via an installed Python package. No action needed.
+* **`Pure-Python AES-GCM`:** Running in fallback mode. Site builds will be slower if you have large files in `/secure/`.
 
 ---
 
-## 5. Activating Acceleration on Fallback Systems
+## 5. Enabling Acceleration on Fallback Systems
 
-If your system diagnostic indicates that the **Pure-Python Baseline** is active, you can achieve acceleration by providing a host Python environment with compiled cryptographic primitives:
+If diagnostics report that your system is using the **Pure-Python Fallback**, you can enable hardware speeds by installing the standard Python cryptography library:
 
-1. **Verify Host Python:** Ensure Python 3.10 or newer is installed on your host system:
+1. **Verify Python Installation:** Ensure Python 3.10 or newer is installed:
    ```bash
    python --version   # Windows
    python3 --version  # Linux / macOS
    ```
-2. **Install Compiled Primitives:**
+2. **Install the Acceleration Library:**
    ```bash
    pip install cryptography
    ```
-3. **Execute Launcher:**
-   Run `launch.bat` or `./launch.sh`. The launcher will prioritize your host Python environment, detect the compiled C-extension, and transition from Baseline Fallback to Hardware Accelerated mode.
-```
+3. **Re-run the Launcher:**
+   Execute `launch.bat` or `./launch.sh`. Kykloi will automatically detect the package and switch to accelerated mode.
