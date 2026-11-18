@@ -6,7 +6,7 @@ Features Tiered Multi-Engine AES-256-GCM Acceleration with Deterministic Fallbac
 Priority Order:
   1. Native OS C-ABI Shared Libraries:
      - macOS 10.13+: Apple CommonCrypto (libSystem.B.dylib / NEON / AES-NI)
-     - macOS <= 10.12 & Linux/POSIX: Safe OpenSSL EVP (sys.prefix / MacPorts / Homebrew / distro .so)
+     - macOS <= 10.12 & Linux/POSIX/musl: Safe OpenSSL EVP (sys.prefix / Alpine / MacPorts / Homebrew / distro .so)
      - Windows: CNG (bcrypt.dll / AES-NI)
   2. Host Python Compiled Packages (cryptography / pycryptodome)
   3. Pure-Python Baseline Engine (Guaranteed Zero-Dependency Fallback)
@@ -21,6 +21,7 @@ import getpass
 import hashlib
 import json
 import logging
+import multiprocessing
 import os
 import platform
 import re
@@ -506,7 +507,6 @@ def _init_darwin_commoncrypto() -> Optional[
         return None
 
     try:
-        # libSystem.B.dylib houses CommonCrypto and is always mapped into Darwin address space
         lib = ctypes.CDLL("/usr/lib/libSystem.B.dylib")
         if not hasattr(lib, "CCCryptorGCMOneshotEncrypt"):
             return None
@@ -514,25 +514,25 @@ def _init_darwin_commoncrypto() -> Optional[
         fn = lib.CCCryptorGCMOneshotEncrypt
         fn.restype = ctypes.c_int32
         fn.argtypes = [
-            ctypes.c_uint32,
-            ctypes.c_char_p,
-            ctypes.c_size_t,
-            ctypes.c_char_p,
-            ctypes.c_size_t,
-            ctypes.c_void_p,
-            ctypes.c_size_t,
-            ctypes.c_char_p,
-            ctypes.c_size_t,
-            ctypes.c_char_p,
-            ctypes.c_char_p,
-            ctypes.c_size_t,
+            ctypes.c_uint32,  # CCAlgorithm algorithm
+            ctypes.c_void_p,  # const void *key
+            ctypes.c_size_t,  # size_t keyLength
+            ctypes.c_void_p,  # const void *iv
+            ctypes.c_size_t,  # size_t ivLen
+            ctypes.c_void_p,  # const void *aData
+            ctypes.c_size_t,  # size_t aDataLen
+            ctypes.c_void_p,  # const void *dataIn
+            ctypes.c_size_t,  # size_t dataInLength
+            ctypes.c_void_p,  # void *dataOut
+            ctypes.c_void_p,  # void *tagOut
+            ctypes.c_size_t,  # size_t tagLength
         ]
 
         def _encrypt_commoncrypto(
             key: bytes, iv: bytes, plaintext: bytes
         ) -> Tuple[bytes, bytes]:
             pt_len = len(plaintext)
-            ct = ctypes.create_string_buffer(pt_len)
+            ct = ctypes.create_string_buffer(max(1, pt_len))
             tag = ctypes.create_string_buffer(16)
 
             st = fn(
@@ -543,7 +543,7 @@ def _init_darwin_commoncrypto() -> Optional[
                 len(iv),
                 None,
                 0,
-                plaintext,
+                plaintext if pt_len > 0 else None,
                 pt_len,
                 ct,
                 tag,
@@ -646,12 +646,12 @@ def _init_windows_cng() -> Optional[
                 auth_info.cbTag = 16
 
                 pt_len = len(plaintext)
-                out_buf = ctypes.create_string_buffer(pt_len)
+                out_buf = ctypes.create_string_buffer(max(1, pt_len))
                 bytes_done = ctypes.c_ulong(0)
 
                 st = bcrypt.BCryptEncrypt(
                     key_handle,
-                    ctypes.c_char_p(plaintext),
+                    ctypes.c_char_p(plaintext) if pt_len > 0 else None,
                     ctypes.c_ulong(pt_len),
                     ctypes.byref(auth_info),
                     None,
@@ -673,14 +673,13 @@ def _init_windows_cng() -> Optional[
         return None
 
 
-# --- TIER 1C: System OpenSSL EVP C-ABI (Linux, BSD & Legacy Darwin Fallback) ---
+# --- TIER 1C: System OpenSSL EVP C-ABI (Linux, musl/Alpine, BSD & Legacy Darwin Fallback) ---
 
 
 def _is_safe_posix_libcrypto_path(path: str) -> bool:
     """
     Prevents loading Apple's deprecated /usr/lib/libcrypto.dylib which triggers
-    an immediate SIGABRT / abort trap on macOS. Explicit non-system paths
-    (MacPorts, Homebrew, Python prefixes) remain fully authorized.
+    an immediate SIGABRT on macOS. Explicit non-system paths remain authorized.
     """
     if sys.platform == "darwin":
         clean = path.strip()
@@ -698,14 +697,14 @@ def _is_safe_posix_libcrypto_path(path: str) -> bool:
 def _find_posix_libcrypto() -> Optional[ctypes.CDLL]:
     candidates: list[str] = []
 
-    # 1. Python runtime prefix (Standalone Python, MacPorts, Homebrew, or virtualenv)
+    # 1. Python runtime prefix directory
     py_lib_dir = Path(sys.prefix) / "lib"
     if py_lib_dir.is_dir():
         for pattern in ("libcrypto*.dylib", "libcrypto*.so*"):
             for found in sorted(py_lib_dir.glob(pattern)):
                 candidates.append(str(found))
 
-    # 2. Known standalone shared library paths by OS
+    # 2. Platform-specific standalone shared library candidate paths
     if sys.platform == "darwin":
         candidates.extend(
             [
@@ -715,13 +714,12 @@ def _find_posix_libcrypto() -> Optional[ctypes.CDLL]:
                 "/usr/local/opt/openssl@3/lib/libcrypto.dylib",
                 "/usr/local/opt/openssl@1.1/lib/libcrypto.dylib",
                 "/usr/local/lib/libcrypto.dylib",
-                "/opt/local/lib/libcrypto.dylib",  # Standard MacPorts path on legacy OS X
+                "/opt/local/lib/libcrypto.dylib",
                 "/opt/local/lib/openssl-3/libcrypto.dylib",
                 "/opt/local/lib/openssl-1.1/libcrypto.dylib",
             ]
         )
     else:
-        # Dynamic linker resolution on Linux / BSD
         for name in ("crypto", "libcrypto"):
             path = ctypes.util.find_library(name)
             if path:
@@ -729,18 +727,31 @@ def _find_posix_libcrypto() -> Optional[ctypes.CDLL]:
 
         candidates.extend(
             [
+                # Standard Linux dynamic linker tokens
                 "libcrypto.so.3",
                 "libcrypto.so.1.1",
                 "libcrypto.so",
+                # Alpine Linux / musl native storage paths
+                "/lib/libcrypto.so.3",
+                "/lib/libcrypto.so.1.1",
+                "/lib64/libcrypto.so.3",
+                "/lib64/libcrypto.so.1.1",
+                # Multiarch Debian / Ubuntu paths
                 "/usr/lib/x86_64-linux-gnu/libcrypto.so.3",
                 "/usr/lib/aarch64-linux-gnu/libcrypto.so.3",
                 "/usr/lib/x86_64-linux-gnu/libcrypto.so.1.1",
                 "/usr/lib/aarch64-linux-gnu/libcrypto.so.1.1",
+                # RHEL / Fedora / CentOS paths
                 "/usr/lib64/libcrypto.so.3",
                 "/usr/lib64/libcrypto.so.1.1",
                 "/usr/lib/libcrypto.so.3",
                 "/usr/lib/libcrypto.so.1.1",
                 "/usr/lib/libcrypto.so",
+                # Local / BSD paths
+                "/usr/local/lib/libcrypto.so.3",
+                "/usr/local/lib/libcrypto.so.1.1",
+                "/usr/local/lib/libcrypto.so",
+                "/usr/local/lib64/libcrypto.so",
             ]
         )
 
@@ -848,7 +859,7 @@ def _init_posix_openssl() -> Optional[
                     )
 
                 pt_len = len(plaintext)
-                c_ct = ctypes.create_string_buffer(pt_len + 16)
+                c_ct = ctypes.create_string_buffer(max(1, pt_len + 16))
                 out_len = ctypes.c_int(0)
 
                 if pt_len > 0:
@@ -938,13 +949,16 @@ def _test_engine_kat(fn: Callable[[bytes, bytes, bytes], Tuple[bytes, bytes]]) -
 def _resolve_active_crypto_engine() -> Tuple[
     str, Callable[[bytes, bytes, bytes], Tuple[bytes, bytes]]
 ]:
+    if os.environ.get("KYKLOI_CRYPTO_ENGINE") == "pure":
+        if _test_engine_kat(pure_aes_gcm_encrypt):
+            return "Pure-Python AES-GCM (Forced Fallback)", pure_aes_gcm_encrypt
+
     # Priority Tier 1: Native OS C-ABI via ctypes
     if sys.platform == "darwin":
         darwin_fn = _init_darwin_commoncrypto()
         if darwin_fn and _test_engine_kat(darwin_fn):
             return "Apple CommonCrypto (libSystem / NEON / AES-NI)", darwin_fn
 
-        # Permacomputing Fallback for Legacy Darwin (macOS <= 10.12): Safe OpenSSL
         openssl_fn = _init_posix_openssl()
         if openssl_fn and _test_engine_kat(openssl_fn):
             return "Safe OpenSSL EVP (MacPorts / Homebrew / sys.prefix)", openssl_fn
@@ -967,7 +981,7 @@ def _resolve_active_crypto_engine() -> Tuple[
     if cryptodome_fn and _test_engine_kat(cryptodome_fn):
         return "Python pycryptodome (Hardware Accelerated)", cryptodome_fn
 
-    # Priority Tier 3: Pure-Python Fallback Baseline (Universal Archival Floor)
+    # Priority Tier 3: Pure-Python Fallback Baseline
     if _test_engine_kat(pure_aes_gcm_encrypt):
         return "Pure-Python AES-GCM (Zero-Dependency Fallback)", pure_aes_gcm_encrypt
 
@@ -1108,8 +1122,11 @@ def resolve_pandoc_binary(root_dir: Path) -> str:
     archives_dir = root_dir / "system" / "tools" / "archives"
     manifest_path = root_dir / "system" / "tools" / "tools_manifest.json"
 
+    # Isolate Pandoc execution root to avoid collisions with Python runtime trees
     if system == "windows":
-        runtime_dir = Path(os.environ.get("TEMP", "/tmp")) / f"kykloi_runtime_{target}"
+        runtime_dir = (
+            Path(os.environ.get("TEMP", "/tmp")) / f"kykloi_pandoc_{pandoc_target}"
+        )
         pandoc_bin = runtime_dir / "pandoc.exe"
     else:
         xdg_cache = os.environ.get("XDG_CACHE_HOME")
@@ -1119,7 +1136,7 @@ def resolve_pandoc_binary(root_dir: Path) -> str:
             base_runtime = Path.home() / ".cache"
         else:
             base_runtime = Path("/tmp")
-        runtime_dir = base_runtime / f"kykloi_runtime_{target}"
+        runtime_dir = base_runtime / f"kykloi_pandoc_{pandoc_target}"
         pandoc_bin = runtime_dir / "bin" / "pandoc"
 
     stamp_file = runtime_dir / ".verified_sha256"
@@ -1952,13 +1969,16 @@ def main():
 
     failed = 0
 
+    # Isolate multi-process tasks using spawn context to prevent fork-induced state corruption
+    mp_context = multiprocessing.get_context("spawn")
+
     if encrypt_blob_tasks:
         log.info("Encrypting %d binary blob(s)...", len(encrypt_blob_tasks))
         with timed_step(
             log, f"Binary Blob Encryption ({len(encrypt_blob_tasks)} items)"
         ):
             with concurrent.futures.ProcessPoolExecutor(
-                max_workers=args.workers
+                max_workers=args.workers, mp_context=mp_context
             ) as executor:
                 futures = [
                     executor.submit(encrypt_blob_worker, t) for t in encrypt_blob_tasks
@@ -1975,7 +1995,7 @@ def main():
         log.info("Compiling %d Markdown document(s)...", len(compile_tasks))
         with timed_step(log, f"Markdown Compilation ({len(compile_tasks)} documents)"):
             with concurrent.futures.ProcessPoolExecutor(
-                max_workers=args.workers
+                max_workers=args.workers, mp_context=mp_context
             ) as executor:
                 futures = [
                     executor.submit(compile_markdown_worker, t) for t in compile_tasks
