@@ -6,7 +6,7 @@ keywords: ["kykloi", "documentation", "overview", "architecture"]
 
 # Introduction
 
-**Kykloi** is a portable, archival personal knowledge base and static site generator. It compiles plain-text Markdown notes into a fast, standalone website that can be hosted anywhere, inspected offline, or carried on a USB drive.
+**Kykloi** is a portable, archival personal knowledge management tool. Plain text archival Markdown is converted to portable static web pages with a durable and low-dependency lifespan.
 
 The system is designed with a long-term preservation philosophy: content remains readable in open standard formats, and site generation requires no external cloud services, database servers, or mandatory software installations.
 

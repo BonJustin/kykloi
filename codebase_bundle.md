@@ -14,7 +14,8 @@ kykloi/
 │       │       └── test_artemis_2.jpg
 │       ├── 20261116170353-kykloi-introduction.md
 │       ├── 20261117053719-kykloi-cryptography.md
-│       └── 20261117062543-kykloi-to-do-list.md
+│       ├── 20261117062543-kykloi-to-do-list.md
+│       └── 20261117181402-kykloi-highlights.md
 ├── dist/ (contents excluded)
 ├── system/
 │   ├── __pycache__/ (contents excluded)
