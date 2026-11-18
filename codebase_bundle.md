@@ -48,6 +48,21 @@ kykloi/
 │   │   ├── build_site.py
 │   │   ├── pandoc_md_to_static_html.yaml
 │   │   └── translate_links.lua
+│   ├── normalize/
+│   │   ├── __pycache__/ (contents excluded)
+│   │   ├── __init__.py
+│   │   ├── cli.py
+│   │   ├── db.py
+│   │   ├── engine.py
+│   │   ├── graph.py
+│   │   ├── normalize-implementation-plan-1.md
+│   │   ├── scanner.py
+│   │   ├── slugify.py
+│   │   ├── test_phase1.py
+│   │   ├── test_phase2.py
+│   │   ├── test_phase3.py
+│   │   ├── test_phase4.py
+│   │   └── test_phase5.py
 │   ├── tools/
 │   │   ├── archives/
 │   │   │   ├── cpython-3.12.16+20261110-aarch64-apple-darwin-install_only.tar.gz
@@ -72,8 +87,6 @@ kykloi/
 ├── .gitignore
 ├── .python-version
 ├── assemble_code_to_md.py
-├── author_context.md
-├── hash_generator.py
 ├── launch.bat
 ├── launch.sh
 ├── pyproject.toml
@@ -3377,6 +3390,2126 @@ function Image(el)
 end
 ```
 
+## system/normalize/__init__.py
+
+```python
+"""
+system/normalize - Content Normalization and Link Reconciliation Engine.
+Part of Project Kykloi.
+"""
+
+from .cli import (
+    TransactionManifest,
+    build_transaction_manifest,
+    execute_transaction,
+    main,
+    sync_db_with_disk,
+)
+from .db import FileRecord, LinkRecord, VaultDB
+from .engine import (
+    ActionType,
+    DiffPlan,
+    FileAction,
+    compute_diff,
+    resolve_collision_stem,
+)
+from .graph import (
+    ExtractedLink,
+    compute_relative_link,
+    extract_stem_from_path,
+    heal_markdown_links,
+    is_external_or_anchor,
+    parse_markdown_links,
+    split_target_url,
+    to_link_records,
+)
+from .scanner import ScannedFile, VaultScanResult, is_junk_path, scan_vault
+from .slugify import is_valid_stem, sanitize_path_segments, slugify_stem
+
+__all__ = [
+    "VaultDB",
+    "FileRecord",
+    "LinkRecord",
+    "slugify_stem",
+    "is_valid_stem",
+    "sanitize_path_segments",
+    "scan_vault",
+    "is_junk_path",
+    "ScannedFile",
+    "VaultScanResult",
+    "compute_diff",
+    "DiffPlan",
+    "FileAction",
+    "ActionType",
+    "resolve_collision_stem",
+    "ExtractedLink",
+    "parse_markdown_links",
+    "to_link_records",
+    "compute_relative_link",
+    "heal_markdown_links",
+    "split_target_url",
+    "extract_stem_from_path",
+    "is_external_or_anchor",
+    "TransactionManifest",
+    "build_transaction_manifest",
+    "execute_transaction",
+    "sync_db_with_disk",
+    "main",
+]
+```
+
+## system/normalize/cli.py
+
+```python
+"""
+system/normalize/cli.py - Standalone Normalization CLI & Transaction Engine.
+Part of Project Kykloi.
+Features non-destructive atomic execution, rollback journaling, and terminal diffs.
+"""
+
+import argparse
+import os
+import sys
+import time
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Dict, List, Tuple
+
+# Ensure project root is discoverable when invoked directly
+SCRIPT_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = SCRIPT_DIR.parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from system.normalize.db import FileRecord, VaultDB
+from system.normalize.engine import ActionType, DiffPlan, compute_diff
+from system.normalize.graph import (
+    heal_markdown_links,
+    parse_markdown_links,
+    to_link_records,
+)
+from system.normalize.scanner import MARKDOWN_EXTENSIONS, scan_vault
+from system.normalize.slugify import slugify_stem
+
+# Terminal ANSI Color Constants
+RESET = "\033[0m"
+BOLD = "\033[1m"
+DIM = "\033[2m"
+GREEN = "\033[32m"
+YELLOW = "\033[33m"
+RED = "\033[31m"
+CYAN = "\033[36m"
+MAGENTA = "\033[35m"
+
+
+@dataclass
+class TransactionManifest:
+    """Discrete list of disk and ledger mutations staged for atomic execution."""
+
+    disk_renames: List[Tuple[Path, Path]] = field(
+        default_factory=list
+    )  # (src_abs, dst_abs)
+    text_rewrites: List[Tuple[Path, str]] = field(
+        default_factory=list
+    )  # (file_abs, new_content)
+    files_to_upsert: List[FileRecord] = field(default_factory=list)
+    files_to_delete: List[str] = field(default_factory=list)
+    links_to_replace: Dict[str, list] = field(default_factory=dict)
+
+    @property
+    def has_changes(self) -> bool:
+        return bool(
+            self.disk_renames
+            or self.text_rewrites
+            or self.files_to_upsert
+            or self.files_to_delete
+            or self.links_to_replace
+        )
+
+
+def build_transaction_manifest(
+    content_root: Path,
+    diff_plan: DiffPlan,
+    db: VaultDB,
+) -> Tuple[TransactionManifest, List[str]]:
+    """
+    Translates a DiffPlan into an executable TransactionManifest.
+    Plans all disk renames, path sanitizations, content link healing, and SQLite updates.
+    """
+    manifest = TransactionManifest()
+    diagnostics: List[str] = []
+
+    # Map stems to their finalized target relative paths
+    stem_to_new_rel_path: Dict[str, str] = {}
+
+    for action in diff_plan.actions:
+        if action.action_type in (
+            ActionType.MOVE,
+            ActionType.RENAME,
+            ActionType.MOVE_AND_RENAME,
+            ActionType.SANITIZE_STEM,
+            ActionType.SANITIZE_PATH,
+            ActionType.RESOLVE_COLLISION,
+        ):
+            if action.src_rel_path and action.dst_rel_path and action.old_stem:
+                src_abs = content_root / action.src_rel_path
+                dst_abs = content_root / action.dst_rel_path
+                manifest.disk_renames.append((src_abs, dst_abs))
+
+                # Register both literal and slugified stems for link matching
+                stem_to_new_rel_path[action.old_stem] = action.dst_rel_path
+                stem_to_new_rel_path[slugify_stem(action.old_stem)] = (
+                    action.dst_rel_path
+                )
+                if action.new_stem:
+                    stem_to_new_rel_path[action.new_stem] = action.dst_rel_path
+                    stem_to_new_rel_path[slugify_stem(action.new_stem)] = (
+                        action.dst_rel_path
+                    )
+
+    # Evaluate all Markdown files on disk for link healing
+    for item in content_root.rglob("*"):
+        if not item.is_file() or item.suffix.lower() not in MARKDOWN_EXTENSIONS:
+            continue
+
+        rel_path = item.relative_to(content_root).as_posix()
+        try:
+            content = item.read_text(encoding="utf-8")
+        except OSError:
+            continue
+
+        healed_content, rewrites = heal_markdown_links(
+            content=content,
+            source_rel_path=rel_path,
+            stem_to_new_rel_path=stem_to_new_rel_path,
+        )
+
+        if rewrites > 0 and healed_content != content:
+            manifest.text_rewrites.append((item, healed_content))
+
+    return manifest, diagnostics
+
+
+def prune_empty_directories(content_root: Path):
+    """Recursively removes empty directory branches left behind after file renames."""
+    for root, dirs, _ in os.walk(content_root, topdown=False):
+        for d in dirs:
+            dir_path = Path(root) / d
+            try:
+                if not any(dir_path.iterdir()):
+                    dir_path.rmdir()
+            except OSError:
+                pass
+
+
+def execute_transaction(manifest: TransactionManifest, db: VaultDB) -> bool:
+    """
+    Applies the manifest atomically with rollback journaling.
+    Phase 1: Stage text rewrites to .norm_tmp files.
+    Phase 2: Apply renames in order, journaling executed steps.
+             Uses two-step rename for case-only changes on case-insensitive filesystems.
+    Phase 3: Atomically commit text rewrites via rename.
+    """
+    executed_renames: List[Tuple[Path, Path]] = []
+    created_tmp_files: List[Path] = []
+
+    try:
+        # Phase 1: Stage text rewrites
+        for abs_path, new_content in manifest.text_rewrites:
+            tmp_path = abs_path.with_suffix(abs_path.suffix + ".norm_tmp")
+            tmp_path.write_text(new_content, encoding="utf-8")
+            created_tmp_files.append(tmp_path)
+
+        # Phase 2: Execute disk renames
+        for src, dst in manifest.disk_renames:
+            if src == dst:
+                continue
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            # Two-step rename for case-only changes to bypass case-insensitive filesystem collision
+            if src.parent == dst.parent and src.name.lower() == dst.name.lower():
+                case_tmp = (
+                    dst.parent / f".norm_case_tmp_{os.urandom(4).hex()}_{dst.name}"
+                )
+                src.rename(case_tmp)
+                case_tmp.rename(dst)
+            else:
+                src.rename(dst)
+            executed_renames.append((dst, src))
+
+        # Phase 3: Atomically swap text rewrites
+        for abs_path, _ in manifest.text_rewrites:
+            tmp_path = abs_path.with_suffix(abs_path.suffix + ".norm_tmp")
+            tmp_path.replace(abs_path)
+            if tmp_path in created_tmp_files:
+                created_tmp_files.remove(tmp_path)
+
+        return True
+
+    except Exception as err:
+        print(
+            f"\n{RED}[FATAL] Error during execution: {err}. Initiating rollback...{RESET}",
+            file=sys.stderr,
+        )
+
+        for tmp_file in created_tmp_files:
+            try:
+                if tmp_file.exists():
+                    tmp_file.unlink()
+            except OSError:
+                pass
+
+        for applied_dst, original_src in reversed(executed_renames):
+            try:
+                if applied_dst.exists():
+                    original_src.parent.mkdir(parents=True, exist_ok=True)
+                    if (
+                        applied_dst.parent == original_src.parent
+                        and applied_dst.name.lower() == original_src.name.lower()
+                    ):
+                        case_tmp = (
+                            original_src.parent
+                            / f".norm_rb_tmp_{os.urandom(4).hex()}_{original_src.name}"
+                        )
+                        applied_dst.rename(case_tmp)
+                        case_tmp.rename(original_src)
+                    else:
+                        applied_dst.rename(original_src)
+            except OSError as rb_err:
+                print(
+                    f"{RED}[CRITICAL] Failed to rollback {applied_dst} -> {original_src}: {rb_err}{RESET}",
+                    file=sys.stderr,
+                )
+
+        print(
+            f"{YELLOW}[ROLLBACK COMPLETE] Vault state restored.{RESET}", file=sys.stderr
+        )
+        raise
+
+
+def sync_db_with_disk(content_root: Path, db: VaultDB):
+    """Refreshes the SQLite ledger to match physical disk state after execution."""
+    scan_res = scan_vault(content_root, db)
+    current_paths = {f.rel_path for f in scan_res.files}
+    current_stems = {f.stem for f in scan_res.files}
+
+    for rel_path, rec in db.get_all_files().items():
+        if rel_path not in current_paths:
+            db.delete_file_by_path(rel_path)
+
+    for f in scan_res.files:
+        db.upsert_file(
+            FileRecord(
+                id=None,
+                stem=f.stem,
+                rel_path=f.rel_path,
+                sha256=f.sha256,
+                mtime=f.mtime,
+                size=f.size,
+                is_media=f.is_media,
+                is_secure=f.is_secure,
+            )
+        )
+        if not f.is_media and f.ext in MARKDOWN_EXTENSIONS:
+            try:
+                content = f.abs_path.read_text(encoding="utf-8")
+                extracted = parse_markdown_links(content, f.stem)
+                valid_links = [l for l in extracted if l.target_stem in current_stems]
+                db.replace_document_links(f.stem, to_link_records(valid_links))
+            except OSError:
+                pass
+
+
+def print_diff_report(
+    diff_plan: DiffPlan,
+    manifest: TransactionManifest,
+    scan_time_ms: float,
+):
+    """Outputs an ANSI-colorized summary table of planned mutations."""
+    print(f"\n{BOLD}{CYAN}=== Kykloi Content Normalization Plan ==={RESET}")
+    print(f"{DIM}Scan duration: {scan_time_ms:.2f} ms{RESET}\n")
+
+    if diff_plan.collisions:
+        print(f"{BOLD}{RED}CRITICAL ANOMALIES (Stem Collisions Detected):{RESET}")
+        for stem, paths in diff_plan.collisions.items():
+            print(f"  {RED}Stem collision on '{stem}':{RESET}")
+            for p in paths:
+                print(f"    - {p}")
+        print()
+
+    mutations = [a for a in diff_plan.actions if a.action_type != ActionType.NOOP]
+
+    if not mutations and not manifest.text_rewrites:
+        print(f"{GREEN}[+] Vault is fully canonical. Zero mutations required.{RESET}\n")
+        return
+
+    print(f"{BOLD}{'Action':<18} {'Details':<60}{RESET}")
+    print(f"{DIM}{'-' * 78}{RESET}")
+
+    for a in mutations:
+        color = YELLOW
+        if a.action_type in (ActionType.SANITIZE_STEM, ActionType.SANITIZE_PATH):
+            color = MAGENTA
+        elif a.action_type == ActionType.CREATE:
+            color = GREEN
+        elif a.action_type == ActionType.DELETE:
+            color = RED
+
+        label = f"{color}{a.action_type.name:<18}{RESET}"
+        if a.src_rel_path and a.dst_rel_path:
+            details = f"{a.src_rel_path} -> {a.dst_rel_path}"
+        elif a.dst_rel_path:
+            details = a.dst_rel_path
+        else:
+            details = a.src_rel_path or ""
+        print(f"{label} {details}")
+
+    if manifest.text_rewrites:
+        for p, _ in manifest.text_rewrites:
+            label = f"{CYAN}{'HEAL_LINKS':<18}{RESET}"
+            print(f"{label} Rewriting relative link targets in {p.name}")
+
+    print(f"{DIM}{'-' * 78}{RESET}")
+    print(
+        f"Summary: {BOLD}{len(manifest.disk_renames)}{RESET} file rename(s), "
+        f"{BOLD}{len(manifest.text_rewrites)}{RESET} document(s) with healed links.\n"
+    )
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Deterministic Content Normalizer & Link Reconciler for Project Kykloi."
+    )
+    parser.add_argument(
+        "--vault-dir",
+        type=Path,
+        default=PROJECT_ROOT / "content",
+        help="Path to content vault directory (default: content/)",
+    )
+    parser.add_argument(
+        "--db-path",
+        type=Path,
+        default=SCRIPT_DIR / "vault_index.db",
+        help="Path to SQLite acceleration ledger (default: system/normalize/vault_index.db)",
+    )
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="Lint mode: Exits with code 0 if vault is clean, 1 if mutations are planned.",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Simulate scan and report planned transformations without writing to disk.",
+    )
+    parser.add_argument(
+        "--auto-apply",
+        action="store_true",
+        help="Apply planned transformations automatically without prompting.",
+    )
+    return parser.parse_args()
+
+
+def main():
+    args = parse_args()
+    content_root = args.vault_dir.resolve()
+    db_path = args.db_path.resolve()
+
+    if not content_root.exists() or not content_root.is_dir():
+        print(
+            f"{RED}[FATAL] Content directory not found: {content_root}{RESET}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    t0 = time.perf_counter()
+    with VaultDB(db_path) as db:
+        db.init_schema()
+
+        scan_result = scan_vault(content_root, db)
+        diff_plan = compute_diff(scan_result, db)
+        manifest, _ = build_transaction_manifest(content_root, diff_plan, db)
+        scan_time_ms = (time.perf_counter() - t0) * 1000.0
+
+        print_diff_report(diff_plan, manifest, scan_time_ms)
+
+        has_work = manifest.has_changes or diff_plan.has_mutations
+
+        if args.check:
+            if has_work or diff_plan.collisions:
+                sys.exit(1)
+            sys.exit(0)
+
+        if args.dry_run:
+            sys.exit(0)
+
+        if not has_work:
+            sys.exit(0)
+
+        # Gate Check: Enforce user consent
+        if not args.auto_apply:
+            if not sys.stdin.isatty():
+                print(
+                    f"{RED}[ERROR] Non-interactive environment. Re-run with --check or --auto-apply.{RESET}",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+
+            try:
+                answer = (
+                    input(
+                        f"{BOLD}Apply these transformations to disk and database? [y/N]: {RESET}"
+                    )
+                    .strip()
+                    .lower()
+                )
+            except (KeyboardInterrupt, EOFError):
+                print(f"\n{YELLOW}Aborted by user.{RESET}")
+                sys.exit(1)
+
+            if answer not in ("y", "yes"):
+                print(
+                    f"{YELLOW}Operation cancelled. Zero modifications written.{RESET}"
+                )
+                sys.exit(0)
+
+        execute_transaction(manifest, db)
+        prune_empty_directories(content_root)
+        sync_db_with_disk(content_root, db)
+        print(
+            f"{GREEN}[SUCCESS] Transformations applied and ledger synchronized successfully.{RESET}"
+        )
+
+
+if __name__ == "__main__":
+    main()
+```
+
+## system/normalize/db.py
+
+```python
+"""
+system/normalize/db.py - SQLite Ledger & Stat-Cache Acceleration Layer.
+Stores the master file registry, link dependencies, and schema state.
+"""
+
+import sqlite3
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Dict, List, Optional
+
+SCHEMA_VERSION = "1.0"
+
+SCHEMA_SQL = """
+PRAGMA foreign_keys = ON;
+PRAGMA journal_mode = WAL;
+PRAGMA synchronous = NORMAL;
+
+CREATE TABLE IF NOT EXISTS meta (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS files (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    stem TEXT UNIQUE NOT NULL,
+    rel_path TEXT UNIQUE NOT NULL,
+    sha256 TEXT NOT NULL,
+    mtime REAL NOT NULL,
+    size INTEGER NOT NULL,
+    is_media INTEGER NOT NULL DEFAULT 0,
+    is_secure INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_files_stem ON files(stem);
+CREATE INDEX IF NOT EXISTS idx_files_sha256 ON files(sha256);
+CREATE INDEX IF NOT EXISTS idx_files_rel_path ON files(rel_path);
+
+CREATE TABLE IF NOT EXISTS links (
+    source_stem TEXT NOT NULL,
+    target_stem TEXT NOT NULL,
+    raw_target TEXT NOT NULL,
+    line_number INTEGER,
+    FOREIGN KEY(source_stem) REFERENCES files(stem) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_links_target ON links(target_stem);
+CREATE INDEX IF NOT EXISTS idx_links_source ON links(source_stem);
+"""
+
+
+@dataclass(frozen=True)
+class FileRecord:
+    id: Optional[int]
+    stem: str
+    rel_path: str
+    sha256: str
+    mtime: float
+    size: int
+    is_media: bool
+    is_secure: bool
+
+
+@dataclass(frozen=True)
+class LinkRecord:
+    source_stem: str
+    target_stem: str
+    raw_target: str
+    line_number: Optional[int]
+
+
+class VaultDB:
+    """Manages transactional access to vault_index.db."""
+
+    def __init__(self, db_path: Path):
+        self.db_path = Path(db_path)
+        self._conn: Optional[sqlite3.Connection] = None
+
+    def connect(self) -> sqlite3.Connection:
+        if self._conn is None:
+            self.db_path.parent.mkdir(parents=True, exist_ok=True)
+            conn = sqlite3.connect(
+                str(self.db_path),
+                timeout=30.0,
+                isolation_level=None,  # Autocommit mode; transactions managed via BEGIN/COMMIT
+            )
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA foreign_keys = ON;")
+            conn.execute("PRAGMA journal_mode = WAL;")
+            conn.execute("PRAGMA synchronous = NORMAL;")
+            self._conn = conn
+        return self._conn
+
+    def close(self):
+        if self._conn is not None:
+            self._conn.close()
+            self._conn = None
+
+    def __enter__(self):
+        self.connect()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+
+    def init_schema(self):
+        """Initializes tables, indices, and default metadata."""
+        conn = self.connect()
+        with conn:
+            conn.executescript(SCHEMA_SQL)
+            conn.execute(
+                "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?);",
+                ("schema_version", SCHEMA_VERSION),
+            )
+
+    # -----------------------------------------------------------------------
+    # Metadata Queries
+    # -----------------------------------------------------------------------
+
+    def get_meta(self, key: str) -> Optional[str]:
+        conn = self.connect()
+        row = conn.execute("SELECT value FROM meta WHERE key = ?;", (key,)).fetchone()
+        return row["value"] if row else None
+
+    def set_meta(self, key: str, value: str):
+        conn = self.connect()
+        conn.execute(
+            "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?);",
+            (key, value),
+        )
+
+    # -----------------------------------------------------------------------
+    # File Ledger Operations
+    # -----------------------------------------------------------------------
+
+    def upsert_file(self, record: FileRecord) -> int:
+        """
+        Inserts or updates a file record. If the stem already exists, updates path, hash, and stat cache.
+        """
+        conn = self.connect()
+        cursor = conn.execute(
+            """
+            INSERT INTO files (stem, rel_path, sha256, mtime, size, is_media, is_secure)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(stem) DO UPDATE SET
+                rel_path = excluded.rel_path,
+                sha256 = excluded.sha256,
+                mtime = excluded.mtime,
+                size = excluded.size,
+                is_media = excluded.is_media,
+                is_secure = excluded.is_secure;
+            """,
+            (
+                record.stem,
+                record.rel_path,
+                record.sha256,
+                record.mtime,
+                record.size,
+                1 if record.is_media else 0,
+                1 if record.is_secure else 0,
+            ),
+        )
+        return cursor.lastrowid
+
+    def get_file_by_stem(self, stem: str) -> Optional[FileRecord]:
+        conn = self.connect()
+        row = conn.execute("SELECT * FROM files WHERE stem = ?;", (stem,)).fetchone()
+        if not row:
+            return None
+        return self._row_to_file_record(row)
+
+    def get_file_by_path(self, rel_path: str) -> Optional[FileRecord]:
+        conn = self.connect()
+        row = conn.execute(
+            "SELECT * FROM files WHERE rel_path = ?;", (rel_path,)
+        ).fetchone()
+        if not row:
+            return None
+        return self._row_to_file_record(row)
+
+    def get_file_by_hash(self, sha256: str) -> List[FileRecord]:
+        conn = self.connect()
+        rows = conn.execute(
+            "SELECT * FROM files WHERE sha256 = ?;", (sha256,)
+        ).fetchall()
+        return [self._row_to_file_record(r) for r in rows]
+
+    def get_all_files(self) -> Dict[str, FileRecord]:
+        """Returns a mapping of rel_path -> FileRecord."""
+        conn = self.connect()
+        rows = conn.execute("SELECT * FROM files;").fetchall()
+        return {r["rel_path"]: self._row_to_file_record(r) for r in rows}
+
+    def delete_file_by_stem(self, stem: str):
+        conn = self.connect()
+        conn.execute("DELETE FROM files WHERE stem = ?;", (stem,))
+
+    def delete_file_by_path(self, rel_path: str):
+        conn = self.connect()
+        conn.execute("DELETE FROM files WHERE rel_path = ?;", (rel_path,))
+
+    # -----------------------------------------------------------------------
+    # Stat-Cache Fast-Path Queries
+    # -----------------------------------------------------------------------
+
+    def is_stat_cache_hit(self, rel_path: str, mtime: float, size: int) -> bool:
+        """
+        O(1) index check: returns True if rel_path exists and (mtime, size) match exactly.
+        Eliminates redundant disk I/O and SHA-256 computation.
+        """
+        conn = self.connect()
+        row = conn.execute(
+            "SELECT mtime, size FROM files WHERE rel_path = ?;",
+            (rel_path,),
+        ).fetchone()
+        if not row:
+            return False
+        # Account for precision variations in float mtime across OS filesystems
+        return abs(row["mtime"] - mtime) < 0.0001 and row["size"] == size
+
+    # -----------------------------------------------------------------------
+    # Link Graph Operations
+    # -----------------------------------------------------------------------
+
+    def replace_document_links(self, source_stem: str, links: List[LinkRecord]):
+        """
+        Atomically replaces all outgoing link edges for a given source stem.
+        """
+        conn = self.connect()
+        with conn:
+            conn.execute("DELETE FROM links WHERE source_stem = ?;", (source_stem,))
+            if links:
+                conn.executemany(
+                    """
+                    INSERT INTO links (source_stem, target_stem, raw_target, line_number)
+                    VALUES (?, ?, ?, ?);
+                    """,
+                    [
+                        (l.source_stem, l.target_stem, l.raw_target, l.line_number)
+                        for l in links
+                    ],
+                )
+
+    def get_referencing_links(self, target_stem: str) -> List[LinkRecord]:
+        """
+        Retrieves all link records across the vault targeting this stem.
+        """
+        conn = self.connect()
+        rows = conn.execute(
+            "SELECT source_stem, target_stem, raw_target, line_number FROM links WHERE target_stem = ?;",
+            (target_stem,),
+        ).fetchall()
+        return [
+            LinkRecord(
+                source_stem=r["source_stem"],
+                target_stem=r["target_stem"],
+                raw_target=r["raw_target"],
+                line_number=r["line_number"],
+            )
+            for r in rows
+        ]
+
+    def get_outgoing_links(self, source_stem: str) -> List[LinkRecord]:
+        """
+        Retrieves all outgoing link records originating from this stem.
+        """
+        conn = self.connect()
+        rows = conn.execute(
+            "SELECT source_stem, target_stem, raw_target, line_number FROM links WHERE source_stem = ?;",
+            (source_stem,),
+        ).fetchall()
+        return [
+            LinkRecord(
+                source_stem=r["source_stem"],
+                target_stem=r["target_stem"],
+                raw_target=r["raw_target"],
+                line_number=r["line_number"],
+            )
+            for r in rows
+        ]
+
+    # -----------------------------------------------------------------------
+    # Helper Conversion
+    # -----------------------------------------------------------------------
+
+    @staticmethod
+    def _row_to_file_record(row: sqlite3.Row) -> FileRecord:
+        return FileRecord(
+            id=row["id"],
+            stem=row["stem"],
+            rel_path=row["rel_path"],
+            sha256=row["sha256"],
+            mtime=row["mtime"],
+            size=row["size"],
+            is_media=bool(row["is_media"]),
+            is_secure=bool(row["is_secure"]),
+        )
+```
+
+## system/normalize/engine.py
+
+```python
+"""
+system/normalize/engine.py - Identity Decision Matrix & Reconciliation Engine.
+Correlates physical disk state against the SQLite ledger (P, S, H) to plan mutations.
+"""
+
+from collections import defaultdict
+from dataclasses import dataclass, field
+from enum import Enum, auto
+from pathlib import PurePosixPath
+from typing import Dict, List, Optional, Set, Tuple
+
+from .db import FileRecord, VaultDB
+from .scanner import ScannedFile, VaultScanResult
+from .slugify import is_valid_stem, sanitize_path_segments, slugify_stem
+
+
+class ActionType(Enum):
+    NOOP = auto()
+    CREATE = auto()
+    DELETE = auto()
+    MODIFY_CONTENT = auto()
+    MOVE = auto()
+    RENAME = auto()
+    MOVE_AND_RENAME = auto()
+    SANITIZE_STEM = auto()
+    SANITIZE_PATH = auto()
+    RESOLVE_COLLISION = auto()
+
+
+@dataclass(frozen=True)
+class FileAction:
+    action_type: ActionType
+    src_rel_path: Optional[str]
+    dst_rel_path: Optional[str]
+    old_stem: Optional[str]
+    new_stem: Optional[str]
+    sha256: str
+    is_media: bool
+    is_secure: bool
+    reason: str
+
+
+@dataclass
+class DiffPlan:
+    actions: List[FileAction] = field(default_factory=list)
+    collisions: Dict[str, List[str]] = field(default_factory=lambda: defaultdict(list))
+    broken_references: Dict[str, List[str]] = field(
+        default_factory=lambda: defaultdict(list)
+    )
+
+    @property
+    def has_mutations(self) -> bool:
+        return any(a.action_type != ActionType.NOOP for a in self.actions)
+
+
+def resolve_collision_stem(base_stem: str, existing_stems: Set[str]) -> str:
+    """Appends the lowest available positive integer suffix (e.g. 'energy-1')."""
+    counter = 1
+    while True:
+        candidate = f"{base_stem}-{counter}"
+        if candidate not in existing_stems:
+            return candidate
+        counter += 1
+
+
+def compute_diff(scan_result: VaultScanResult, db: VaultDB) -> DiffPlan:
+    """
+    Computes differences between physical disk scan and SQLite ledger.
+    Implements the Identity Decision Matrix: (P, S, H) -> (P', S', H')
+    """
+    plan = DiffPlan()
+
+    db_files = db.get_all_files()
+    db_by_stem: Dict[str, FileRecord] = {r.stem: r for r in db_files.values()}
+    db_by_hash: Dict[str, List[FileRecord]] = defaultdict(list)
+    for r in db_files.values():
+        db_by_hash[r.sha256].append(r)
+
+    disk_files = scan_result.files
+    disk_by_path: Dict[str, ScannedFile] = {f.rel_path: f for f in disk_files}
+
+    # Step 1: Detect canonical stem collisions across scanned disk files
+    disk_stems: Dict[str, List[ScannedFile]] = defaultdict(list)
+    for f in disk_files:
+        canonical = slugify_stem(f.stem)
+        disk_stems[canonical].append(f)
+
+    for stem, occurrences in disk_stems.items():
+        if len(occurrences) > 1:
+            plan.collisions[stem] = [o.rel_path for o in occurrences]
+
+    unmatched_db_paths: Set[str] = set(db_files.keys())
+    unmatched_disk_paths: Set[str] = set(disk_by_path.keys())
+    matched_pairs: List[Tuple[FileRecord, ScannedFile]] = []
+
+    # Step 2: Correlate exact path matches (P == P')
+    for rel_path in list(unmatched_disk_paths):
+        if rel_path in unmatched_db_paths:
+            db_rec = db_files[rel_path]
+            disk_rec = disk_by_path[rel_path]
+            matched_pairs.append((db_rec, disk_rec))
+            unmatched_db_paths.remove(rel_path)
+            unmatched_disk_paths.remove(rel_path)
+
+    # Step 3: Correlate moved files with identical content hash (H == H')
+    for rel_path in list(unmatched_disk_paths):
+        disk_rec = disk_by_path[rel_path]
+        candidates = [
+            db_rec
+            for db_rec in db_by_hash.get(disk_rec.sha256, [])
+            if db_rec.rel_path in unmatched_db_paths
+        ]
+        if candidates:
+            chosen = next(
+                (c for c in candidates if c.stem == disk_rec.stem), candidates[0]
+            )
+            matched_pairs.append((chosen, disk_rec))
+            unmatched_db_paths.remove(chosen.rel_path)
+            unmatched_disk_paths.remove(rel_path)
+
+    # Step 4: Correlate moved files with modified content via Stem UID (S == S', H != H')
+    for rel_path in list(unmatched_disk_paths):
+        disk_rec = disk_by_path[rel_path]
+        if disk_rec.stem in db_by_stem:
+            db_rec = db_by_stem[disk_rec.stem]
+            if db_rec.rel_path in unmatched_db_paths:
+                matched_pairs.append((db_rec, disk_rec))
+                unmatched_db_paths.remove(db_rec.rel_path)
+                unmatched_disk_paths.remove(rel_path)
+
+    # Track allocated stems to ensure uniqueness in new mutations
+    allocated_stems: Set[str] = set()
+
+    # Evaluate correlated pairs
+    for db_rec, disk_rec in matched_pairs:
+        p_match = db_rec.rel_path == disk_rec.rel_path
+        s_match = db_rec.stem == disk_rec.stem
+        h_match = db_rec.sha256 == disk_rec.sha256
+
+        canonical_stem = slugify_stem(disk_rec.stem)
+        canonical_path = sanitize_path_segments(disk_rec.rel_path)
+
+        needs_stem_sanitize = (
+            not is_valid_stem(disk_rec.stem) or disk_rec.stem != canonical_stem
+        )
+        needs_path_sanitize = disk_rec.rel_path != canonical_path
+
+        if p_match and s_match and h_match:
+            if needs_stem_sanitize:
+                target_stem = canonical_stem
+                if target_stem in allocated_stems:
+                    target_stem = resolve_collision_stem(
+                        canonical_stem, allocated_stems
+                    )
+                allocated_stems.add(target_stem)
+                action_type = (
+                    ActionType.RESOLVE_COLLISION
+                    if target_stem != canonical_stem
+                    else ActionType.SANITIZE_STEM
+                )
+                plan.actions.append(
+                    FileAction(
+                        action_type=action_type,
+                        src_rel_path=disk_rec.rel_path,
+                        dst_rel_path=str(
+                            PurePosixPath(disk_rec.rel_path).with_stem(target_stem)
+                        ),
+                        old_stem=disk_rec.stem,
+                        new_stem=target_stem,
+                        sha256=disk_rec.sha256,
+                        is_media=disk_rec.is_media,
+                        is_secure=disk_rec.is_secure,
+                        reason="Stem violates archival UID specification.",
+                    )
+                )
+            elif needs_path_sanitize:
+                allocated_stems.add(disk_rec.stem)
+                plan.actions.append(
+                    FileAction(
+                        action_type=ActionType.SANITIZE_PATH,
+                        src_rel_path=disk_rec.rel_path,
+                        dst_rel_path=canonical_path,
+                        old_stem=disk_rec.stem,
+                        new_stem=disk_rec.stem,
+                        sha256=disk_rec.sha256,
+                        is_media=disk_rec.is_media,
+                        is_secure=disk_rec.is_secure,
+                        reason="Directory path segments contain un-normalized characters.",
+                    )
+                )
+            else:
+                allocated_stems.add(disk_rec.stem)
+                plan.actions.append(
+                    FileAction(
+                        action_type=ActionType.NOOP,
+                        src_rel_path=disk_rec.rel_path,
+                        dst_rel_path=disk_rec.rel_path,
+                        old_stem=disk_rec.stem,
+                        new_stem=disk_rec.stem,
+                        sha256=disk_rec.sha256,
+                        is_media=disk_rec.is_media,
+                        is_secure=disk_rec.is_secure,
+                        reason="Identical to ledger state.",
+                    )
+                )
+
+        elif p_match and s_match and not h_match:
+            allocated_stems.add(disk_rec.stem)
+            plan.actions.append(
+                FileAction(
+                    action_type=ActionType.MODIFY_CONTENT,
+                    src_rel_path=disk_rec.rel_path,
+                    dst_rel_path=disk_rec.rel_path,
+                    old_stem=disk_rec.stem,
+                    new_stem=disk_rec.stem,
+                    sha256=disk_rec.sha256,
+                    is_media=disk_rec.is_media,
+                    is_secure=disk_rec.is_secure,
+                    reason="File content modified in place.",
+                )
+            )
+
+        elif not p_match and s_match and h_match:
+            allocated_stems.add(disk_rec.stem)
+            plan.actions.append(
+                FileAction(
+                    action_type=ActionType.MOVE,
+                    src_rel_path=db_rec.rel_path,
+                    dst_rel_path=disk_rec.rel_path,
+                    old_stem=db_rec.stem,
+                    new_stem=disk_rec.stem,
+                    sha256=disk_rec.sha256,
+                    is_media=disk_rec.is_media,
+                    is_secure=disk_rec.is_secure,
+                    reason=f"Moved from '{db_rec.rel_path}' to '{disk_rec.rel_path}'.",
+                )
+            )
+
+        elif (
+            PurePosixPath(db_rec.rel_path).parent
+            == PurePosixPath(disk_rec.rel_path).parent
+            and not s_match
+            and h_match
+        ):
+            allocated_stems.add(disk_rec.stem)
+            plan.actions.append(
+                FileAction(
+                    action_type=ActionType.RENAME,
+                    src_rel_path=db_rec.rel_path,
+                    dst_rel_path=disk_rec.rel_path,
+                    old_stem=db_rec.stem,
+                    new_stem=disk_rec.stem,
+                    sha256=disk_rec.sha256,
+                    is_media=disk_rec.is_media,
+                    is_secure=disk_rec.is_secure,
+                    reason=f"Renamed from '{db_rec.stem}' to '{disk_rec.stem}'.",
+                )
+            )
+
+        elif (
+            PurePosixPath(db_rec.rel_path).parent
+            != PurePosixPath(disk_rec.rel_path).parent
+            and not s_match
+            and h_match
+        ):
+            allocated_stems.add(disk_rec.stem)
+            plan.actions.append(
+                FileAction(
+                    action_type=ActionType.MOVE_AND_RENAME,
+                    src_rel_path=db_rec.rel_path,
+                    dst_rel_path=disk_rec.rel_path,
+                    old_stem=db_rec.stem,
+                    new_stem=disk_rec.stem,
+                    sha256=disk_rec.sha256,
+                    is_media=disk_rec.is_media,
+                    is_secure=disk_rec.is_secure,
+                    reason=f"Moved and renamed from '{db_rec.rel_path}'.",
+                )
+            )
+
+        elif not p_match and s_match and not h_match:
+            allocated_stems.add(disk_rec.stem)
+            plan.actions.append(
+                FileAction(
+                    action_type=ActionType.MOVE,
+                    src_rel_path=db_rec.rel_path,
+                    dst_rel_path=disk_rec.rel_path,
+                    old_stem=db_rec.stem,
+                    new_stem=disk_rec.stem,
+                    sha256=disk_rec.sha256,
+                    is_media=disk_rec.is_media,
+                    is_secure=disk_rec.is_secure,
+                    reason=f"Moved from '{db_rec.rel_path}' and modified.",
+                )
+            )
+
+    # Step 5: Remaining unmatched disk files -> CREATE, SANITIZE, or RESOLVE_COLLISION
+    # Seed allocated stems with surviving DB stems not matched to a file
+    for db_stem, db_rec in db_by_stem.items():
+        if db_rec.rel_path in unmatched_db_paths:
+            allocated_stems.add(db_stem)
+
+    # Sort deterministically by (mtime, rel_path) per Section 5.1
+    sorted_unmatched_disk = sorted(
+        unmatched_disk_paths,
+        key=lambda p: (disk_by_path[p].mtime, p),
+    )
+
+    for rel_path in sorted_unmatched_disk:
+        disk_rec = disk_by_path[rel_path]
+        canonical_stem = slugify_stem(disk_rec.stem)
+        target_stem = canonical_stem
+        is_collision = False
+
+        if target_stem in allocated_stems:
+            target_stem = resolve_collision_stem(canonical_stem, allocated_stems)
+            is_collision = True
+
+        allocated_stems.add(target_stem)
+
+        canonical_path = sanitize_path_segments(rel_path)
+        if target_stem != disk_rec.stem:
+            canonical_path = str(PurePosixPath(canonical_path).with_stem(target_stem))
+
+        needs_stem_sanitize = (
+            not is_valid_stem(disk_rec.stem) or disk_rec.stem != target_stem
+        )
+        needs_path_sanitize = disk_rec.rel_path != canonical_path
+
+        if is_collision:
+            plan.actions.append(
+                FileAction(
+                    action_type=ActionType.RESOLVE_COLLISION,
+                    src_rel_path=disk_rec.rel_path,
+                    dst_rel_path=canonical_path,
+                    old_stem=disk_rec.stem,
+                    new_stem=target_stem,
+                    sha256=disk_rec.sha256,
+                    is_media=disk_rec.is_media,
+                    is_secure=disk_rec.is_secure,
+                    reason=f"Stem collision on '{canonical_stem}' resolved to '{target_stem}'.",
+                )
+            )
+        elif needs_stem_sanitize or needs_path_sanitize:
+            action_type = (
+                ActionType.SANITIZE_STEM
+                if needs_stem_sanitize
+                else ActionType.SANITIZE_PATH
+            )
+            plan.actions.append(
+                FileAction(
+                    action_type=action_type,
+                    src_rel_path=disk_rec.rel_path,
+                    dst_rel_path=canonical_path,
+                    old_stem=disk_rec.stem,
+                    new_stem=target_stem,
+                    sha256=disk_rec.sha256,
+                    is_media=disk_rec.is_media,
+                    is_secure=disk_rec.is_secure,
+                    reason="New file on disk requires name/path sanitization.",
+                )
+            )
+        else:
+            plan.actions.append(
+                FileAction(
+                    action_type=ActionType.CREATE,
+                    src_rel_path=None,
+                    dst_rel_path=disk_rec.rel_path,
+                    old_stem=None,
+                    new_stem=disk_rec.stem,
+                    sha256=disk_rec.sha256,
+                    is_media=disk_rec.is_media,
+                    is_secure=disk_rec.is_secure,
+                    reason="New file detected on disk.",
+                )
+            )
+
+    # Step 6: Remaining unmatched DB files -> DELETE
+    for rel_path in sorted(unmatched_db_paths):
+        db_rec = db_files[rel_path]
+        inbound_links = db.get_referencing_links(db_rec.stem)
+
+        if inbound_links:
+            plan.broken_references[db_rec.stem] = [l.source_stem for l in inbound_links]
+
+        plan.actions.append(
+            FileAction(
+                action_type=ActionType.DELETE,
+                src_rel_path=db_rec.rel_path,
+                dst_rel_path=None,
+                old_stem=db_rec.stem,
+                new_stem=None,
+                sha256=db_rec.sha256,
+                is_media=db_rec.is_media,
+                is_secure=db_rec.is_secure,
+                reason=f"File removed from disk (had {len(inbound_links)} inbound references).",
+            )
+        )
+
+    return plan
+```
+
+## system/normalize/graph.py
+
+````python
+"""
+system/normalize/graph.py - CommonMark Link Extraction, Validation & Path Healing.
+Provides POSIX relative path calculation and AST-safe link rewriting.
+"""
+
+import posixpath
+import re
+import urllib.parse
+from dataclasses import dataclass
+from pathlib import PurePosixPath
+from typing import Dict, List, Tuple
+
+from .db import LinkRecord
+from .slugify import slugify_stem
+
+# Detect external protocols or anchor-only references
+EXTERNAL_OR_ANCHOR_PATTERN = re.compile(
+    r"^(?:[a-zA-Z][a-zA-Z0-9+.-]*://|//|mailto:|tel:|#)"
+)
+
+# Inline code span regex: `code` or ``code``
+INLINE_CODE_PATTERN = re.compile(r"`+[^`]+`+")
+
+# CommonMark Link and Image Regex:
+# Matches [label](url "optional title") and ![alt](url)
+LINK_OR_IMAGE_PATTERN = re.compile(
+    r"(!?\[((?:[^\[\]]|\\.)*)\])\(\s*([^\s\)\"\']+)(?:\s+([\"'])(.*?)\4)?\s*\)"
+)
+
+
+@dataclass(frozen=True)
+class ExtractedLink:
+    source_stem: str
+    target_stem: str
+    raw_target: str
+    line_number: int
+    is_image: bool
+    label: str
+    target_path: str
+    suffix: str  # #fragment or ?query
+
+
+def split_target_url(raw_target: str) -> Tuple[str, str]:
+    """
+    Splits a raw link target into (path_portion, suffix_portion).
+    Example: '../notes/energy.md#first-law' -> ('../notes/energy.md', '#first-law')
+    """
+    match = re.search(r"[#?]", raw_target)
+    if match:
+        idx = match.start()
+        return raw_target[:idx], raw_target[idx:]
+    return raw_target, ""
+
+
+def is_external_or_anchor(url: str) -> bool:
+    """Checks whether the link is external or purely a local in-page anchor."""
+    clean = url.strip()
+    return bool(EXTERNAL_OR_ANCHOR_PATTERN.match(clean))
+
+
+def extract_stem_from_path(path_str: str) -> str:
+    """
+    Extracts and canonicalizes the filename stem from a relative path string.
+    Decodes percent-encoding (e.g. 'Math%20Notes/Matrix.md' -> 'matrix').
+    """
+    unquoted = urllib.parse.unquote(path_str)
+    pure = PurePosixPath(unquoted)
+    return slugify_stem(pure.stem)
+
+
+def parse_markdown_links(content: str, source_stem: str) -> List[ExtractedLink]:
+    """
+    Parses Markdown text and extracts relative links and images.
+    Accurately ignores links enclosed inside fenced or inline code spans.
+    """
+    extracted: List[ExtractedLink] = []
+    lines = content.splitlines()
+
+    in_fenced_block = False
+    fenced_fence_char = ""
+    fenced_fence_len = 0
+
+    for line_idx, line in enumerate(lines, start=1):
+        stripped = line.strip()
+
+        # Fenced code block detection: ``` or ~~~
+        if not in_fenced_block:
+            if stripped.startswith("```") or stripped.startswith("~~~"):
+                fence_char = stripped[0]
+                match = re.match(r"^[`~]+", stripped)
+                if match and len(match.group(0)) >= 3:
+                    in_fenced_block = True
+                    fenced_fence_char = fence_char
+                    fenced_fence_len = len(match.group(0))
+                    continue
+        else:
+            if stripped.startswith(fenced_fence_char * fenced_fence_len):
+                in_fenced_block = False
+            continue
+
+        if in_fenced_block:
+            continue
+
+        # Mask inline code spans to prevent false link extraction
+        def mask_inline_code(m):
+            return " " * len(m.group(0))
+
+        sanitized_line = INLINE_CODE_PATTERN.sub(mask_inline_code, line)
+
+        for match in LINK_OR_IMAGE_PATTERN.finditer(sanitized_line):
+            is_image = match.group(1).startswith("!")
+            label = match.group(2)
+            raw_url = match.group(3)
+
+            if is_external_or_anchor(raw_url):
+                continue
+
+            path_part, suffix_part = split_target_url(raw_url)
+            target_stem = extract_stem_from_path(path_part)
+
+            if not target_stem:
+                continue
+
+            extracted.append(
+                ExtractedLink(
+                    source_stem=source_stem,
+                    target_stem=target_stem,
+                    raw_target=raw_url,
+                    line_number=line_idx,
+                    is_image=is_image,
+                    label=label,
+                    target_path=path_part,
+                    suffix=suffix_part,
+                )
+            )
+
+    return extracted
+
+
+def to_link_records(extracted_links: List[ExtractedLink]) -> List[LinkRecord]:
+    """Converts ExtractedLink items into SQLite LinkRecord objects."""
+    return [
+        LinkRecord(
+            source_stem=link.source_stem,
+            target_stem=link.target_stem,
+            raw_target=link.raw_target,
+            line_number=link.line_number,
+        )
+        for link in extracted_links
+    ]
+
+
+def compute_relative_link(source_rel_path: str, target_rel_path: str) -> str:
+    """
+    Calculates the explicit relative POSIX path from source_rel_path to target_rel_path.
+    Guaranteed deterministic forward-slash output across all host operating systems.
+    """
+    src_parent = PurePosixPath(source_rel_path).parent
+    src_dir_str = "." if str(src_parent) == "." else str(src_parent)
+    return posixpath.relpath(target_rel_path, start=src_dir_str)
+
+
+def heal_markdown_links(
+    content: str,
+    source_rel_path: str,
+    stem_to_new_rel_path: Dict[str, str],
+) -> Tuple[str, int]:
+    """
+    Rewrites relative links targeting files that have changed paths or stems.
+    Preserves link labels, images, optional titles, and anchors/query strings.
+    Ignores links inside fenced code blocks and inline code spans.
+    """
+    lines = content.splitlines(keepends=True)
+    new_lines: List[str] = []
+    total_rewrites = 0
+
+    in_fenced_block = False
+    fenced_fence_char = ""
+    fenced_fence_len = 0
+
+    for line in lines:
+        stripped = line.strip()
+
+        if not in_fenced_block:
+            if stripped.startswith("```") or stripped.startswith("~~~"):
+                fence_char = stripped[0]
+                match = re.match(r"^[`~]+", stripped)
+                if match and len(match.group(0)) >= 3:
+                    in_fenced_block = True
+                    fenced_fence_char = fence_char
+                    fenced_fence_len = len(match.group(0))
+                    new_lines.append(line)
+                    continue
+        else:
+            if stripped.startswith(fenced_fence_char * fenced_fence_len):
+                in_fenced_block = False
+            new_lines.append(line)
+            continue
+
+        if in_fenced_block:
+            new_lines.append(line)
+            continue
+
+        # Detect spans of inline code on the current line to guard against false rewrites
+        inline_spans = [m.span() for m in INLINE_CODE_PATTERN.finditer(line)]
+        line_rewrites = 0
+
+        def replace_link(m: re.Match) -> str:
+            nonlocal line_rewrites
+
+            # Bypass replacement if the match begins inside an inline code span
+            if any(start <= m.start() < end for start, end in inline_spans):
+                return m.group(0)
+
+            prefix = m.group(1)
+            raw_url = m.group(3)
+            quote_char = m.group(4) or ""
+            title_text = m.group(5) or ""
+
+            if is_external_or_anchor(raw_url):
+                return m.group(0)
+
+            path_part, suffix_part = split_target_url(raw_url)
+            target_stem = extract_stem_from_path(path_part)
+
+            if target_stem not in stem_to_new_rel_path:
+                return m.group(0)
+
+            new_target_rel_path = stem_to_new_rel_path[target_stem]
+            healed_rel_path = compute_relative_link(
+                source_rel_path, new_target_rel_path
+            )
+            new_url = f"{healed_rel_path}{suffix_part}"
+
+            if new_url == raw_url:
+                return m.group(0)
+
+            line_rewrites += 1
+            if quote_char and title_text:
+                return f"{prefix}({new_url} {quote_char}{title_text}{quote_char})"
+            return f"{prefix}({new_url})"
+
+        new_line = LINK_OR_IMAGE_PATTERN.sub(replace_link, line)
+        new_lines.append(new_line)
+        total_rewrites += line_rewrites
+
+    return "".join(new_lines), total_rewrites
+````
+
+## system/normalize/scanner.py
+
+```python
+"""
+system/normalize/scanner.py - Fast-Path Traversal & Stat-Cache Aware File Scanner.
+Traverses content/ and avoids redundant I/O for unchanged files.
+"""
+
+import hashlib
+import os
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Dict, List, Optional
+
+from .db import VaultDB
+
+JUNK_DIR_NAMES = {
+    ".obsidian",
+    ".trash",
+    ".zettlr",
+    ".logseq",
+    "logseq",
+    ".git",
+    ".vscode",
+    ".idea",
+}
+
+JUNK_FILE_EXTENSIONS = {".ztr-directory", ".ds_store", "thumbs.db", "desktop.ini"}
+
+MARKDOWN_EXTENSIONS = {".md", ".markdown"}
+
+
+def is_junk_path(path: Path, root: Path) -> bool:
+    """
+    Checks if a given path belongs to junk/hidden editor folders or artifact files.
+    """
+    try:
+        rel_parts = path.relative_to(root).parts
+    except ValueError:
+        rel_parts = path.parts
+
+    for part in rel_parts:
+        if part.lower() in JUNK_DIR_NAMES or (part.startswith(".") and part != "."):
+            return True
+
+    name_lower = path.name.lower()
+    if name_lower in JUNK_FILE_EXTENSIONS:
+        return True
+    if any(name_lower.endswith(ext) for ext in JUNK_FILE_EXTENSIONS):
+        return True
+    return False
+
+
+def is_secure_rel_path(rel_posix_path: str) -> bool:
+    """Returns True if the path resides inside a /secure/ subfolder."""
+    parts = rel_posix_path.split("/")
+    return "secure" in parts
+
+
+def compute_file_sha256(file_path: Path) -> str:
+    """Computes SHA-256 hash using 64 KiB buffer chunks."""
+    hasher = hashlib.sha256()
+    with open(file_path, "rb") as f:
+        while chunk := f.read(65536):
+            hasher.update(chunk)
+    return hasher.hexdigest()
+
+
+@dataclass(frozen=True)
+class ScannedFile:
+    abs_path: Path
+    rel_path: str  # POSIX format (e.g. 'notes/math.md')
+    stem: str
+    ext: str
+    mtime: float
+    size: int
+    sha256: str
+    is_media: bool
+    is_secure: bool
+    is_cache_hit: bool
+
+
+@dataclass(frozen=True)
+class VaultScanResult:
+    files: List[ScannedFile]
+    files_by_path: Dict[str, ScannedFile]
+    cache_hits: int
+    cache_misses: int
+
+
+def scan_vault(content_root: Path, db: Optional[VaultDB] = None) -> VaultScanResult:
+    """
+    Scans content_root applying junk filtering and SQLite stat-cache verification.
+    If db is provided and a file matches (mtime, size), disk hash computation is bypassed.
+    """
+    content_root = content_root.resolve()
+    scanned_files: List[ScannedFile] = []
+    files_by_path: Dict[str, ScannedFile] = {}
+    cache_hits = 0
+    cache_misses = 0
+
+    if not content_root.exists() or not content_root.is_dir():
+        return VaultScanResult([], {}, 0, 0)
+
+    for root, dirs, filenames in os.walk(content_root):
+        # Prune junk directories in-place to prevent os.walk recursion into them
+        dirs[:] = [d for d in dirs if not is_junk_path(Path(root) / d, content_root)]
+
+        for filename in filenames:
+            abs_path = Path(root) / filename
+            if is_junk_path(abs_path, content_root):
+                continue
+
+            rel_path = abs_path.relative_to(content_root).as_posix()
+            stat = abs_path.stat()
+            mtime = stat.st_mtime
+            size = stat.st_size
+
+            ext = abs_path.suffix.lower()
+            is_media = ext not in MARKDOWN_EXTENSIONS
+            is_secure = is_secure_rel_path(rel_path)
+            stem = abs_path.stem
+
+            sha256: Optional[str] = None
+            is_cache_hit = False
+
+            if db is not None and db.is_stat_cache_hit(rel_path, mtime, size):
+                cached_rec = db.get_file_by_path(rel_path)
+                if cached_rec is not None:
+                    sha256 = cached_rec.sha256
+                    is_cache_hit = True
+                    cache_hits += 1
+
+            if sha256 is None:
+                sha256 = compute_file_sha256(abs_path)
+                cache_misses += 1
+
+            record = ScannedFile(
+                abs_path=abs_path,
+                rel_path=rel_path,
+                stem=stem,
+                ext=ext,
+                mtime=mtime,
+                size=size,
+                sha256=sha256,
+                is_media=is_media,
+                is_secure=is_secure,
+                is_cache_hit=is_cache_hit,
+            )
+            scanned_files.append(record)
+            files_by_path[rel_path] = record
+
+    return VaultScanResult(
+        files=scanned_files,
+        files_by_path=files_by_path,
+        cache_hits=cache_hits,
+        cache_misses=cache_misses,
+    )
+```
+
+## system/normalize/slugify.py
+
+```python
+"""
+system/normalize/slugify.py - Deterministic Cross-Platform Slugifier & Path Sanitizer.
+Strictly adheres to POSIX and Windows-safe constraints.
+"""
+
+import re
+import unicodedata
+from pathlib import PurePosixPath
+
+# Matches valid stems: starts with [a-z0-9], followed by [a-z0-9], '-', or '_'
+STEM_PATTERN = re.compile(r"^[a-z0-9][a-z0-9\-_]*$")
+
+# Characters explicitly forbidden across POSIX and Windows filesystems
+FORBIDDEN_CHARS_PATTERN = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+
+# Non-alphanumeric separators (excluding hyphen and underscore)
+PUNCTUATION_SEPARATOR_PATTERN = re.compile(r"[\s\.,;!#$@%^&()\[\]{}+=~`'\"]+")
+
+# Runs of hyphens or underscores
+COLLAPSE_HYPHENS = re.compile(r"-{2,}")
+COLLAPSE_UNDERSCORES = re.compile(r"_{2,}")
+
+
+def is_valid_stem(stem: str) -> bool:
+    """
+    Validates whether a filename stem meets the strict archival UID specification:
+      Regex: ^[a-z0-9][a-z0-9\\-_]*$
+    """
+    if not stem or len(stem) > 255:
+        return False
+    return bool(STEM_PATTERN.match(stem))
+
+
+def slugify_stem(raw_stem: str, default_fallback: str = "untitled") -> str:
+    """
+    Transforms an arbitrary filename stem into a canonical, normalized UID:
+      1. Normalizes Unicode to NFC.
+      2. Converts ASCII/Unicode characters to lowercase.
+      3. Replaces spaces, dots, and common punctuation with hyphens.
+      4. Strips forbidden filesystem characters.
+      5. Collapses redundant consecutive hyphens/underscores.
+      6. Trims leading/trailing hyphens, underscores, and dots.
+      7. Ensures leading character is alphanumeric; prepends 'n-' if it starts with a hyphen/digit boundary.
+    """
+    if not raw_stem or not raw_stem.strip():
+        return default_fallback
+
+    # Step 1: Unicode NFC Normalization
+    text = unicodedata.normalize("NFC", raw_stem.strip())
+
+    # Step 2: Lowercase conversion
+    text = text.lower()
+
+    # Step 3: Strip absolute forbidden chars
+    text = FORBIDDEN_CHARS_PATTERN.sub("", text)
+
+    # Step 4: Convert whitespace and punctuation clusters to hyphens
+    text = PUNCTUATION_SEPARATOR_PATTERN.sub("-", text)
+
+    # Step 5: Retain only ASCII [a-z0-9], hyphens, and underscores
+    # Strips non-ASCII unicode diacritics / symbols to ensure pure cross-platform portability
+    text = re.sub(r"[^a-z0-9\-_]", "", text)
+
+    # Step 6: Collapse consecutive hyphens and underscores
+    text = COLLAPSE_HYPHENS.sub("-", text)
+    text = COLLAPSE_UNDERSCORES.sub("_", text)
+
+    # Step 7: Trim leading/trailing hyphens and underscores
+    text = text.strip("-_")
+
+    if not text:
+        return default_fallback
+
+    # Step 8: Ensure leading character is in [a-z0-9]
+    if not text[0].isalnum():
+        text = f"doc-{text.lstrip('-_')}"
+
+    return text[:255]
+
+
+def sanitize_path_segments(rel_path: str) -> str:
+    """
+    Sanitizes all directory segments and the filename in a relative POSIX path.
+    Preserves file extension in lowercase.
+
+    Example:
+      'My Notes/2026 Math/Matrix Calculation.MD' -> 'my-notes/2026-math/matrix-calculation.md'
+    """
+    pure_path = PurePosixPath(rel_path)
+    sanitized_parts = []
+
+    for part in pure_path.parent.parts:
+        if part in (".", ""):
+            continue
+        sanitized_parts.append(slugify_stem(part))
+
+    stem = slugify_stem(pure_path.stem)
+    ext = pure_path.suffix.lower()
+
+    filename = f"{stem}{ext}"
+    if sanitized_parts:
+        return "/".join(sanitized_parts) + "/" + filename
+    return filename
+```
+
+## system/normalize/test_phase1.py
+
+```python
+# system/normalize/test_phase1.py
+import sys
+from pathlib import Path
+
+# Ensure project root (kykloi/) is on sys.path regardless of execution cwd
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from system.normalize.db import FileRecord, LinkRecord, VaultDB
+from system.normalize.slugify import is_valid_stem, sanitize_path_segments, slugify_stem
+
+
+def run_tests():
+    print("[1/3] Testing slugify and validation...")
+    test_cases = [
+        ("My Note 2026!", "my-note-2026"),
+        ("über_mathematics...", "ber_mathematics"),
+        ("20261116170353-kykloi-introduction", "20261116170353-kykloi-introduction"),
+        ("test:::invalid<chars>", "testinvalidchars"),
+        ("---leading-and-trailing---", "leading-and-trailing"),
+        ("__double__underscores__", "double_underscores"),
+    ]
+    for raw, expected in test_cases:
+        slug = slugify_stem(raw)
+        assert slug == expected, f"Expected '{expected}', got '{slug}' for '{raw}'"
+        assert is_valid_stem(slug), f"Slug '{slug}' is not valid per UID regex"
+
+    path_test = "Research Folder/Quantum Physics/Wave Function.MD"
+    assert (
+        sanitize_path_segments(path_test)
+        == "research-folder/quantum-physics/wave-function.md"
+    )
+    print("  -> Slugify & Path tests passed.")
+
+    print("[2/3] Testing SQLite schema initialization & FileRecord operations...")
+    test_db_path = Path(__file__).resolve().parent / "test_vault_index.db"
+
+    # Clean previous run artifacts
+    for f in test_db_path.parent.glob("test_vault_index.db*"):
+        try:
+            f.unlink()
+        except OSError:
+            pass
+
+    with VaultDB(test_db_path) as db:
+        db.init_schema()
+        assert db.get_meta("schema_version") == "1.0"
+
+        rec1 = FileRecord(
+            id=None,
+            stem="matrix-notes",
+            rel_path="math/matrix-notes.md",
+            sha256="abc123hash",
+            mtime=1700000000.0,
+            size=1024,
+            is_media=False,
+            is_secure=False,
+        )
+        db.upsert_file(rec1)
+
+        fetched = db.get_file_by_stem("matrix-notes")
+        assert fetched is not None
+        assert fetched.rel_path == "math/matrix-notes.md"
+        assert fetched.size == 1024
+
+        # Stat-cache test
+        assert db.is_stat_cache_hit("math/matrix-notes.md", 1700000000.0, 1024) is True
+        assert db.is_stat_cache_hit("math/matrix-notes.md", 1700000000.0, 2048) is False
+
+        print("  -> File ledger and stat-cache tests passed.")
+
+        print("[3/3] Testing Foreign Key cascading & link graph operations...")
+        rec2 = FileRecord(
+            id=None,
+            stem="linear-algebra",
+            rel_path="math/linear-algebra.md",
+            sha256="def456hash",
+            mtime=1700000001.0,
+            size=2048,
+            is_media=False,
+            is_secure=False,
+        )
+        db.upsert_file(rec2)
+
+        links = [
+            LinkRecord(
+                "matrix-notes", "linear-algebra", "../math/linear-algebra.md", 12
+            )
+        ]
+        db.replace_document_links("matrix-notes", links)
+
+        refs = db.get_referencing_links("linear-algebra")
+        assert len(refs) == 1
+        assert refs[0].source_stem == "matrix-notes"
+
+        # Cascade test: Deleting source file cascades to its outgoing links
+        db.delete_file_by_stem("matrix-notes")
+        assert len(db.get_outgoing_links("matrix-notes")) == 0
+        assert len(db.get_referencing_links("linear-algebra")) == 0
+
+        print("  -> Link graph & cascading delete tests passed.")
+
+    # Clean up test artifacts
+    for f in test_db_path.parent.glob("test_vault_index.db*"):
+        try:
+            f.unlink()
+        except OSError:
+            pass
+
+    print("[SUCCESS] All Phase 1 modules verified.")
+
+
+if __name__ == "__main__":
+    run_tests()
+```
+
+## system/normalize/test_phase2.py
+
+```python
+# system/normalize/test_phase2.py
+import sys
+import tempfile
+from pathlib import Path
+
+# Ensure project root (kykloi/) is on sys.path
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from system.normalize.db import FileRecord, LinkRecord, VaultDB
+from system.normalize.engine import ActionType, compute_diff
+from system.normalize.scanner import scan_vault
+
+
+def run_tests():
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        vault_path = Path(tmp_dir) / "content"
+        vault_path.mkdir()
+        db_path = Path(tmp_dir) / "vault_index.db"
+
+        with VaultDB(db_path) as db:
+            db.init_schema()
+
+            print("[1/5] Testing Clean Vault & Fast-Path Stat Cache...")
+            file_a = vault_path / "note-a.md"
+            file_a.write_text("# Note A content", encoding="utf-8")
+
+            # First scan: cache miss, baseline creation
+            res1 = scan_vault(vault_path, db)
+            assert res1.cache_hits == 0
+            assert res1.cache_misses == 1
+
+            diff1 = compute_diff(res1, db)
+            assert len(diff1.actions) == 1
+            assert diff1.actions[0].action_type == ActionType.CREATE
+
+            # Commit initial record to DB
+            stat_a = file_a.stat()
+            db.upsert_file(
+                FileRecord(
+                    id=None,
+                    stem="note-a",
+                    rel_path="note-a.md",
+                    sha256=res1.files[0].sha256,
+                    mtime=stat_a.st_mtime,
+                    size=stat_a.st_size,
+                    is_media=False,
+                    is_secure=False,
+                )
+            )
+
+            # Second scan: cache hit, zero disk reads
+            res2 = scan_vault(vault_path, db)
+            assert res2.cache_hits == 1
+            assert res2.cache_misses == 0
+            diff2 = compute_diff(res2, db)
+            assert diff2.actions[0].action_type == ActionType.NOOP
+            print("  -> Stat-cache hit verified.")
+
+            print("[2/5] Testing Decision Matrix: Clean Move (P -> P', S=S, H=H)...")
+            subfolder = vault_path / "sub"
+            subfolder.mkdir()
+            file_a_moved = subfolder / "note-a.md"
+            file_a.rename(file_a_moved)
+
+            res_move = scan_vault(vault_path, db)
+            diff_move = compute_diff(res_move, db)
+            assert any(a.action_type == ActionType.MOVE for a in diff_move.actions)
+            print("  -> Clean move resolved via identical content hash and stem.")
+
+            print("[3/5] Testing Decision Matrix: Clean Rename (P=P, S -> S', H=H)...")
+            file_a_renamed = subfolder / "note-renamed.md"
+            file_a_moved.rename(file_a_renamed)
+
+            res_rename = scan_vault(vault_path, db)
+            diff_rename = compute_diff(res_rename, db)
+            assert any(
+                a.action_type in (ActionType.RENAME, ActionType.MOVE_AND_RENAME)
+                for a in diff_rename.actions
+            )
+            print("  -> Clean rename recognized via content hash identity.")
+
+            print(
+                "[4/5] Testing Decision Matrix: Move + Content Edit (P -> P', S=S, H -> H')..."
+            )
+            # Move back to root and modify content
+            file_a_edited = vault_path / "note-a.md"
+            file_a_renamed.rename(file_a_edited)
+            file_a_edited.write_text(
+                "# Substantially altered content", encoding="utf-8"
+            )
+
+            res_edit_move = scan_vault(vault_path, db)
+            diff_edit_move = compute_diff(res_edit_move, db)
+            # Anchored by Stem UID: recognized as MOVE (or MODIFY) instead of atomic delete/recreate
+            assert any(
+                a.action_type in (ActionType.MOVE, ActionType.MODIFY_CONTENT)
+                for a in diff_edit_move.actions
+            )
+            print("  -> Stem UID identity anchor preserved across move + edit.")
+
+            print("[5/5] Testing Stem Collisions & Broken Link Diagnostics...")
+            # Create a duplicate stem in another directory
+            colliding_dir = vault_path / "other"
+            colliding_dir.mkdir()
+            colliding_file = colliding_dir / "note-a.md"
+            colliding_file.write_text(
+                "# Different note with colliding stem", encoding="utf-8"
+            )
+
+            # Mock an inbound link from an external file targeting note-a
+            db.upsert_file(
+                FileRecord(
+                    id=None,
+                    stem="referrer",
+                    rel_path="referrer.md",
+                    sha256="refhash",
+                    mtime=1.0,
+                    size=10,
+                    is_media=False,
+                    is_secure=False,
+                )
+            )
+            db.replace_document_links(
+                "referrer",
+                [LinkRecord("referrer", "note-a", "note-a.md", 1)],
+            )
+
+            res_collision = scan_vault(vault_path, db)
+            diff_collision = compute_diff(res_collision, db)
+            assert "note-a" in diff_collision.collisions
+            assert len(diff_collision.collisions["note-a"]) == 2
+            print("  -> Multi-file stem collision identified.")
+
+    print("[SUCCESS] All Phase 2 scanner and decision engine tests verified.")
+
+
+if __name__ == "__main__":
+    run_tests()
+```
+
+## system/normalize/test_phase4.py
+
+```python
+# system/normalize/test_phase4.py
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+# Ensure project root (kykloi/) is on sys.path
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from system.normalize.cli import (
+    build_transaction_manifest,
+    execute_transaction,
+)
+from system.normalize.db import VaultDB
+from system.normalize.engine import compute_diff
+from system.normalize.scanner import scan_vault
+
+
+def run_tests():
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        vault_path = Path(tmp_dir) / "content"
+        vault_path.mkdir()
+        db_path = Path(tmp_dir) / "vault_index.db"
+
+        # Initialize mock documents with un-normalized folder & filename
+        notes_dir = vault_path / "Math Notes"
+        notes_dir.mkdir()
+        doc_a = notes_dir / "Matrix Calculation.MD"
+        doc_b = vault_path / "doc-b.md"
+
+        doc_a.write_text("# Matrix Math\nFormula details.", encoding="utf-8")
+        doc_b.write_text(
+            "# Document B\nReference to [Matrix Notes](Math%20Notes/Matrix%20Calculation.MD).",
+            encoding="utf-8",
+        )
+
+        cli_script = PROJECT_ROOT / "system" / "normalize" / "cli.py"
+
+        print("[1/4] Testing --check (Lint Mode on un-normalized vault)...")
+        res = subprocess.run(
+            [
+                sys.executable,
+                str(cli_script),
+                "--vault-dir",
+                str(vault_path),
+                "--db-path",
+                str(db_path),
+                "--check",
+            ],
+            capture_output=True,
+            text=True,
+        )
+        assert res.returncode == 1, "Expected exit code 1 for un-normalized vault"
+        print("  -> Lint exit code verified.")
+
+        print("[2/4] Testing --auto-apply (Path sanitization & link healing)...")
+        res_apply = subprocess.run(
+            [
+                sys.executable,
+                str(cli_script),
+                "--vault-dir",
+                str(vault_path),
+                "--db-path",
+                str(db_path),
+                "--auto-apply",
+            ],
+            capture_output=True,
+            text=True,
+        )
+        assert res_apply.returncode == 0, f"Auto-apply failed: {res_apply.stderr}"
+
+        # Assert disk renames took effect (both folder and file normalized)
+        sanitized_doc_a = vault_path / "math-notes" / "matrix-calculation.md"
+        assert sanitized_doc_a.exists(), "math-notes/matrix-calculation.md should exist"
+        assert not doc_a.exists(), (
+            "Original un-normalized file should have been renamed"
+        )
+
+        # Assert link inside doc_b was healed to follow the new canonical path
+        doc_b_content = doc_b.read_text(encoding="utf-8")
+        assert "math-notes/matrix-calculation.md" in doc_b_content, (
+            f"Link target should be rewritten to canonical path, got: {doc_b_content}"
+        )
+        print("  -> Disk rename and link healing executed successfully.")
+
+        print("[3/4] Testing Idempotence (Second run performs zero writes)...")
+        res_idempotent = subprocess.run(
+            [
+                sys.executable,
+                str(cli_script),
+                "--vault-dir",
+                str(vault_path),
+                "--db-path",
+                str(db_path),
+                "--check",
+            ],
+            capture_output=True,
+            text=True,
+        )
+        assert res_idempotent.returncode == 0, (
+            f"Second run must detect 0 mutations and return code 0, stderr: {res_idempotent.stderr}"
+        )
+        print("  -> Idempotence invariant confirmed.")
+
+        print("[4/4] Testing Atomic Rollback on Disk Mutation Failure...")
+        with VaultDB(db_path) as db:
+            scan_res = scan_vault(vault_path, db)
+            diff = compute_diff(scan_res, db)
+            manifest, _ = build_transaction_manifest(vault_path, diff, db)
+
+            invalid_src = vault_path / "doc-b.md"
+            invalid_dst = Path("/dev/null/forbidden/cannot_exist.md")
+            manifest.disk_renames.append((invalid_src, invalid_dst))
+
+            try:
+                execute_transaction(manifest, db)
+                assert False, "Execution should have raised an exception"
+            except Exception:
+                assert invalid_src.exists(), (
+                    "Rollback should restore original file location"
+                )
+                print("  -> Rollback journal safely reverted disk mutations.")
+
+    print("[SUCCESS] All Phase 4 CLI and transaction tests verified.")
+
+
+if __name__ == "__main__":
+    run_tests()
+```
+
 ## system/tools/tools_manifest.json
 
 ```json
@@ -4146,35 +6279,6 @@ def timed_step(logger: logging.Logger, operation_name: str, level: int = logging
         elapsed = (time.perf_counter() - start_time) * 1000.0
         logger.error("FAILED: %s after %.2f ms: %s", operation_name, elapsed, err)
         raise
-```
-
-## author_context.md
-
-```md
-#### 1. User Disclosures (Directly Reported)
-
-* **Vocation:** Practicing nurse; software development is conducted strictly as an amateur/hobbyist pursuit.
-* **Technical Background:** Self-disclosed as lacking the technical proficiency to author this codebase without large language model (LLM) generation.
-* **Methodology:** Engaged in "vibe-coding" (prompt-driven iterative code synthesis mediated by LLMs) over a period of approximately six months spanning hundreds of developmental iterations.
-* **Prototyping & Discarded Implementations:** Evaluated, integrated, and subsequently abandoned multiple alternative tools and architectures, including:
-  * In-browser encryption: StatiCrypt
-  * Search indexing engines: Pagefind, MiniSearch
-  * Cryptographic packages: `cryptography`, `pycryptodome`
-  * Architecture components: Dedicated Web UI (scrapped in favor of CLI/terminal workflow)
-  * Upstream dependencies: Multiple iterations and versions of Python and Pandoc
-* **Awareness of Technical Trade-Offs:** Identified performance deficiencies (notably pure-Python AES-GCM execution overhead) were consciously accepted as operational compromises or deferred to future iterations.
-
-#### 2. Codebase Forensic Artifacts (Empirically Derived)
-
-* **Digital Identity / Moniker:** Employs the branding identifier `JmB²` within the site navigation bar (`system/build/root/index.html`, `system/build/templates/md_to_static_html.html`).
-* **Knowledge Management Workflow:**
-  * Uses timestamped Zettelkasten-style file naming schemes (`YYYYMMDDHHMMSS-slug.md`, e.g., `20261109130247-project_kykloi_task_list.md`).
-  * Explicitly filters directory patterns (`.obsidian`, `.zettlr`, `.logseq`) in `build_site.py`, indicating past or concurrent usage of Obsidian, Zettlr, or Logseq as content authoring environments.
-* **Prior LLM Engagements:** Retains artifacts referencing other LLM interactions in the content tree (`content/202611/20261109171348-geminis_codebase_impression.md`).
-* **Development Environment:**
-  * File-naming patterns (e.g., `launch copy.bat`, `tools_manifest copy.json`) reflect local file duplication conventions standard to Windows Explorer.
-  * Dual-platform maintenance of `.bat` and `.sh` wrappers confirms active cross-platform deployment targeting Windows and POSIX-compliant environments (Linux/macOS).
-* **Threat Model Expectations:** Documented in `README.md` as seeking casual privacy against web scraping and automated bot ingestion for public static hosting, rather than defense against state-level or high-resource threat actors.
 ```
 
 ## launch.bat

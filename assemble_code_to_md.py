@@ -48,6 +48,16 @@ INCLUDED_FILES = {
     "tools_manifest.json",
     "author_context.md",
     "logger.py",
+    "__init__.py",
+    "db.py",
+    "slugify.py",
+    "test_phase1.py",
+    "scanner.py",
+    "engine.py",
+    "test_phase2.py",
+    "graph.py",
+    "test_phase4.py",
+    "cli.py",
 }
 
 # Optional overrides for markdown syntax highlighting; unlisted extensions
