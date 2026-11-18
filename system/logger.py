@@ -1,6 +1,7 @@
 """
 system/logger.py - Centralized Telemetry and Logging Engine for Project Kykloi.
-Provides ANSI colorized terminal streams, persistent file sinks, and routine tracing.
+Provides ANSI colorized terminal streams, persistent file sinks, routine tracing,
+and threshold-triggered FIFO log truncation (in-place halving).
 """
 
 import contextlib
@@ -16,6 +17,8 @@ if sys.platform == "win32":
     os.system("")
 
 DEFAULT_LOG_FILE = Path(__file__).resolve().parent / "kykloi.log"
+DEFAULT_MAX_BYTES = 5 * 1024 * 1024  # 5 MiB threshold
+DEFAULT_PRUNE_RATIO = 0.5  # Retain newest 50% when threshold is breached
 
 
 class AnsiColorFormatter(logging.Formatter):
@@ -75,13 +78,90 @@ class PlainFileFormatter(logging.Formatter):
         return f"{time_str} | {lvl_name} | {name:<24} | {message}"
 
 
+class HalfPruningFileHandler(logging.FileHandler):
+    """
+    Append-only file handler that monitors file size and atomically purges the oldest
+    records when a defined capacity threshold is reached, retaining approximately half
+    of the newest log output aligned to line boundaries.
+    """
+
+    def __init__(
+        self,
+        filename: Path | str,
+        mode: str = "a",
+        encoding: str = "utf-8",
+        delay: bool = False,
+        max_bytes: int = DEFAULT_MAX_BYTES,
+        prune_ratio: float = DEFAULT_PRUNE_RATIO,
+    ):
+        super().__init__(filename, mode=mode, encoding=encoding, delay=delay)
+        self.max_bytes = max_bytes
+        self.prune_ratio = min(max(prune_ratio, 0.1), 0.9)
+
+    def should_prune(self) -> bool:
+        """Determines whether the physical log file size exceeds the threshold."""
+        if self.max_bytes <= 0:
+            return False
+        try:
+            return os.path.getsize(self.baseFilename) >= self.max_bytes
+        except OSError:
+            return False
+
+    def do_prune(self) -> None:
+        """
+        Closes current stream, seeks past the oldest entries to the next clean newline,
+        writes the preserved segment to a temporary file, and performs an atomic replace.
+        """
+        if self.stream is not None:
+            self.stream.flush()
+            self.stream.close()
+            self.stream = None
+
+        try:
+            current_size = os.path.getsize(self.baseFilename)
+            if current_size < self.max_bytes:
+                return
+
+            cutoff = int(current_size * (1.0 - self.prune_ratio))
+            with open(self.baseFilename, "rb") as src:
+                src.seek(cutoff)
+                # Discard the partial line fragment at the cut boundary
+                src.readline()
+                retained_bytes = src.read()
+
+            tmp_target = Path(self.baseFilename).with_suffix(".prune.tmp")
+            with open(tmp_target, "wb") as dst:
+                prune_notice = (
+                    f"--- [KYKLOI LOG PRUNED: {current_size} bytes -> {len(retained_bytes)} bytes] ---\n"
+                ).encode(self.encoding or "utf-8")
+                dst.write(prune_notice)
+                dst.write(retained_bytes)
+
+            tmp_target.replace(self.baseFilename)
+        except OSError:
+            pass
+        finally:
+            self.stream = self._open()
+
+    def emit(self, record: logging.LogRecord) -> None:
+        """Emits a record, executing size verification and conditional truncation first."""
+        try:
+            if self.should_prune():
+                self.do_prune()
+            super().emit(record)
+        except Exception:
+            self.handleError(record)
+
+
 def setup_logging(
     subsystem: str = "core",
     verbose: bool = False,
     log_file: Optional[Path] = None,
     enable_console: bool = True,
+    max_bytes: Optional[int] = None,
+    prune_ratio: float = DEFAULT_PRUNE_RATIO,
 ) -> logging.Logger:
-    """Configures the root Kykloi logger with console and optional file handlers."""
+    """Configures the root Kykloi logger with console and pruning file handlers."""
     root_logger = logging.getLogger("kykloi")
     root_logger.setLevel(logging.DEBUG)
 
@@ -97,7 +177,22 @@ def setup_logging(
     target_log_file = log_file if log_file is not None else DEFAULT_LOG_FILE
     if target_log_file:
         target_log_file.parent.mkdir(parents=True, exist_ok=True)
-        file_handler = logging.FileHandler(target_log_file, mode="a", encoding="utf-8")
+
+        # Allow environment configuration override if parameter not explicitly set
+        effective_max_bytes = max_bytes
+        if effective_max_bytes is None:
+            env_val = os.environ.get("KYKLOI_LOG_MAX_BYTES")
+            effective_max_bytes = (
+                int(env_val) if env_val and env_val.isdigit() else DEFAULT_MAX_BYTES
+            )
+
+        file_handler = HalfPruningFileHandler(
+            target_log_file,
+            mode="a",
+            encoding="utf-8",
+            max_bytes=effective_max_bytes,
+            prune_ratio=prune_ratio,
+        )
         file_handler.setLevel(logging.DEBUG)
         file_handler.setFormatter(PlainFileFormatter())
         root_logger.addHandler(file_handler)

@@ -3,6 +3,13 @@
 system/build/build_site.py - Zero-Dependency Deterministic SSG Compiler.
 Part of Project Kykloi (v0.5.0).
 Features Tiered Multi-Engine AES-256-GCM Acceleration with Deterministic Fallback.
+Priority Order:
+  1. Native OS C-ABI Shared Libraries:
+     - macOS: Apple CommonCrypto (libSystem.B.dylib / Apple Silicon NEON / AES-NI)
+     - Windows: CNG (bcrypt.dll / AES-NI)
+     - Linux/POSIX: OpenSSL EVP (libcrypto.so / AES-NI)
+  2. Host Python Compiled Packages (cryptography / pycryptodome)
+  3. Pure-Python Baseline Engine (Guaranteed Zero-Dependency Fallback)
 """
 
 import argparse
@@ -486,11 +493,89 @@ def pure_aes_gcm_encrypt(
 
 
 # ===========================================================================
-# 2. ACCELERATED CRYPTO ENGINES (TIER 1 SITE-PACKAGES & TIER 2 OS C-ABI)
+# 2. ACCELERATED CRYPTO ENGINES
 # ===========================================================================
 
+# --- TIER 1A: Apple CommonCrypto C-ABI (macOS Native Acceleration) ---
 
-# --- Windows Cryptography Next Generation (CNG: bcrypt.dll) ---
+
+def _init_darwin_commoncrypto() -> Optional[
+    Callable[[bytes, bytes, bytes], Tuple[bytes, bytes]]
+]:
+    if sys.platform != "darwin":
+        return None
+
+    try:
+        # libSystem.B.dylib houses CommonCrypto and is always linked into every Darwin process
+        lib = ctypes.CDLL("/usr/lib/libSystem.B.dylib")
+        if not hasattr(lib, "CCCryptorGCMOneshotEncrypt"):
+            return None
+
+        # CCCryptorStatus CCCryptorGCMOneshotEncrypt(
+        #     CCAlgorithm alg,          // uint32_t (kCCAlgorithmAES = 0)
+        #     const void *key,          // void *
+        #     size_t keyLength,         // size_t
+        #     const void *iv,           // void *
+        #     size_t ivLen,             // size_t
+        #     const void *aData,        // void *
+        #     size_t aDataLen,          // size_t
+        #     const void *dataIn,       // void *
+        #     size_t dataInLength,      // size_t
+        #     void *dataOut,            // void *
+        #     void *tagOut,             // void *
+        #     size_t tagLength          // size_t
+        # );
+        fn = lib.CCCryptorGCMOneshotEncrypt
+        fn.restype = ctypes.c_int32
+        fn.argtypes = [
+            ctypes.c_uint32,
+            ctypes.c_char_p,
+            ctypes.c_size_t,
+            ctypes.c_char_p,
+            ctypes.c_size_t,
+            ctypes.c_void_p,
+            ctypes.c_size_t,
+            ctypes.c_char_p,
+            ctypes.c_size_t,
+            ctypes.c_char_p,
+            ctypes.c_char_p,
+            ctypes.c_size_t,
+        ]
+
+        def _encrypt_commoncrypto(
+            key: bytes, iv: bytes, plaintext: bytes
+        ) -> Tuple[bytes, bytes]:
+            pt_len = len(plaintext)
+            ct = ctypes.create_string_buffer(pt_len)
+            tag = ctypes.create_string_buffer(16)
+
+            st = fn(
+                0,  # kCCAlgorithmAES
+                key,
+                len(key),
+                iv,
+                len(iv),
+                None,
+                0,
+                plaintext,
+                pt_len,
+                ct,
+                tag,
+                16,
+            )
+            if st != 0:
+                raise RuntimeError(f"CommonCrypto error code: {st}")
+
+            return bytes(ct.raw[:pt_len]), bytes(tag.raw)
+
+        return _encrypt_commoncrypto
+    except Exception:
+        return None
+
+
+# --- TIER 1B: Windows CNG C-ABI via bcrypt.dll ---
+
+
 class _BCRYPT_AUTHENTICATED_CIPHER_MODE_INFO(ctypes.Structure):
     _fields_ = [
         ("cbSize", ctypes.c_ulong),
@@ -602,48 +687,59 @@ def _init_windows_cng() -> Optional[
         return None
 
 
-# --- POSIX OpenSSL EVP (libcrypto.so / libcrypto.dylib) ---
+# --- TIER 1C: POSIX System OpenSSL EVP C-ABI (Linux / BSD) ---
+
+
 def _find_posix_libcrypto() -> Optional[ctypes.CDLL]:
-    names = ["crypto", "libcrypto"]
-    for name in names:
+    # Never query OpenSSL via generic linker or system paths on Darwin
+    if sys.platform == "darwin":
+        return None
+
+    candidates: list[str] = []
+
+    # Dynamic linker resolution on Linux / BSD
+    for name in ("crypto", "libcrypto"):
         path = ctypes.util.find_library(name)
         if path:
-            try:
-                return ctypes.CDLL(path)
-            except OSError:
-                pass
+            candidates.append(path)
 
-    if os.name == "posix":
-        try:
-            import ssl  # noqa: F401
+    candidates.extend(
+        [
+            "libcrypto.so.3",
+            "libcrypto.so.1.1",
+            "libcrypto.so",
+            "/usr/lib/x86_64-linux-gnu/libcrypto.so.3",
+            "/usr/lib/aarch64-linux-gnu/libcrypto.so.3",
+            "/usr/lib/x86_64-linux-gnu/libcrypto.so.1.1",
+            "/usr/lib/aarch64-linux-gnu/libcrypto.so.1.1",
+            "/usr/lib64/libcrypto.so.3",
+            "/usr/lib64/libcrypto.so.1.1",
+            "/usr/lib/libcrypto.so.3",
+            "/usr/lib/libcrypto.so.1.1",
+            "/usr/lib/libcrypto.so",
+        ]
+    )
 
-            proc_lib = ctypes.CDLL(None)
-            if hasattr(proc_lib, "EVP_aes_256_gcm"):
-                return proc_lib
-        except Exception:
-            pass
+    required_symbols = (
+        "EVP_CIPHER_CTX_new",
+        "EVP_CIPHER_CTX_free",
+        "EVP_aes_256_gcm",
+        "EVP_EncryptInit_ex",
+        "EVP_CIPHER_CTX_ctrl",
+        "EVP_EncryptUpdate",
+        "EVP_EncryptFinal_ex",
+    )
 
-        try:
-            import _ssl
-
-            return ctypes.CDLL(_ssl.__file__)
-        except Exception:
-            pass
-
-    candidates = [
-        "libcrypto.so.3",
-        "libcrypto.so.1.1",
-        "libcrypto.so",
-        "/usr/lib/libcrypto.so",
-        "/usr/lib/libcrypto.dylib",
-        "/opt/homebrew/lib/libcrypto.dylib",
-        "/usr/local/lib/libcrypto.dylib",
-    ]
     for p in candidates:
+        if "/" in p and not os.path.isfile(p):
+            continue
         try:
-            return ctypes.CDLL(p)
+            lib = ctypes.CDLL(p)
+            if all(hasattr(lib, sym) for sym in required_symbols):
+                return lib
         except OSError:
             continue
+
     return None
 
 
@@ -684,7 +780,7 @@ def _init_posix_openssl() -> Optional[
         lib.EVP_EncryptUpdate.restype = ctypes.c_int
         lib.EVP_EncryptUpdate.argtypes = [
             ctypes.c_void_p,
-            ctypes.c_char_p,
+            ctypes.c_void_p,
             ctypes.POINTER(ctypes.c_int),
             ctypes.c_char_p,
             ctypes.c_int,
@@ -693,7 +789,7 @@ def _init_posix_openssl() -> Optional[
         lib.EVP_EncryptFinal_ex.restype = ctypes.c_int
         lib.EVP_EncryptFinal_ex.argtypes = [
             ctypes.c_void_p,
-            ctypes.c_char_p,
+            ctypes.c_void_p,
             ctypes.POINTER(ctypes.c_int),
         ]
 
@@ -739,15 +835,13 @@ def _init_posix_openssl() -> Optional[
                         raise RuntimeError("EVP_EncryptUpdate failed.")
 
                 total_len = out_len.value
+                final_buf = ctypes.create_string_buffer(16)
                 final_len = ctypes.c_int(0)
                 if (
-                    lib.EVP_EncryptFinal_ex(
-                        ctx, ctypes.byref(c_ct, total_len), ctypes.byref(final_len)
-                    )
+                    lib.EVP_EncryptFinal_ex(ctx, final_buf, ctypes.byref(final_len))
                     != 1
                 ):
                     raise RuntimeError("EVP_EncryptFinal_ex failed.")
-                total_len += final_len.value
 
                 tag = ctypes.create_string_buffer(16)
                 if lib.EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, 16, tag) != 1:
@@ -762,7 +856,9 @@ def _init_posix_openssl() -> Optional[
         return None
 
 
-# --- Python Site Packages (cryptography / pycryptodome) ---
+# --- TIER 2: Python Site Packages (cryptography / pycryptodome) ---
+
+
 def _init_py_cryptography() -> Optional[
     Callable[[bytes, bytes, bytes], Tuple[bytes, bytes]]
 ]:
@@ -816,7 +912,21 @@ def _test_engine_kat(fn: Callable[[bytes, bytes, bytes], Tuple[bytes, bytes]]) -
 def _resolve_active_crypto_engine() -> Tuple[
     str, Callable[[bytes, bytes, bytes], Tuple[bytes, bytes]]
 ]:
-    # Priority Tier 1: Compiled Site Packages
+    # Priority Tier 1: Native OS C-ABI via ctypes
+    if sys.platform == "darwin":
+        darwin_fn = _init_darwin_commoncrypto()
+        if darwin_fn and _test_engine_kat(darwin_fn):
+            return "Apple CommonCrypto (libSystem / NEON / AES-NI)", darwin_fn
+    elif sys.platform == "win32":
+        cng_fn = _init_windows_cng()
+        if cng_fn and _test_engine_kat(cng_fn):
+            return "Windows CNG (bcrypt.dll / AES-NI)", cng_fn
+    else:
+        openssl_fn = _init_posix_openssl()
+        if openssl_fn and _test_engine_kat(openssl_fn):
+            return "System OpenSSL EVP (libcrypto / AES-NI / NEON)", openssl_fn
+
+    # Priority Tier 2: Compiled Site Packages
     crypto_fn = _init_py_cryptography()
     if crypto_fn and _test_engine_kat(crypto_fn):
         return "Python cryptography (OpenSSL C-Extension)", crypto_fn
@@ -824,15 +934,6 @@ def _resolve_active_crypto_engine() -> Tuple[
     cryptodome_fn = _init_py_cryptodome()
     if cryptodome_fn and _test_engine_kat(cryptodome_fn):
         return "Python pycryptodome (Hardware Accelerated)", cryptodome_fn
-
-    # Priority Tier 2: Native OS C-ABI via ctypes
-    cng_fn = _init_windows_cng()
-    if cng_fn and _test_engine_kat(cng_fn):
-        return "Windows CNG (bcrypt.dll / AES-NI)", cng_fn
-
-    openssl_fn = _init_posix_openssl()
-    if openssl_fn and _test_engine_kat(openssl_fn):
-        return "System OpenSSL EVP (libcrypto / AES-NI / NEON)", openssl_fn
 
     # Priority Tier 3: Pure-Python Fallback Baseline
     if _test_engine_kat(pure_aes_gcm_encrypt):
@@ -1049,6 +1150,16 @@ def resolve_pandoc_binary(root_dir: Path) -> str:
                         with zf.open(member) as src, open(target_file, "wb") as dst:
                             shutil.copyfileobj(src, dst)
                         target_file.chmod(0o755)
+                        if system == "darwin":
+                            subprocess.run(
+                                [
+                                    "xattr",
+                                    "-dr",
+                                    "com.apple.quarantine",
+                                    str(runtime_dir),
+                                ],
+                                capture_output=True,
+                            )
                         stamp_file.write_text(actual_hash, encoding="utf-8")
                         return str(target_file.resolve())
         else:
@@ -1065,6 +1176,16 @@ def resolve_pandoc_binary(root_dir: Path) -> str:
                             with open(target_file, "wb") as dst:
                                 shutil.copyfileobj(src, dst)
                             target_file.chmod(0o755)
+                            if system == "darwin":
+                                subprocess.run(
+                                    [
+                                        "xattr",
+                                        "-dr",
+                                        "com.apple.quarantine",
+                                        str(runtime_dir),
+                                    ],
+                                    capture_output=True,
+                                )
                             stamp_file.write_text(actual_hash, encoding="utf-8")
                             return str(target_file.resolve())
 

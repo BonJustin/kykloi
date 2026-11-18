@@ -709,3 +709,48 @@
 2026-11-17 05:58:05 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/fonts/jetbrainsmono-variablefont_wght-webfont.woff2 HTTP/1.1" 200 -
 2026-11-17 06:08:11 | INFO     | kykloi.launcher          | Shutting down vault server daemon...
 2026-11-17 06:08:11 | INFO     | kykloi.launcher          | Daemon cleanly terminated.
+2026-11-17 15:10:28 | INFO     | kykloi.launcher          | Vault daemon online at http://127.0.0.1:8000/ (bound to port 8000)
+2026-11-17 15:10:35 | INFO     | kykloi.launcher          | Executing build: /usr/bin/python3 /var/home/bonju/dev/kykloi/system/build/build_site.py
+2026-11-17 15:10:35 | DEBUG    | kykloi.compiler          | STARTED: Cryptographic Self-Test (NIST AES-256-GCM KAT)
+2026-11-17 15:10:35 | INFO     | kykloi.compiler          | Cryptographic accelerator active: [Python cryptography (OpenSSL C-Extension)]
+2026-11-17 15:10:35 | DEBUG    | kykloi.compiler          | FINISHED: Cryptographic Self-Test (NIST AES-256-GCM KAT) (0.18 ms)
+2026-11-17 15:10:35 | DEBUG    | kykloi.compiler          | STARTED: Pandoc Binary Resolution
+2026-11-17 15:10:35 | INFO     | kykloi.compiler          | Resolved Pandoc executable: /var/home/bonju/.cache/kykloi_runtime_linux-x86_64/bin/pandoc
+2026-11-17 15:10:35 | DEBUG    | kykloi.compiler          | FINISHED: Pandoc Binary Resolution (0.18 ms)
+2026-11-17 15:10:35 | INFO     | kykloi.compiler          | Core templates/toolchain modified. Triggering full re-compilation.
+2026-11-17 15:10:39 | DEBUG    | kykloi.compiler          | STARTED: Artifact Pruning
+2026-11-17 15:10:39 | DEBUG    | kykloi.compiler          | FINISHED: Artifact Pruning (5.99 ms)
+2026-11-17 15:10:39 | INFO     | kykloi.compiler          | Compiling 3 Markdown document(s)...
+2026-11-17 15:10:39 | INFO     | kykloi.compiler          | STARTED: Markdown Compilation (3 documents)
+2026-11-17 15:10:39 | DEBUG    | kykloi.compiler          | Compiled: 20261117062543-kykloi-to-do-list.md
+2026-11-17 15:10:39 | DEBUG    | kykloi.compiler          | Compiled: 20261116170353-kykloi-introduction.md
+2026-11-17 15:10:39 | DEBUG    | kykloi.compiler          | Compiled: 20261117053719-kykloi-cryptography.md
+2026-11-17 15:10:39 | INFO     | kykloi.compiler          | FINISHED: Markdown Compilation (3 documents) (214.25 ms)
+2026-11-17 15:10:39 | INFO     | kykloi.search            | Generated search index: 3 record(s) indexed (24576 bytes) at search.db
+2026-11-17 15:10:39 | INFO     | kykloi.compiler          | Build pipeline completed successfully.
+2026-11-17 15:10:39 | INFO     | kykloi.launcher          | Compilation process exited normally (code 0).
+2026-11-17 15:10:43 | INFO     | kykloi.menu              | Opening browser target: http://127.0.0.1:8000/
+2026-11-17 15:10:44 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET / HTTP/1.1" 200 -
+2026-11-17 15:10:44 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/css/pico.css HTTP/1.1" 200 -
+2026-11-17 15:10:44 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/css/style.css HTTP/1.1" 200 -
+2026-11-17 15:10:44 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/js/pico_search.js HTTP/1.1" 200 -
+2026-11-17 15:10:44 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/fonts/libertinusserif-regular-webfont.woff2 HTTP/1.1" 200 -
+2026-11-17 15:10:44 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/fonts/libertinusserif-bold-webfont.woff2 HTTP/1.1" 200 -
+2026-11-17 15:10:44 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/js/search_worker.js HTTP/1.1" 200 -
+2026-11-17 15:10:44 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/js/sqlite3.js HTTP/1.1" 200 -
+2026-11-17 15:10:44 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/js/sqlite3.wasm HTTP/1.1" 200 -
+2026-11-17 15:10:44 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /search.db HTTP/1.1" 200 -
+2026-11-17 15:11:11 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /kykloi/20261117062543-kykloi-to-do-list.html HTTP/1.1" 200 -
+2026-11-17 15:11:11 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/css/pico.css HTTP/1.1" 200 -
+2026-11-17 15:11:11 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/css/style.css HTTP/1.1" 200 -
+2026-11-17 15:11:11 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/fonts/jetbrainsmono-variablefont_wght-webfont.woff2 HTTP/1.1" 200 -
+2026-11-17 15:11:13 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /index.html HTTP/1.1" 200 -
+2026-11-17 15:11:13 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/css/pico.css HTTP/1.1" 200 -
+2026-11-17 15:11:13 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/css/style.css HTTP/1.1" 200 -
+2026-11-17 15:11:13 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/js/pico_search.js HTTP/1.1" 200 -
+2026-11-17 15:11:13 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/js/search_worker.js HTTP/1.1" 200 -
+2026-11-17 15:11:13 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/js/sqlite3.js HTTP/1.1" 200 -
+2026-11-17 15:11:13 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/js/sqlite3.wasm HTTP/1.1" 200 -
+2026-11-17 15:11:13 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /search.db HTTP/1.1" 200 -
+2026-11-17 15:11:39 | INFO     | kykloi.launcher          | Shutting down vault server daemon...
+2026-11-17 15:11:39 | INFO     | kykloi.launcher          | Daemon cleanly terminated.
