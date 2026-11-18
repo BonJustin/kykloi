@@ -1,3 +1,4 @@
+# system/normalize/scanner.py
 """
 system/normalize/scanner.py - Fast-Path Traversal & Stat-Cache Aware File Scanner.
 Traverses content/ and avoids redundant I/O for unchanged files.
@@ -87,7 +88,7 @@ class VaultScanResult:
 
 def scan_vault(content_root: Path, db: Optional[VaultDB] = None) -> VaultScanResult:
     """
-    Scans content_root applying junk filtering and SQLite stat-cache verification.
+    Scans content_root applying junk filtering, symlink suppression, and SQLite stat-cache verification.
     If db is provided and a file matches (mtime, size), disk hash computation is bypassed.
     """
     content_root = content_root.resolve()
@@ -99,16 +100,31 @@ def scan_vault(content_root: Path, db: Optional[VaultDB] = None) -> VaultScanRes
     if not content_root.exists() or not content_root.is_dir():
         return VaultScanResult([], {}, 0, 0)
 
-    for root, dirs, filenames in os.walk(content_root):
-        # Prune junk directories in-place to prevent os.walk recursion into them
-        dirs[:] = [d for d in dirs if not is_junk_path(Path(root) / d, content_root)]
+    for root, dirs, filenames in os.walk(content_root, followlinks=False):
+        # Boundary guard: ignore directory symlinks and prune junk directories in-place
+        dirs[:] = [
+            d
+            for d in dirs
+            if not (Path(root) / d).is_symlink()
+            and not is_junk_path(Path(root) / d, content_root)
+        ]
 
         for filename in filenames:
             abs_path = Path(root) / filename
+
+            # Boundary guard: never follow or catalog symlinks
+            if abs_path.is_symlink():
+                continue
+
             if is_junk_path(abs_path, content_root):
                 continue
 
-            rel_path = abs_path.relative_to(content_root).as_posix()
+            try:
+                rel_path = abs_path.relative_to(content_root).as_posix()
+            except ValueError:
+                # Path escapes content_root; strictly ignore
+                continue
+
             stat = abs_path.stat()
             mtime = stat.st_mtime
             size = stat.st_size

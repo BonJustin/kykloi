@@ -1,15 +1,13 @@
 #!/usr/bin/env python3
 """
 system/build/build_site.py - Zero-Dependency Deterministic SSG Compiler.
-Part of Project Kykloi (v0.5.0).
+Part of Project Kykloi (v0.6.0).
+Leverages vault_index.db SQLite ledger for O(1) stat-cached incremental builds.
 Features Tiered Multi-Engine AES-256-GCM Acceleration with Deterministic Fallback.
 Priority Order:
-  1. Native OS C-ABI Shared Libraries:
-     - macOS 10.13+: Apple CommonCrypto (libSystem.B.dylib / NEON / AES-NI)
-     - macOS <= 10.12 & Linux/POSIX/musl: Safe OpenSSL EVP (sys.prefix / Alpine / MacPorts / Homebrew / distro .so)
-     - Windows: CNG (bcrypt.dll / AES-NI)
+  1. Native OS C-ABI Shared Libraries (CommonCrypto / CNG / OpenSSL EVP)
   2. Host Python Compiled Packages (cryptography / pycryptodome)
-  3. Pure-Python Baseline Engine (Guaranteed Zero-Dependency Fallback)
+  3. Pure-Python Baseline Engine (Zero-Dependency Fallback)
 """
 
 import argparse
@@ -35,10 +33,18 @@ from typing import Callable, Optional, Tuple
 
 APP_DIR = Path(__file__).resolve().parent
 SYSTEM_DIR = APP_DIR.parent
-if str(SYSTEM_DIR) not in sys.path:
-    sys.path.insert(0, str(SYSTEM_DIR))
+PROJECT_ROOT = SYSTEM_DIR.parent
+
+# Register project root and system subsystems on sys.path
+for path_entry in (PROJECT_ROOT, SYSTEM_DIR, APP_DIR):
+    if str(path_entry) not in sys.path:
+        sys.path.insert(0, str(path_entry))
 
 from logger import get_logger, setup_logging, timed_step
+
+from system.normalize.cli import sync_db_with_disk
+from system.normalize.db import VaultDB
+from system.normalize.scanner import is_junk_path
 
 # ===========================================================================
 # 1. PURE-PYTHON AES-256-GCM ENGINE & TABLE-DRIVEN GHASH (TIER 3 BASELINE)
@@ -497,8 +503,6 @@ def pure_aes_gcm_encrypt(
 # 2. ACCELERATED CRYPTO ENGINES
 # ===========================================================================
 
-# --- TIER 1A: Apple CommonCrypto C-ABI (macOS 10.13+ Native) ---
-
 
 def _init_darwin_commoncrypto() -> Optional[
     Callable[[bytes, bytes, bytes], Tuple[bytes, bytes]]
@@ -514,18 +518,18 @@ def _init_darwin_commoncrypto() -> Optional[
         fn = lib.CCCryptorGCMOneshotEncrypt
         fn.restype = ctypes.c_int32
         fn.argtypes = [
-            ctypes.c_uint32,  # CCAlgorithm algorithm
-            ctypes.c_void_p,  # const void *key
-            ctypes.c_size_t,  # size_t keyLength
-            ctypes.c_void_p,  # const void *iv
-            ctypes.c_size_t,  # size_t ivLen
-            ctypes.c_void_p,  # const void *aData
-            ctypes.c_size_t,  # size_t aDataLen
-            ctypes.c_void_p,  # const void *dataIn
-            ctypes.c_size_t,  # size_t dataInLength
-            ctypes.c_void_p,  # void *dataOut
-            ctypes.c_void_p,  # void *tagOut
-            ctypes.c_size_t,  # size_t tagLength
+            ctypes.c_uint32,
+            ctypes.c_void_p,
+            ctypes.c_size_t,
+            ctypes.c_void_p,
+            ctypes.c_size_t,
+            ctypes.c_void_p,
+            ctypes.c_size_t,
+            ctypes.c_void_p,
+            ctypes.c_size_t,
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+            ctypes.c_size_t,
         ]
 
         def _encrypt_commoncrypto(
@@ -536,7 +540,7 @@ def _init_darwin_commoncrypto() -> Optional[
             tag = ctypes.create_string_buffer(16)
 
             st = fn(
-                0,  # kCCAlgorithmAES
+                0,
                 key,
                 len(key),
                 iv,
@@ -557,9 +561,6 @@ def _init_darwin_commoncrypto() -> Optional[
         return _encrypt_commoncrypto
     except Exception:
         return None
-
-
-# --- TIER 1B: Windows CNG C-ABI via bcrypt.dll ---
 
 
 class _BCRYPT_AUTHENTICATED_CIPHER_MODE_INFO(ctypes.Structure):
@@ -673,14 +674,7 @@ def _init_windows_cng() -> Optional[
         return None
 
 
-# --- TIER 1C: System OpenSSL EVP C-ABI (Linux, musl/Alpine, BSD & Legacy Darwin Fallback) ---
-
-
 def _is_safe_posix_libcrypto_path(path: str) -> bool:
-    """
-    Prevents loading Apple's deprecated /usr/lib/libcrypto.dylib which triggers
-    an immediate SIGABRT on macOS. Explicit non-system paths remain authorized.
-    """
     if sys.platform == "darwin":
         clean = path.strip()
         if clean in ("crypto", "libcrypto", "libcrypto.dylib", "libcrypto.35.dylib"):
@@ -697,14 +691,12 @@ def _is_safe_posix_libcrypto_path(path: str) -> bool:
 def _find_posix_libcrypto() -> Optional[ctypes.CDLL]:
     candidates: list[str] = []
 
-    # 1. Python runtime prefix directory
     py_lib_dir = Path(sys.prefix) / "lib"
     if py_lib_dir.is_dir():
         for pattern in ("libcrypto*.dylib", "libcrypto*.so*"):
             for found in sorted(py_lib_dir.glob(pattern)):
                 candidates.append(str(found))
 
-    # 2. Platform-specific standalone shared library candidate paths
     if sys.platform == "darwin":
         candidates.extend(
             [
@@ -727,27 +719,22 @@ def _find_posix_libcrypto() -> Optional[ctypes.CDLL]:
 
         candidates.extend(
             [
-                # Standard Linux dynamic linker tokens
                 "libcrypto.so.3",
                 "libcrypto.so.1.1",
                 "libcrypto.so",
-                # Alpine Linux / musl native storage paths
                 "/lib/libcrypto.so.3",
                 "/lib/libcrypto.so.1.1",
                 "/lib64/libcrypto.so.3",
                 "/lib64/libcrypto.so.1.1",
-                # Multiarch Debian / Ubuntu paths
                 "/usr/lib/x86_64-linux-gnu/libcrypto.so.3",
                 "/usr/lib/aarch64-linux-gnu/libcrypto.so.3",
                 "/usr/lib/x86_64-linux-gnu/libcrypto.so.1.1",
                 "/usr/lib/aarch64-linux-gnu/libcrypto.so.1.1",
-                # RHEL / Fedora / CentOS paths
                 "/usr/lib64/libcrypto.so.3",
                 "/usr/lib64/libcrypto.so.1.1",
                 "/usr/lib/libcrypto.so.3",
                 "/usr/lib/libcrypto.so.1.1",
                 "/usr/lib/libcrypto.so",
-                # Local / BSD paths
                 "/usr/local/lib/libcrypto.so.3",
                 "/usr/local/lib/libcrypto.so.1.1",
                 "/usr/local/lib/libcrypto.so",
@@ -893,9 +880,6 @@ def _init_posix_openssl() -> Optional[
         return None
 
 
-# --- TIER 2: Python Site Packages (cryptography / pycryptodome) ---
-
-
 def _init_py_cryptography() -> Optional[
     Callable[[bytes, bytes, bytes], Tuple[bytes, bytes]]
 ]:
@@ -1003,38 +987,12 @@ def verify_cryptographic_engine():
 
 
 # ===========================================================================
-# 4. PATHS & HYGIENE
+# 4. PATHS & PIPELINE DEFINITIONS
 # ===========================================================================
 
-JUNK_DIR_NAMES = {
-    ".obsidian",
-    ".trash",
-    ".zettlr",
-    ".logseq",
-    "logseq",
-    ".git",
-    ".vscode",
-    ".idea",
-}
-
-JUNK_FILE_EXTENSIONS = {".ztr-directory", ".ds_store", "thumbs.db", "desktop.ini"}
-
-
-def is_junk_path(path: Path, root: Optional[Path] = None) -> bool:
-    base = root if root is not None else PROJECT_ROOT
-    try:
-        rel_parts = path.relative_to(base).parts
-    except ValueError:
-        rel_parts = path.parts
-    for part in rel_parts:
-        if part.lower() in JUNK_DIR_NAMES or part.startswith("."):
-            return True
-    return path.name.lower() in JUNK_FILE_EXTENSIONS
-
-
-PROJECT_ROOT = SYSTEM_DIR.parent
 SRC = PROJECT_ROOT / "content"
 DST = PROJECT_ROOT / "dist"
+NORM_DB_PATH = SYSTEM_DIR / "normalize" / "vault_index.db"
 
 DEFAULTS_YAML = APP_DIR / "pandoc_md_to_static_html.yaml"
 DEFAULT_TEMPLATE = APP_DIR / "templates" / "md_to_static_html.html"
@@ -1122,7 +1080,6 @@ def resolve_pandoc_binary(root_dir: Path) -> str:
     archives_dir = root_dir / "system" / "tools" / "archives"
     manifest_path = root_dir / "system" / "tools" / "tools_manifest.json"
 
-    # Isolate Pandoc execution root to avoid collisions with Python runtime trees
     if system == "windows":
         runtime_dir = (
             Path(os.environ.get("TEMP", "/tmp")) / f"kykloi_pandoc_{pandoc_target}"
@@ -1269,14 +1226,6 @@ def compute_global_dependencies_hash(bibliography_file: Optional[Path] = None) -
             hasher.update(f.name.encode("utf-8"))
             hasher.update(compute_file_hash(f).encode("utf-8"))
     return hasher.hexdigest()
-
-
-def is_secure_path(path: Path, src_root: Path) -> bool:
-    try:
-        rel = path.relative_to(src_root)
-        return "secure" in rel.parts
-    except ValueError:
-        return False
 
 
 def compute_passphrase_fingerprint(passphrase: str) -> str:
@@ -1673,17 +1622,17 @@ def prune_orphans(dst_dir: Path, expected_files: set[Path], dry_run: bool) -> in
     return orphans_removed
 
 
-# ===========================================================================
-# 8. PIPELINE ORCHESTRATION
-# ===========================================================================
-
-
 def find_vault_bibliography(src_root: Path) -> Optional[Path]:
     for candidate in ["references.bib", "library.bib", "bibliography.bib"]:
         p = src_root / candidate
         if p.is_file():
             return p
     return None
+
+
+# ===========================================================================
+# 8. PIPELINE ORCHESTRATION (LEDGER INTEGRATED)
+# ===========================================================================
 
 
 def main():
@@ -1745,16 +1694,18 @@ def main():
     if global_deps_changed:
         log.info("Core templates/toolchain modified. Triggering full re-compilation.")
 
-    expected_outputs: set[Path] = set()
-    compile_tasks: list[CompileTask] = []
-    encrypt_blob_tasks: list[EncryptBlobTask] = []
+    # -----------------------------------------------------------------------
+    # Synchronize Vault Ledger with O(1) Stat-Cache
+    # -----------------------------------------------------------------------
+    with timed_step(log, "Ledger Synchronization & Fast Stat Check"):
+        with VaultDB(NORM_DB_PATH) as db:
+            db.init_schema()
+            sync_db_with_disk(SRC, db)
+            vault_records = list(db.get_all_files().values())
 
-    all_content_files = [
-        p for p in SRC.rglob("*") if p.is_file() and not is_junk_path(p)
-    ]
-    md_files = sorted([p for p in all_content_files if p.suffix.lower() == ".md"])
-
-    has_secure_files = any(is_secure_path(p, SRC) for p in all_content_files)
+    md_records = [r for r in vault_records if not r.is_media]
+    media_records = [r for r in vault_records if r.is_media]
+    has_secure_files = any(r.is_secure for r in vault_records)
 
     passphrase = args.password
     if has_secure_files and not passphrase and not args.dry_run:
@@ -1786,67 +1737,73 @@ def main():
                 "Passphrase rotation detected. Invalidating encrypted document cache."
             )
 
+    expected_outputs: set[Path] = set()
+    compile_tasks: list[CompileTask] = []
+    encrypt_blob_tasks: list[EncryptBlobTask] = []
     asset_sync_jobs: list[tuple[Path, Path]] = []
 
-    for p in all_content_files:
-        if p.suffix.lower() == ".md":
-            continue
+    # -----------------------------------------------------------------------
+    # Media & Binary Assets Dispatch (Zero Redundant Hashing)
+    # -----------------------------------------------------------------------
+    for rec in media_records:
+        src_path = SRC / rec.rel_path
+        rel_posix = Path(rec.rel_path)
 
-        rel_src = p.relative_to(SRC)
-        h = compute_file_hash(p)
-
-        if is_secure_path(p, SRC):
-            target = DST / rel_src.with_name(rel_src.name + ".enc")
+        if rec.is_secure:
+            target = DST / rel_posix.with_name(rel_posix.name + ".enc")
             expected_outputs.add(target.resolve())
-            manifest_key = f"secure_blob:{rel_src.as_posix()}"
-            new_manifest[manifest_key] = h
+            manifest_key = f"secure_blob:{rec.rel_path}"
+            new_manifest[manifest_key] = rec.sha256
 
             if (
                 not target.exists()
                 or passphrase_changed
-                or old_manifest.get(manifest_key) != h
+                or old_manifest.get(manifest_key) != rec.sha256
             ):
                 encrypt_blob_tasks.append(
                     EncryptBlobTask(
-                        src_path=p,
+                        src_path=src_path,
                         dst_path=target,
                         passphrase=passphrase or "",
                         dry_run=args.dry_run,
                     )
                 )
         else:
-            target = DST / rel_src
+            target = DST / rel_posix
             expected_outputs.add(target.resolve())
-            manifest_key = f"media:{rel_src.as_posix()}"
-            new_manifest[manifest_key] = h
-            if not target.exists() or old_manifest.get(manifest_key) != h:
-                asset_sync_jobs.append((p, target))
+            manifest_key = f"media:{rec.rel_path}"
+            new_manifest[manifest_key] = rec.sha256
 
+            if not target.exists() or old_manifest.get(manifest_key) != rec.sha256:
+                asset_sync_jobs.append((src_path, target))
+
+    # -----------------------------------------------------------------------
+    # Markdown Documents Dispatch (Zero Redundant Hashing)
+    # -----------------------------------------------------------------------
     metadata_extraction_jobs: list[Path] = []
     file_metadata_map: dict[Path, dict[str, str]] = {}
     doc_has_citations_map: dict[Path, bool] = {}
 
-    for md in md_files:
-        rel = md.relative_to(SRC)
-        manifest_key = f"content:{rel.as_posix()}"
-        meta_cache_key = f"meta:{rel.as_posix()}"
+    for rec in md_records:
+        src_path = SRC / rec.rel_path
+        rel = Path(rec.rel_path)
+        manifest_key = f"content:{rec.rel_path}"
+        meta_cache_key = f"meta:{rec.rel_path}"
         out = DST / rel.with_suffix(".html")
         expected_outputs.add(out.resolve())
 
-        current_md_hash = compute_file_hash(md)
-        new_manifest[manifest_key] = current_md_hash
+        new_manifest[manifest_key] = rec.sha256
 
         depth = len(rel.parent.parts) if rel.parent != Path(".") else 0
         relative_root = ("../" * depth) if depth > 0 else ""
 
-        is_secure = is_secure_path(md, SRC)
-        md_content_changed = old_manifest.get(manifest_key) != current_md_hash
+        md_content_changed = old_manifest.get(manifest_key) != rec.sha256
 
         is_dirty = (
             not out.exists()
             or global_deps_changed
             or md_content_changed
-            or (is_secure and passphrase_changed)
+            or (rec.is_secure and passphrase_changed)
         )
 
         cached_meta = old_manifest.get(meta_cache_key)
@@ -1857,16 +1814,18 @@ def main():
         )
 
         if not meta_is_dirty and isinstance(cached_meta, dict):
-            file_metadata_map[md] = cached_meta
-            doc_has_citations_map[md] = cached_meta.get("__has_citations__", False)
+            file_metadata_map[src_path] = cached_meta
+            doc_has_citations_map[src_path] = cached_meta.get(
+                "__has_citations__", False
+            )
             new_manifest[meta_cache_key] = cached_meta
         else:
-            metadata_extraction_jobs.append(md)
+            metadata_extraction_jobs.append(src_path)
 
         if is_dirty:
             compile_tasks.append(
                 CompileTask(
-                    md_path=md,
+                    md_path=src_path,
                     out_path=out,
                     template_path=DEFAULT_TEMPLATE,
                     relative_root=relative_root,
@@ -1874,7 +1833,7 @@ def main():
                     defaults_yaml=DEFAULTS_YAML,
                     lua_filter=LUA_FILTER,
                     bibliography_path=None,
-                    is_secure=is_secure,
+                    is_secure=rec.is_secure,
                     passphrase=passphrase,
                     dry_run=args.dry_run,
                     pandoc_bin=pandoc_bin,
@@ -1887,8 +1846,8 @@ def main():
             extracted_meta["__has_citations__"] = has_cites
             file_metadata_map[md_path] = extracted_meta
             doc_has_citations_map[md_path] = has_cites
-            rel = md_path.relative_to(SRC)
-            new_manifest[f"meta:{rel.as_posix()}"] = extracted_meta
+            rel_str = md_path.relative_to(SRC).as_posix()
+            new_manifest[f"meta:{rel_str}"] = extracted_meta
 
     final_compile_tasks: list[CompileTask] = []
     for t in compile_tasks:
@@ -1916,11 +1875,14 @@ def main():
         )
     compile_tasks = final_compile_tasks
 
+    # -----------------------------------------------------------------------
+    # Search Records Generation
+    # -----------------------------------------------------------------------
     search_records: list[dict] = []
-    for idx, md in enumerate(md_files):
-        rel = md.relative_to(SRC)
-        clean_url = rel.with_suffix(".html").as_posix().lstrip("/")
-        meta = file_metadata_map[md]
+    for idx, rec in enumerate(md_records):
+        src_path = SRC / rec.rel_path
+        clean_url = Path(rec.rel_path).with_suffix(".html").as_posix().lstrip("/")
+        meta = file_metadata_map[src_path]
         search_records.append(
             {
                 "id": idx + 1,
@@ -1933,7 +1895,9 @@ def main():
 
     expected_outputs.add(SEARCH_DB_FILE.resolve())
 
-    # Static Assets
+    # -----------------------------------------------------------------------
+    # Static Assets Sync (UI Functional & Root Icons)
+    # -----------------------------------------------------------------------
     for folder_name, manifest_prefix in [
         ("assets", "functional_asset"),
         ("root", "root_asset"),
@@ -1942,7 +1906,7 @@ def main():
         if not src_dir.exists():
             continue
         for p in src_dir.rglob("*"):
-            if p.is_file() and not is_junk_path(p):
+            if p.is_file() and not is_junk_path(p, src_dir):
                 rel_p = p.relative_to(src_dir)
                 target = DST / ("assets" / rel_p if folder_name == "assets" else rel_p)
                 expected_outputs.add(target.resolve())
@@ -1968,8 +1932,6 @@ def main():
             log.debug("Synchronized asset: %s -> %s", src_file.name, target_file.name)
 
     failed = 0
-
-    # Isolate multi-process tasks using spawn context to prevent fork-induced state corruption
     mp_context = multiprocessing.get_context("spawn")
 
     if encrypt_blob_tasks:
@@ -2010,7 +1972,7 @@ def main():
     else:
         log.info(
             "Document compilation cache hit. All %d documents are up-to-date.",
-            len(md_files),
+            len(md_records),
         )
 
     if failed == 0:

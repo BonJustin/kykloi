@@ -1,3 +1,4 @@
+# system/normalize/cli.py
 """
 system/normalize/cli.py - Standalone Normalization CLI & Transaction Engine.
 Part of Project Kykloi.
@@ -12,7 +13,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Tuple
 
-# Ensure project root is discoverable when invoked directly
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SCRIPT_DIR.parent.parent
 if str(PROJECT_ROOT) not in sys.path:
@@ -37,6 +37,22 @@ YELLOW = "\033[33m"
 RED = "\033[31m"
 CYAN = "\033[36m"
 MAGENTA = "\033[35m"
+
+
+class ContentBoundaryError(RuntimeError):
+    """Raised when an operation attempts to target files outside content_root."""
+
+    pass
+
+
+def assert_within_content_root(target_path: Path, content_root: Path):
+    """Enforces the strict boundary invariant: operations must stay inside content_root."""
+    try:
+        target_path.resolve().relative_to(content_root.resolve())
+    except ValueError:
+        raise ContentBoundaryError(
+            f"Security Violation: Target path '{target_path}' lies outside vault root '{content_root}'."
+        )
 
 
 @dataclass
@@ -73,10 +89,10 @@ def build_transaction_manifest(
     Translates a DiffPlan into an executable TransactionManifest.
     Plans all disk renames, path sanitizations, content link healing, and SQLite updates.
     """
+    content_root = content_root.resolve()
     manifest = TransactionManifest()
     diagnostics: List[str] = []
 
-    # Map stems to their finalized target relative paths
     stem_to_new_rel_path: Dict[str, str] = {}
 
     for action in diff_plan.actions:
@@ -89,11 +105,15 @@ def build_transaction_manifest(
             ActionType.RESOLVE_COLLISION,
         ):
             if action.src_rel_path and action.dst_rel_path and action.old_stem:
-                src_abs = content_root / action.src_rel_path
-                dst_abs = content_root / action.dst_rel_path
+                src_abs = (content_root / action.src_rel_path).resolve()
+                dst_abs = (content_root / action.dst_rel_path).resolve()
+
+                # Boundary invariant verification
+                assert_within_content_root(src_abs, content_root)
+                assert_within_content_root(dst_abs, content_root)
+
                 manifest.disk_renames.append((src_abs, dst_abs))
 
-                # Register both literal and slugified stems for link matching
                 stem_to_new_rel_path[action.old_stem] = action.dst_rel_path
                 stem_to_new_rel_path[slugify_stem(action.old_stem)] = (
                     action.dst_rel_path
@@ -106,10 +126,18 @@ def build_transaction_manifest(
 
     # Evaluate all Markdown files on disk for link healing
     for item in content_root.rglob("*"):
-        if not item.is_file() or item.suffix.lower() not in MARKDOWN_EXTENSIONS:
+        if (
+            item.is_symlink()
+            or not item.is_file()
+            or item.suffix.lower() not in MARKDOWN_EXTENSIONS
+        ):
             continue
 
-        rel_path = item.relative_to(content_root).as_posix()
+        try:
+            rel_path = item.relative_to(content_root).as_posix()
+        except ValueError:
+            continue
+
         try:
             content = item.read_text(encoding="utf-8")
         except OSError:
@@ -122,20 +150,26 @@ def build_transaction_manifest(
         )
 
         if rewrites > 0 and healed_content != content:
-            manifest.text_rewrites.append((item, healed_content))
+            item_resolved = item.resolve()
+            assert_within_content_root(item_resolved, content_root)
+            manifest.text_rewrites.append((item_resolved, healed_content))
 
     return manifest, diagnostics
 
 
 def prune_empty_directories(content_root: Path):
-    """Recursively removes empty directory branches left behind after file renames."""
+    """Recursively removes empty directory branches left behind after file renames, strictly within content_root."""
+    content_root = content_root.resolve()
     for root, dirs, _ in os.walk(content_root, topdown=False):
         for d in dirs:
-            dir_path = Path(root) / d
+            dir_path = (Path(root) / d).resolve()
+            if dir_path == content_root:
+                continue
             try:
+                assert_within_content_root(dir_path, content_root)
                 if not any(dir_path.iterdir()):
                     dir_path.rmdir()
-            except OSError:
+            except (OSError, ContentBoundaryError):
                 pass
 
 
@@ -144,7 +178,6 @@ def execute_transaction(manifest: TransactionManifest, db: VaultDB) -> bool:
     Applies the manifest atomically with rollback journaling.
     Phase 1: Stage text rewrites to .norm_tmp files.
     Phase 2: Apply renames in order, journaling executed steps.
-             Uses two-step rename for case-only changes on case-insensitive filesystems.
     Phase 3: Atomically commit text rewrites via rename.
     """
     executed_renames: List[Tuple[Path, Path]] = []
@@ -162,7 +195,6 @@ def execute_transaction(manifest: TransactionManifest, db: VaultDB) -> bool:
             if src == dst:
                 continue
             dst.parent.mkdir(parents=True, exist_ok=True)
-            # Two-step rename for case-only changes to bypass case-insensitive filesystem collision
             if src.parent == dst.parent and src.name.lower() == dst.name.lower():
                 case_tmp = (
                     dst.parent / f".norm_case_tmp_{os.urandom(4).hex()}_{dst.name}"
@@ -312,6 +344,83 @@ def print_diff_report(
     )
 
 
+def run_normalization_pipeline(
+    content_root: Path,
+    db_path: Path,
+    dry_run: bool = False,
+    auto_apply: bool = False,
+    check_only: bool = False,
+) -> int:
+    """
+    Programmatic entry point for running normalization.
+    Returns:
+      0 on success (or clean in check mode),
+      1 on pending mutations (in check mode) or collision / error.
+    """
+    content_root = content_root.resolve()
+    db_path = db_path.resolve()
+
+    if not content_root.exists() or not content_root.is_dir():
+        print(
+            f"{RED}[FATAL] Content directory not found: {content_root}{RESET}",
+            file=sys.stderr,
+        )
+        return 1
+
+    t0 = time.perf_counter()
+    with VaultDB(db_path) as db:
+        db.init_schema()
+
+        scan_result = scan_vault(content_root, db)
+        diff_plan = compute_diff(scan_result, db)
+        manifest, _ = build_transaction_manifest(content_root, diff_plan, db)
+        scan_time_ms = (time.perf_counter() - t0) * 1000.0
+
+        print_diff_report(diff_plan, manifest, scan_time_ms)
+
+        has_work = manifest.has_changes or diff_plan.has_mutations
+
+        if check_only:
+            return 1 if (has_work or diff_plan.collisions) else 0
+
+        if dry_run or not has_work:
+            return 0
+
+        if not auto_apply:
+            if not sys.stdin.isatty():
+                print(
+                    f"{RED}[ERROR] Non-interactive environment. Re-run with --check or --auto-apply.{RESET}",
+                    file=sys.stderr,
+                )
+                return 1
+
+            try:
+                answer = (
+                    input(
+                        f"{BOLD}Apply these transformations to disk and database? [y/N]: {RESET}"
+                    )
+                    .strip()
+                    .lower()
+                )
+            except (KeyboardInterrupt, EOFError):
+                print(f"\n{YELLOW}Aborted by user.{RESET}")
+                return 1
+
+            if answer not in ("y", "yes"):
+                print(
+                    f"{YELLOW}Operation cancelled. Zero modifications written.{RESET}"
+                )
+                return 0
+
+        execute_transaction(manifest, db)
+        prune_empty_directories(content_root)
+        sync_db_with_disk(content_root, db)
+        print(
+            f"{GREEN}[SUCCESS] Transformations applied and ledger synchronized successfully.{RESET}"
+        )
+        return 0
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Deterministic Content Normalizer & Link Reconciler for Project Kykloi."
@@ -348,73 +457,14 @@ def parse_args() -> argparse.Namespace:
 
 def main():
     args = parse_args()
-    content_root = args.vault_dir.resolve()
-    db_path = args.db_path.resolve()
-
-    if not content_root.exists() or not content_root.is_dir():
-        print(
-            f"{RED}[FATAL] Content directory not found: {content_root}{RESET}",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-
-    t0 = time.perf_counter()
-    with VaultDB(db_path) as db:
-        db.init_schema()
-
-        scan_result = scan_vault(content_root, db)
-        diff_plan = compute_diff(scan_result, db)
-        manifest, _ = build_transaction_manifest(content_root, diff_plan, db)
-        scan_time_ms = (time.perf_counter() - t0) * 1000.0
-
-        print_diff_report(diff_plan, manifest, scan_time_ms)
-
-        has_work = manifest.has_changes or diff_plan.has_mutations
-
-        if args.check:
-            if has_work or diff_plan.collisions:
-                sys.exit(1)
-            sys.exit(0)
-
-        if args.dry_run:
-            sys.exit(0)
-
-        if not has_work:
-            sys.exit(0)
-
-        # Gate Check: Enforce user consent
-        if not args.auto_apply:
-            if not sys.stdin.isatty():
-                print(
-                    f"{RED}[ERROR] Non-interactive environment. Re-run with --check or --auto-apply.{RESET}",
-                    file=sys.stderr,
-                )
-                sys.exit(1)
-
-            try:
-                answer = (
-                    input(
-                        f"{BOLD}Apply these transformations to disk and database? [y/N]: {RESET}"
-                    )
-                    .strip()
-                    .lower()
-                )
-            except (KeyboardInterrupt, EOFError):
-                print(f"\n{YELLOW}Aborted by user.{RESET}")
-                sys.exit(1)
-
-            if answer not in ("y", "yes"):
-                print(
-                    f"{YELLOW}Operation cancelled. Zero modifications written.{RESET}"
-                )
-                sys.exit(0)
-
-        execute_transaction(manifest, db)
-        prune_empty_directories(content_root)
-        sync_db_with_disk(content_root, db)
-        print(
-            f"{GREEN}[SUCCESS] Transformations applied and ledger synchronized successfully.{RESET}"
-        )
+    code = run_normalization_pipeline(
+        content_root=args.vault_dir,
+        db_path=args.db_path,
+        dry_run=args.dry_run,
+        auto_apply=args.auto_apply,
+        check_only=args.check,
+    )
+    sys.exit(code)
 
 
 if __name__ == "__main__":

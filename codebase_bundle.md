@@ -51,11 +51,13 @@ kykloi/
 │   ├── normalize/
 │   │   ├── __pycache__/ (contents excluded)
 │   │   ├── __init__.py
+│   │   ├── cli copy.py
 │   │   ├── cli.py
 │   │   ├── db.py
 │   │   ├── engine.py
 │   │   ├── graph.py
 │   │   ├── normalize-implementation-plan-1.md
+│   │   ├── scanner copy.py
 │   │   ├── scanner.py
 │   │   ├── slugify.py
 │   │   ├── test_phase1.py
@@ -3461,6 +3463,7 @@ __all__ = [
 ## system/normalize/cli.py
 
 ```python
+# system/normalize/cli.py
 """
 system/normalize/cli.py - Standalone Normalization CLI & Transaction Engine.
 Part of Project Kykloi.
@@ -3475,7 +3478,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Tuple
 
-# Ensure project root is discoverable when invoked directly
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SCRIPT_DIR.parent.parent
 if str(PROJECT_ROOT) not in sys.path:
@@ -3500,6 +3502,22 @@ YELLOW = "\033[33m"
 RED = "\033[31m"
 CYAN = "\033[36m"
 MAGENTA = "\033[35m"
+
+
+class ContentBoundaryError(RuntimeError):
+    """Raised when an operation attempts to target files outside content_root."""
+
+    pass
+
+
+def assert_within_content_root(target_path: Path, content_root: Path):
+    """Enforces the strict boundary invariant: operations must stay inside content_root."""
+    try:
+        target_path.resolve().relative_to(content_root.resolve())
+    except ValueError:
+        raise ContentBoundaryError(
+            f"Security Violation: Target path '{target_path}' lies outside vault root '{content_root}'."
+        )
 
 
 @dataclass
@@ -3536,10 +3554,10 @@ def build_transaction_manifest(
     Translates a DiffPlan into an executable TransactionManifest.
     Plans all disk renames, path sanitizations, content link healing, and SQLite updates.
     """
+    content_root = content_root.resolve()
     manifest = TransactionManifest()
     diagnostics: List[str] = []
 
-    # Map stems to their finalized target relative paths
     stem_to_new_rel_path: Dict[str, str] = {}
 
     for action in diff_plan.actions:
@@ -3552,11 +3570,15 @@ def build_transaction_manifest(
             ActionType.RESOLVE_COLLISION,
         ):
             if action.src_rel_path and action.dst_rel_path and action.old_stem:
-                src_abs = content_root / action.src_rel_path
-                dst_abs = content_root / action.dst_rel_path
+                src_abs = (content_root / action.src_rel_path).resolve()
+                dst_abs = (content_root / action.dst_rel_path).resolve()
+
+                # Boundary invariant verification
+                assert_within_content_root(src_abs, content_root)
+                assert_within_content_root(dst_abs, content_root)
+
                 manifest.disk_renames.append((src_abs, dst_abs))
 
-                # Register both literal and slugified stems for link matching
                 stem_to_new_rel_path[action.old_stem] = action.dst_rel_path
                 stem_to_new_rel_path[slugify_stem(action.old_stem)] = (
                     action.dst_rel_path
@@ -3569,10 +3591,18 @@ def build_transaction_manifest(
 
     # Evaluate all Markdown files on disk for link healing
     for item in content_root.rglob("*"):
-        if not item.is_file() or item.suffix.lower() not in MARKDOWN_EXTENSIONS:
+        if (
+            item.is_symlink()
+            or not item.is_file()
+            or item.suffix.lower() not in MARKDOWN_EXTENSIONS
+        ):
             continue
 
-        rel_path = item.relative_to(content_root).as_posix()
+        try:
+            rel_path = item.relative_to(content_root).as_posix()
+        except ValueError:
+            continue
+
         try:
             content = item.read_text(encoding="utf-8")
         except OSError:
@@ -3585,20 +3615,26 @@ def build_transaction_manifest(
         )
 
         if rewrites > 0 and healed_content != content:
-            manifest.text_rewrites.append((item, healed_content))
+            item_resolved = item.resolve()
+            assert_within_content_root(item_resolved, content_root)
+            manifest.text_rewrites.append((item_resolved, healed_content))
 
     return manifest, diagnostics
 
 
 def prune_empty_directories(content_root: Path):
-    """Recursively removes empty directory branches left behind after file renames."""
+    """Recursively removes empty directory branches left behind after file renames, strictly within content_root."""
+    content_root = content_root.resolve()
     for root, dirs, _ in os.walk(content_root, topdown=False):
         for d in dirs:
-            dir_path = Path(root) / d
+            dir_path = (Path(root) / d).resolve()
+            if dir_path == content_root:
+                continue
             try:
+                assert_within_content_root(dir_path, content_root)
                 if not any(dir_path.iterdir()):
                     dir_path.rmdir()
-            except OSError:
+            except (OSError, ContentBoundaryError):
                 pass
 
 
@@ -3607,7 +3643,6 @@ def execute_transaction(manifest: TransactionManifest, db: VaultDB) -> bool:
     Applies the manifest atomically with rollback journaling.
     Phase 1: Stage text rewrites to .norm_tmp files.
     Phase 2: Apply renames in order, journaling executed steps.
-             Uses two-step rename for case-only changes on case-insensitive filesystems.
     Phase 3: Atomically commit text rewrites via rename.
     """
     executed_renames: List[Tuple[Path, Path]] = []
@@ -3625,7 +3660,6 @@ def execute_transaction(manifest: TransactionManifest, db: VaultDB) -> bool:
             if src == dst:
                 continue
             dst.parent.mkdir(parents=True, exist_ok=True)
-            # Two-step rename for case-only changes to bypass case-insensitive filesystem collision
             if src.parent == dst.parent and src.name.lower() == dst.name.lower():
                 case_tmp = (
                     dst.parent / f".norm_case_tmp_{os.urandom(4).hex()}_{dst.name}"
@@ -3775,6 +3809,83 @@ def print_diff_report(
     )
 
 
+def run_normalization_pipeline(
+    content_root: Path,
+    db_path: Path,
+    dry_run: bool = False,
+    auto_apply: bool = False,
+    check_only: bool = False,
+) -> int:
+    """
+    Programmatic entry point for running normalization.
+    Returns:
+      0 on success (or clean in check mode),
+      1 on pending mutations (in check mode) or collision / error.
+    """
+    content_root = content_root.resolve()
+    db_path = db_path.resolve()
+
+    if not content_root.exists() or not content_root.is_dir():
+        print(
+            f"{RED}[FATAL] Content directory not found: {content_root}{RESET}",
+            file=sys.stderr,
+        )
+        return 1
+
+    t0 = time.perf_counter()
+    with VaultDB(db_path) as db:
+        db.init_schema()
+
+        scan_result = scan_vault(content_root, db)
+        diff_plan = compute_diff(scan_result, db)
+        manifest, _ = build_transaction_manifest(content_root, diff_plan, db)
+        scan_time_ms = (time.perf_counter() - t0) * 1000.0
+
+        print_diff_report(diff_plan, manifest, scan_time_ms)
+
+        has_work = manifest.has_changes or diff_plan.has_mutations
+
+        if check_only:
+            return 1 if (has_work or diff_plan.collisions) else 0
+
+        if dry_run or not has_work:
+            return 0
+
+        if not auto_apply:
+            if not sys.stdin.isatty():
+                print(
+                    f"{RED}[ERROR] Non-interactive environment. Re-run with --check or --auto-apply.{RESET}",
+                    file=sys.stderr,
+                )
+                return 1
+
+            try:
+                answer = (
+                    input(
+                        f"{BOLD}Apply these transformations to disk and database? [y/N]: {RESET}"
+                    )
+                    .strip()
+                    .lower()
+                )
+            except (KeyboardInterrupt, EOFError):
+                print(f"\n{YELLOW}Aborted by user.{RESET}")
+                return 1
+
+            if answer not in ("y", "yes"):
+                print(
+                    f"{YELLOW}Operation cancelled. Zero modifications written.{RESET}"
+                )
+                return 0
+
+        execute_transaction(manifest, db)
+        prune_empty_directories(content_root)
+        sync_db_with_disk(content_root, db)
+        print(
+            f"{GREEN}[SUCCESS] Transformations applied and ledger synchronized successfully.{RESET}"
+        )
+        return 0
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Deterministic Content Normalizer & Link Reconciler for Project Kykloi."
@@ -3811,73 +3922,14 @@ def parse_args() -> argparse.Namespace:
 
 def main():
     args = parse_args()
-    content_root = args.vault_dir.resolve()
-    db_path = args.db_path.resolve()
-
-    if not content_root.exists() or not content_root.is_dir():
-        print(
-            f"{RED}[FATAL] Content directory not found: {content_root}{RESET}",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-
-    t0 = time.perf_counter()
-    with VaultDB(db_path) as db:
-        db.init_schema()
-
-        scan_result = scan_vault(content_root, db)
-        diff_plan = compute_diff(scan_result, db)
-        manifest, _ = build_transaction_manifest(content_root, diff_plan, db)
-        scan_time_ms = (time.perf_counter() - t0) * 1000.0
-
-        print_diff_report(diff_plan, manifest, scan_time_ms)
-
-        has_work = manifest.has_changes or diff_plan.has_mutations
-
-        if args.check:
-            if has_work or diff_plan.collisions:
-                sys.exit(1)
-            sys.exit(0)
-
-        if args.dry_run:
-            sys.exit(0)
-
-        if not has_work:
-            sys.exit(0)
-
-        # Gate Check: Enforce user consent
-        if not args.auto_apply:
-            if not sys.stdin.isatty():
-                print(
-                    f"{RED}[ERROR] Non-interactive environment. Re-run with --check or --auto-apply.{RESET}",
-                    file=sys.stderr,
-                )
-                sys.exit(1)
-
-            try:
-                answer = (
-                    input(
-                        f"{BOLD}Apply these transformations to disk and database? [y/N]: {RESET}"
-                    )
-                    .strip()
-                    .lower()
-                )
-            except (KeyboardInterrupt, EOFError):
-                print(f"\n{YELLOW}Aborted by user.{RESET}")
-                sys.exit(1)
-
-            if answer not in ("y", "yes"):
-                print(
-                    f"{YELLOW}Operation cancelled. Zero modifications written.{RESET}"
-                )
-                sys.exit(0)
-
-        execute_transaction(manifest, db)
-        prune_empty_directories(content_root)
-        sync_db_with_disk(content_root, db)
-        print(
-            f"{GREEN}[SUCCESS] Transformations applied and ledger synchronized successfully.{RESET}"
-        )
+    code = run_normalization_pipeline(
+        content_root=args.vault_dir,
+        db_path=args.db_path,
+        dry_run=args.dry_run,
+        auto_apply=args.auto_apply,
+        check_only=args.check,
+    )
+    sys.exit(code)
 
 
 if __name__ == "__main__":
@@ -4845,6 +4897,7 @@ def heal_markdown_links(
 ## system/normalize/scanner.py
 
 ```python
+# system/normalize/scanner.py
 """
 system/normalize/scanner.py - Fast-Path Traversal & Stat-Cache Aware File Scanner.
 Traverses content/ and avoids redundant I/O for unchanged files.
@@ -4934,7 +4987,7 @@ class VaultScanResult:
 
 def scan_vault(content_root: Path, db: Optional[VaultDB] = None) -> VaultScanResult:
     """
-    Scans content_root applying junk filtering and SQLite stat-cache verification.
+    Scans content_root applying junk filtering, symlink suppression, and SQLite stat-cache verification.
     If db is provided and a file matches (mtime, size), disk hash computation is bypassed.
     """
     content_root = content_root.resolve()
@@ -4946,16 +4999,31 @@ def scan_vault(content_root: Path, db: Optional[VaultDB] = None) -> VaultScanRes
     if not content_root.exists() or not content_root.is_dir():
         return VaultScanResult([], {}, 0, 0)
 
-    for root, dirs, filenames in os.walk(content_root):
-        # Prune junk directories in-place to prevent os.walk recursion into them
-        dirs[:] = [d for d in dirs if not is_junk_path(Path(root) / d, content_root)]
+    for root, dirs, filenames in os.walk(content_root, followlinks=False):
+        # Boundary guard: ignore directory symlinks and prune junk directories in-place
+        dirs[:] = [
+            d
+            for d in dirs
+            if not (Path(root) / d).is_symlink()
+            and not is_junk_path(Path(root) / d, content_root)
+        ]
 
         for filename in filenames:
             abs_path = Path(root) / filename
+
+            # Boundary guard: never follow or catalog symlinks
+            if abs_path.is_symlink():
+                continue
+
             if is_junk_path(abs_path, content_root):
                 continue
 
-            rel_path = abs_path.relative_to(content_root).as_posix()
+            try:
+                rel_path = abs_path.relative_to(content_root).as_posix()
+            except ValueError:
+                # Path escapes content_root; strictly ignore
+                continue
+
             stat = abs_path.stat()
             mtime = stat.st_mtime
             size = stat.st_size
@@ -5606,7 +5674,7 @@ if __name__ == "__main__":
 """
 system/launch.py - Autonomous Control Hub Daemon for Project Kykloi.
 Features CLI argument parsing, defensive MIME registration, centralized telemetry,
-cryptographic engine inspection, and IPC vault orchestration.
+cryptographic engine inspection, interactive vault normalization, and IPC server orchestration.
 """
 
 import argparse
@@ -5627,8 +5695,10 @@ from pathlib import Path
 # ===========================================================================
 SYSTEM_DIR = Path(__file__).resolve().parent
 ROOT_DIR = SYSTEM_DIR.parent
+CONTENT_DIR = ROOT_DIR / "content"
 DIST_DIR = ROOT_DIR / "dist"
 BUILD_SCRIPT = SYSTEM_DIR / "build" / "build_site.py"
+NORM_DB_PATH = SYSTEM_DIR / "normalize" / "vault_index.db"
 
 if str(SYSTEM_DIR) not in sys.path:
     sys.path.insert(0, str(SYSTEM_DIR))
@@ -5637,6 +5707,9 @@ if str(SYSTEM_DIR / "build") not in sys.path:
 
 from build_site import ACTIVE_ENGINE_NAME, _resolve_active_crypto_engine
 from logger import get_logger, setup_logging
+
+from system.normalize.cli import run_normalization_pipeline
+from system.normalize.db import VaultDB
 
 mimetypes.init()
 mimetypes.add_type("application/wasm", ".wasm")
@@ -5837,7 +5910,7 @@ def start_background_server(
 
 
 # ===========================================================================
-# 4. COMPILER INVOCATION & INTERACTIVE CLI
+# 4. COMPILER & NORMALIZER INVOCATION
 # ===========================================================================
 
 
@@ -5869,6 +5942,20 @@ def execute_build(
     return res.returncode
 
 
+def get_ledger_status_tag() -> str:
+    """Returns a short formatted string detailing the state of vault_index.db."""
+    if not NORM_DB_PATH.exists():
+        return "Uninitialized"
+    try:
+        with VaultDB(NORM_DB_PATH) as db:
+            files = db.get_all_files().values()
+            docs = sum(1 for f in files if not f.is_media)
+            media = sum(1 for f in files if f.is_media)
+            return f"Indexed ({docs} notes, {media} assets)"
+    except Exception:
+        return "Degraded"
+
+
 def print_crypto_diagnostics():
     engine_name, _ = _resolve_active_crypto_engine()
     is_pure_python = "Pure-Python" in engine_name
@@ -5894,8 +5981,6 @@ def print_crypto_diagnostics():
         print("         pip install cryptography")
         print("       or:")
         print("         pip install pycryptodome\n")
-        print("    The launch script will automatically detect host Python and bind")
-        print("    to the accelerated cryptographic engine on the next run.")
     else:
         print("\n[+] System is fully optimized. Cryptographic operations will use")
         print("    native C-ABI / hardware intrinsics (AES-NI / NEON).\n")
@@ -5921,6 +6006,21 @@ def parse_args():
         type=str,
         default=os.environ.get("KYKLOI_ENCRYPT_KEY"),
         help="Passphrase for /secure/ notes.",
+    )
+    p.add_argument(
+        "--normalize",
+        action="store_true",
+        help="Run interactive content normalization and exit.",
+    )
+    p.add_argument(
+        "--auto-normalize",
+        action="store_true",
+        help="Run normalization automatically without confirmation prompts.",
+    )
+    p.add_argument(
+        "--check-normalize",
+        action="store_true",
+        help="Audit vault: returns 0 if clean, 1 if anomalies/mutations are detected.",
     )
     p.add_argument(
         "--log-file",
@@ -5960,22 +6060,26 @@ def interactive_menu(
         crypto_tag = (
             f"{ACTIVE_ENGINE_NAME} [SLOW]" if is_fallback else ACTIVE_ENGINE_NAME
         )
+        ledger_tag = get_ledger_status_tag()
 
         print("\n==================== KYKLOI CONTROL PLANE ====================")
         print(f"  Status:     {status_line}")
         print(f"  Passphrase: [{pw_status}]")
+        print(f"  Ledger:     [{ledger_tag}]")
         print(f"  Crypto:     [{crypto_tag}]")
         print("==============================================================")
         print("  [1] Compile Site (Incremental)")
         print("  [2] Rebuild Site (Clean Purge)")
-        print("  [3] Set / Update Secure Passphrase")
-        print("  [4] Open Vault in Default Browser")
-        print("  [5] Cryptographic Acceleration Diagnostics")
+        print("  [3] Normalize Vault (Reconcile Links & Filenames)")
+        print("  [4] Audit Vault Health (Check & Collision Audit)")
+        print("  [5] Set / Update Secure Passphrase")
+        print("  [6] Open Vault in Default Browser")
+        print("  [7] Cryptographic Acceleration Diagnostics")
         print("  [0] Exit")
         print("==============================================================")
 
         try:
-            choice = input("Select an option [0-5]: ").strip()
+            choice = input("Select an option [0-7]: ").strip()
         except (KeyboardInterrupt, EOFError):
             print("\n")
             break
@@ -5985,6 +6089,24 @@ def interactive_menu(
         elif choice == "2":
             execute_build(clean=True, passphrase=session_password, log_file=log_file)
         elif choice == "3":
+            logger.info("Initiating vault normalization pipeline...")
+            run_normalization_pipeline(
+                content_root=CONTENT_DIR,
+                db_path=NORM_DB_PATH,
+                dry_run=False,
+                auto_apply=False,
+                check_only=False,
+            )
+        elif choice == "4":
+            logger.info("Auditing vault structure and links...")
+            run_normalization_pipeline(
+                content_root=CONTENT_DIR,
+                db_path=NORM_DB_PATH,
+                dry_run=True,
+                auto_apply=False,
+                check_only=True,
+            )
+        elif choice == "5":
             import getpass
 
             try:
@@ -5999,13 +6121,13 @@ def interactive_menu(
             except (KeyboardInterrupt, EOFError):
                 print()
                 logger.warning("Passphrase input aborted by user.")
-        elif choice == "4":
+        elif choice == "6":
             if not vault_ready:
                 logger.warning("Vault must be compiled before opening in browser.")
             else:
                 logger.info("Opening browser target: %s", vault_url)
                 webbrowser.open(vault_url)
-        elif choice == "5":
+        elif choice == "7":
             print_crypto_diagnostics()
         elif choice == "0":
             break
@@ -6027,6 +6149,17 @@ def main():
         log_file=log_file_path,
         enable_console=True,
     )
+
+    # CLI direct execution routes
+    if args.normalize or args.auto_normalize or args.check_normalize:
+        code = run_normalization_pipeline(
+            content_root=CONTENT_DIR,
+            db_path=NORM_DB_PATH,
+            dry_run=False,
+            auto_apply=args.auto_normalize,
+            check_only=args.check_normalize,
+        )
+        sys.exit(code)
 
     if args.build:
         code = execute_build(

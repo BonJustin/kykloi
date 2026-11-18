@@ -2,7 +2,7 @@
 """
 system/launch.py - Autonomous Control Hub Daemon for Project Kykloi.
 Features CLI argument parsing, defensive MIME registration, centralized telemetry,
-cryptographic engine inspection, and IPC vault orchestration.
+cryptographic engine inspection, interactive vault normalization, and IPC server orchestration.
 """
 
 import argparse
@@ -23,9 +23,14 @@ from pathlib import Path
 # ===========================================================================
 SYSTEM_DIR = Path(__file__).resolve().parent
 ROOT_DIR = SYSTEM_DIR.parent
+CONTENT_DIR = ROOT_DIR / "content"
 DIST_DIR = ROOT_DIR / "dist"
 BUILD_SCRIPT = SYSTEM_DIR / "build" / "build_site.py"
+NORM_DB_PATH = SYSTEM_DIR / "normalize" / "vault_index.db"
 
+# Ensure the root project repository and internal subsystems are on sys.path
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
 if str(SYSTEM_DIR) not in sys.path:
     sys.path.insert(0, str(SYSTEM_DIR))
 if str(SYSTEM_DIR / "build") not in sys.path:
@@ -33,6 +38,9 @@ if str(SYSTEM_DIR / "build") not in sys.path:
 
 from build_site import ACTIVE_ENGINE_NAME, _resolve_active_crypto_engine
 from logger import get_logger, setup_logging
+
+from system.normalize.cli import run_normalization_pipeline
+from system.normalize.db import VaultDB
 
 mimetypes.init()
 mimetypes.add_type("application/wasm", ".wasm")
@@ -233,7 +241,7 @@ def start_background_server(
 
 
 # ===========================================================================
-# 4. COMPILER INVOCATION & INTERACTIVE CLI
+# 4. COMPILER & NORMALIZER INVOCATION
 # ===========================================================================
 
 
@@ -265,6 +273,20 @@ def execute_build(
     return res.returncode
 
 
+def get_ledger_status_tag() -> str:
+    """Returns a short formatted string detailing the state of vault_index.db."""
+    if not NORM_DB_PATH.exists():
+        return "Uninitialized"
+    try:
+        with VaultDB(NORM_DB_PATH) as db:
+            files = db.get_all_files().values()
+            docs = sum(1 for f in files if not f.is_media)
+            media = sum(1 for f in files if f.is_media)
+            return f"Indexed ({docs} notes, {media} assets)"
+    except Exception:
+        return "Degraded"
+
+
 def print_crypto_diagnostics():
     engine_name, _ = _resolve_active_crypto_engine()
     is_pure_python = "Pure-Python" in engine_name
@@ -290,8 +312,6 @@ def print_crypto_diagnostics():
         print("         pip install cryptography")
         print("       or:")
         print("         pip install pycryptodome\n")
-        print("    The launch script will automatically detect host Python and bind")
-        print("    to the accelerated cryptographic engine on the next run.")
     else:
         print("\n[+] System is fully optimized. Cryptographic operations will use")
         print("    native C-ABI / hardware intrinsics (AES-NI / NEON).\n")
@@ -317,6 +337,21 @@ def parse_args():
         type=str,
         default=os.environ.get("KYKLOI_ENCRYPT_KEY"),
         help="Passphrase for /secure/ notes.",
+    )
+    p.add_argument(
+        "--normalize",
+        action="store_true",
+        help="Run interactive content normalization and exit.",
+    )
+    p.add_argument(
+        "--auto-normalize",
+        action="store_true",
+        help="Run normalization automatically without confirmation prompts.",
+    )
+    p.add_argument(
+        "--check-normalize",
+        action="store_true",
+        help="Audit vault: returns 0 if clean, 1 if anomalies/mutations are detected.",
     )
     p.add_argument(
         "--log-file",
@@ -356,22 +391,26 @@ def interactive_menu(
         crypto_tag = (
             f"{ACTIVE_ENGINE_NAME} [SLOW]" if is_fallback else ACTIVE_ENGINE_NAME
         )
+        ledger_tag = get_ledger_status_tag()
 
         print("\n==================== KYKLOI CONTROL PLANE ====================")
         print(f"  Status:     {status_line}")
         print(f"  Passphrase: [{pw_status}]")
+        print(f"  Ledger:     [{ledger_tag}]")
         print(f"  Crypto:     [{crypto_tag}]")
         print("==============================================================")
         print("  [1] Compile Site (Incremental)")
         print("  [2] Rebuild Site (Clean Purge)")
-        print("  [3] Set / Update Secure Passphrase")
-        print("  [4] Open Vault in Default Browser")
-        print("  [5] Cryptographic Acceleration Diagnostics")
+        print("  [3] Normalize Vault (Reconcile Links & Filenames)")
+        print("  [4] Audit Vault Health (Check & Collision Audit)")
+        print("  [5] Set / Update Secure Passphrase")
+        print("  [6] Open Vault in Default Browser")
+        print("  [7] Cryptographic Acceleration Diagnostics")
         print("  [0] Exit")
         print("==============================================================")
 
         try:
-            choice = input("Select an option [0-5]: ").strip()
+            choice = input("Select an option [0-7]: ").strip()
         except (KeyboardInterrupt, EOFError):
             print("\n")
             break
@@ -381,6 +420,24 @@ def interactive_menu(
         elif choice == "2":
             execute_build(clean=True, passphrase=session_password, log_file=log_file)
         elif choice == "3":
+            logger.info("Initiating vault normalization pipeline...")
+            run_normalization_pipeline(
+                content_root=CONTENT_DIR,
+                db_path=NORM_DB_PATH,
+                dry_run=False,
+                auto_apply=False,
+                check_only=False,
+            )
+        elif choice == "4":
+            logger.info("Auditing vault structure and links...")
+            run_normalization_pipeline(
+                content_root=CONTENT_DIR,
+                db_path=NORM_DB_PATH,
+                dry_run=True,
+                auto_apply=False,
+                check_only=True,
+            )
+        elif choice == "5":
             import getpass
 
             try:
@@ -395,13 +452,13 @@ def interactive_menu(
             except (KeyboardInterrupt, EOFError):
                 print()
                 logger.warning("Passphrase input aborted by user.")
-        elif choice == "4":
+        elif choice == "6":
             if not vault_ready:
                 logger.warning("Vault must be compiled before opening in browser.")
             else:
                 logger.info("Opening browser target: %s", vault_url)
                 webbrowser.open(vault_url)
-        elif choice == "5":
+        elif choice == "7":
             print_crypto_diagnostics()
         elif choice == "0":
             break
@@ -423,6 +480,17 @@ def main():
         log_file=log_file_path,
         enable_console=True,
     )
+
+    # CLI direct execution routes
+    if args.normalize or args.auto_normalize or args.check_normalize:
+        code = run_normalization_pipeline(
+            content_root=CONTENT_DIR,
+            db_path=NORM_DB_PATH,
+            dry_run=False,
+            auto_apply=args.auto_normalize,
+            check_only=args.check_normalize,
+        )
+        sys.exit(code)
 
     if args.build:
         code = execute_build(

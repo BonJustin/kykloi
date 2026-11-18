@@ -1,10 +1,10 @@
 {
-  "__GLOBAL_DEPENDENCIES__": "a1add17824fd784085583d7f01613b923e58ab452cf7577cc434e8a3e89c278f",
+  "__GLOBAL_DEPENDENCIES__": "efde3b24c65a0dc2c6f3631a57f507370fcdd5b7101079a3d794377db352d94c",
   "__PASSPHRASE_FINGERPRINT__": "4393638cf2a7f507f3c05c7dd4466fccfe3fba6a37d520e6fa2b83bf6ecc3c09",
   "__SEARCH_DB_HASH__": "19a5c78af3390c83b726a20b0240a488c6cb3cd234371e6c93f264b8f774495b",
   "content:kykloi/20261116170353-kykloi-introduction.md": "156aeb1bffc9eb39614b1597ef0fbcedc12849b1999b65e69b52e73d40ed8083",
   "content:kykloi/20261117053719-kykloi-cryptography.md": "8b80443e2a09f64975f80d4f6bc1786d18b253f503b4717ec77ba87cc9c2452a",
-  "content:kykloi/20261117062543-kykloi-to-do-list.md": "6e0d2583b780e7f3284038486b472bb85735fe7f1914391189673b9f7cb588cb",
+  "content:kykloi/20261117062543-kykloi-to-do-list.md": "6452673020a8dc666e28e9dec9478cb87c635c5c9130d3c0721e98b7bc96adae",
   "content:kykloi/20261117181402-kykloi-highlights.md": "5b3ce2a2f3b75f200a3beaf89a00402a8a9e15b9c7f1c88aa320a87771ec9541",
   "functional_asset:css/pico.css": "55dae2996f4f2dc108cea27ffecd3ad8eaf0063fc96fa8d92306ed76a3ad33ec",
   "functional_asset:css/style.css": "b2e38087393aeabf6b388a18cf9c58d2df892ed37e1a9272bbbdc922a25075d5",
@@ -134,5 +134,5 @@
   "root_asset:site.webmanifest": "6a8e197741ee4782f86a5e78aaa7cf9e50b1f86194280e1350e9c2f769ca3674",
   "root_asset:web-app-manifest-192x192.png": "ba6a3b76f7669044b4ad98c1305fe70f40ec747b33ac61498732121ff4f22841",
   "root_asset:web-app-manifest-512x512.png": "fc69648e769c50f90f4c3bdff6bd633cd2bfc7444f272b44978ba7756bf21c3a",
-  "secure_blob:kykloi/secure/media/test_artemis_2.jpg": "f78ce6b60e9d016b48fda5a95c61dff93740c101362b6b541c867418fdd1af5f"
+  "secure_blob:kykloi/secure/media/test_artemis_2-1.jpg": "f78ce6b60e9d016b48fda5a95c61dff93740c101362b6b541c867418fdd1af5f"
 }
