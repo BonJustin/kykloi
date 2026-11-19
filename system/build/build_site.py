@@ -27,6 +27,7 @@ import shutil
 import sqlite3
 import subprocess
 import sys
+import urllib.parse
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Optional, Tuple
