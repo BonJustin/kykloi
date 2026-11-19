@@ -189,6 +189,10 @@ document.addEventListener("DOMContentLoaded", () => {
         const blob = new Blob([decryptedBuffer], { type: mimeType });
         const blobUrl = URL.createObjectURL(blob);
 
+        img.onload = () => {
+          URL.revokeObjectURL(blobUrl);
+        };
+
         img.src = blobUrl;
         img.removeAttribute("data-encrypted-media");
       } catch (mediaErr) {
@@ -222,10 +226,22 @@ document.addEventListener("DOMContentLoaded", () => {
     function sanitizeDecryptedHtml(untrustedHtml) {
       const parser = new DOMParser();
       const doc = parser.parseFromString(untrustedHtml, "text/html");
-      const blockedTags = ["SCRIPT", "IFRAME", "OBJECT", "EMBED"];
 
-      doc.querySelectorAll("*").forEach((el) => {
-        if (blockedTags.includes(el.tagName)) {
+      const ALLOWED_TAGS = new Set([
+        "P", "DIV", "SPAN", "H1", "H2", "H3", "H4", "H5", "H6",
+        "UL", "OL", "LI", "BLOCKQUOTE", "PRE", "CODE", "EM", "STRONG",
+        "DEL", "INS", "MARK", "HR", "SUP", "SUB", "TABLE", "THEAD",
+        "TBODY", "TR", "TH", "TD", "A", "IMG", "FIGURE", "FIGCAPTION",
+        "DL", "DT", "DD", "DETAILS", "SUMMARY", "SECTION", "HEADER", "FOOTER"
+      ]);
+
+      const ALLOWED_ATTRS = new Set([
+        "class", "id", "href", "src", "alt", "title",
+        "data-encrypted-media", "data-relative-root"
+      ]);
+
+      doc.body.querySelectorAll("*").forEach((el) => {
+        if (!ALLOWED_TAGS.has(el.tagName)) {
           el.remove();
           return;
         }
@@ -233,11 +249,9 @@ document.addEventListener("DOMContentLoaded", () => {
           const attr = el.attributes[i];
           const name = attr.name.toLowerCase();
           const val = attr.value.trim().toLowerCase();
-          if (
-            name.startsWith("on") ||
-            (name === "href" && val.startsWith("javascript:")) ||
-            (name === "src" && val.startsWith("javascript:"))
-          ) {
+
+          if (!ALLOWED_ATTRS.has(name) ||
+              ((name === "href" || name === "src") && val.startsWith("javascript:"))) {
             el.removeAttribute(attr.name);
           }
         }

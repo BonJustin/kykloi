@@ -28,10 +28,10 @@ kykloi/
 │   │   │   ├── fonts/ (contents excluded)
 │   │   │   ├── js/
 │   │   │   │   ├── decrypt.js
-│   │   │   │   ├── pico_search.js
 │   │   │   │   ├── search_worker.js
 │   │   │   │   ├── sqlite3.js
-│   │   │   │   └── sqlite3.wasm
+│   │   │   │   ├── sqlite3.wasm
+│   │   │   │   └── wasm-search.js
 │   │   │   └── katex/ (contents excluded)
 │   │   ├── root/
 │   │   │   ├── apple-touch-icon.png
@@ -43,11 +43,11 @@ kykloi/
 │   │   │   ├── web-app-manifest-192x192.png
 │   │   │   └── web-app-manifest-512x512.png
 │   │   ├── templates/
-│   │   │   └── md_to_static_html.html
+│   │   │   └── pandoc-template.html
 │   │   ├── .build_manifest.json
-│   │   ├── build_site.py
-│   │   ├── pandoc_md_to_static_html.yaml
-│   │   └── translate_links.lua
+│   │   ├── build.py
+│   │   ├── html-config.yaml
+│   │   └── translate-links.lua
 │   ├── normalize/
 │   │   ├── __pycache__/ (contents excluded)
 │   │   ├── __init__.py
@@ -57,7 +57,7 @@ kykloi/
 │   │   ├── graph.py
 │   │   ├── scanner.py
 │   │   ├── slugify.py
-│   │   └── vault_index.db
+│   │   └── vault-index.db
 │   ├── tools/
 │   │   ├── archives/
 │   │   │   ├── cpython-3.12.16+20261110-aarch64-apple-darwin-install_only.tar.gz
@@ -73,8 +73,8 @@ kykloi/
 │   │   │   ├── pandoc-3.14-linux-arm64.tar.gz
 │   │   │   ├── pandoc-3.14-windows-x86_64.zip
 │   │   │   └── pandoc-3.14-x86_64-macOS.zip
-│   │   ├── tools_manifest.json
-│   │   └── verify_manifest.py
+│   │   ├── tools-manifest.json
+│   │   └── verify-manifest.py
 │   ├── kykloi.log
 │   ├── launch.py
 │   └── logger.py
@@ -542,177 +542,6 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 ```
 
-## system/build/assets/js/pico_search.js
-
-```javascript
-"use strict";
-
-document.addEventListener("DOMContentLoaded", () => {
-  const bodyInput = document.getElementById("body-search-input");
-  const bodyResults = document.getElementById("body-search-results");
-  const navSearchBtn = document.getElementById("nav-search-btn");
-
-  // Exit immediately if this page does not contain the Search Hub input
-  if (!bodyInput || !bodyResults) return;
-
-  const rawRoot = document.body.dataset.relativeRoot || "";
-  const relativeRoot = rawRoot && !rawRoot.endsWith("/") ? `${rawRoot}/` : rawRoot;
-
-  const workerUrl = new URL(`${relativeRoot}assets/js/search_worker.js`, window.location.href).href;
-  const dbUrl = new URL(`${relativeRoot}search.db`, window.location.href).href;
-
-  let worker = null;
-  let activeSearchId = 0;
-
-  function initWorker() {
-    if (worker) return;
-
-    try {
-      worker = new Worker(workerUrl);
-
-      worker.onmessage = (e) => {
-        const { type, query, searchId, hits, hasMore, isDefault, error } = e.data || {};
-
-        if (type === "ready") {
-          if (bodyInput.value.trim() === "") {
-            dispatchSearch("", bodyResults);
-          }
-          return;
-        }
-
-        if (type === "error") {
-          console.error("[Kykloi Search] Worker initialization failed:", error);
-          bodyResults.innerHTML = `
-            <li style="list-style: none; padding: 1rem 0; color: var(--pico-color-red-500); text-align: center;">
-              Search index unavailable: ${escapeHtml(error)}
-            </li>`;
-          return;
-        }
-
-        if (type === "results") {
-          if (searchId !== activeSearchId) return;
-          renderResults(hits, hasMore, query, isDefault, bodyResults);
-        }
-      };
-
-      worker.postMessage({ type: "init", dbUrl });
-    } catch (err) {
-      console.error("[Kykloi Search] Failed to create search worker:", err);
-    }
-  }
-
-  function escapeHtml(str) {
-    if (!str) return "";
-    return str
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&#039;");
-  }
-
-  function renderResults(hits, hasMore, query, isDefault, container) {
-    if (!hits || hits.length === 0) {
-      container.innerHTML = `
-        <li style="list-style: none; padding: 1.5rem 0; text-align: center; color: var(--pico-muted-color);">
-          No documents matching "<strong>${escapeHtml(query.trim())}</strong>"
-        </li>`;
-      return;
-    }
-
-    let headerHtml = "";
-    if (isDefault) {
-      headerHtml = `
-        <li style="list-style: none; padding: 0.25rem 0 0.5rem 0; margin-bottom: 0.5rem; color: var(--pico-muted-color); font-size: 0.8rem; font-weight: bold; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 2px solid var(--pico-muted-border-color);">
-          Recent Notes (${hits.length})
-        </li>`;
-    }
-
-    let itemsHtml = hits
-      .map((item) => {
-        const cleanUrl = item.url.startsWith("/") ? item.url.slice(1) : item.url;
-        const targetUrl = `${relativeRoot}${cleanUrl}`;
-        const title = item.title || item.url;
-
-        const dateHtml = item.date_edtf
-          ? `<time style="opacity: 0.65; font-size: 0.85em; margin-left: 0.5rem; font-family: monospace;">(${escapeHtml(item.date_edtf)})</time>`
-          : "";
-
-        return `
-          <li style="list-style: none; border-bottom: 1px solid var(--pico-muted-border-color); padding: 0.6rem 0;">
-            <a href="${targetUrl}" style="text-decoration: none; display: block;">
-              <span style="color: var(--pico-primary); font-weight: bold;">${escapeHtml(title)}</span>
-              ${dateHtml}
-            </a>
-          </li>`;
-      })
-      .join("");
-
-    if (hasMore) {
-      itemsHtml += `
-        <li style="list-style: none; padding: 0.75rem 0; text-align: center; color: var(--pico-muted-color); font-size: 0.85rem;">
-          Showing top 100 results. Refine your query for more specific matches.
-        </li>`;
-    }
-
-    container.innerHTML = headerHtml + itemsHtml;
-  }
-
-  function dispatchSearch(query, container) {
-    initWorker();
-    activeSearchId += 1;
-    worker.postMessage({
-      type: "search",
-      query: (query || "").trim(),
-      searchId: activeSearchId,
-    });
-  }
-
-  function debounce(fn, delayMs) {
-    let timer = null;
-    return (...args) => {
-      clearTimeout(timer);
-      timer = setTimeout(() => fn(...args), delayMs);
-    };
-  }
-
-  const debouncedSearch = debounce(dispatchSearch, 120);
-
-  bodyInput.addEventListener("input", (e) => {
-    debouncedSearch(e.target.value, bodyResults);
-  });
-
-  if (navSearchBtn) {
-    navSearchBtn.addEventListener("click", (e) => {
-      e.preventDefault();
-      bodyInput.focus();
-      bodyInput.scrollIntoView({ behavior: "smooth", block: "center" });
-    });
-  }
-
-  if (window.location.search.includes("focus=1")) {
-    bodyInput.focus();
-  }
-
-  if (window.innerWidth > 768) {
-    bodyInput.focus();
-  }
-
-  window.addEventListener("keydown", (e) => {
-    const isModifierK = (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k";
-    const isSlash = e.key === "/" && !["INPUT", "TEXTAREA"].includes(document.activeElement?.tagName);
-
-    if (isModifierK || isSlash) {
-      e.preventDefault();
-      bodyInput.focus();
-      bodyInput.scrollIntoView({ behavior: "smooth", block: "center" });
-    }
-  });
-
-  initWorker();
-});
-```
-
 ## system/build/assets/js/search_worker.js
 
 ```javascript
@@ -949,6 +778,177 @@ self.onmessage = (e) => {
 };
 ```
 
+## system/build/assets/js/wasm-search.js
+
+```javascript
+"use strict";
+
+document.addEventListener("DOMContentLoaded", () => {
+  const bodyInput = document.getElementById("body-search-input");
+  const bodyResults = document.getElementById("body-search-results");
+  const navSearchBtn = document.getElementById("nav-search-btn");
+
+  // Exit immediately if this page does not contain the Search Hub input
+  if (!bodyInput || !bodyResults) return;
+
+  const rawRoot = document.body.dataset.relativeRoot || "";
+  const relativeRoot = rawRoot && !rawRoot.endsWith("/") ? `${rawRoot}/` : rawRoot;
+
+  const workerUrl = new URL(`${relativeRoot}assets/js/search_worker.js`, window.location.href).href;
+  const dbUrl = new URL(`${relativeRoot}search.db`, window.location.href).href;
+
+  let worker = null;
+  let activeSearchId = 0;
+
+  function initWorker() {
+    if (worker) return;
+
+    try {
+      worker = new Worker(workerUrl);
+
+      worker.onmessage = (e) => {
+        const { type, query, searchId, hits, hasMore, isDefault, error } = e.data || {};
+
+        if (type === "ready") {
+          if (bodyInput.value.trim() === "") {
+            dispatchSearch("", bodyResults);
+          }
+          return;
+        }
+
+        if (type === "error") {
+          console.error("[Kykloi Search] Worker initialization failed:", error);
+          bodyResults.innerHTML = `
+            <li style="list-style: none; padding: 1rem 0; color: var(--pico-color-red-500); text-align: center;">
+              Search index unavailable: ${escapeHtml(error)}
+            </li>`;
+          return;
+        }
+
+        if (type === "results") {
+          if (searchId !== activeSearchId) return;
+          renderResults(hits, hasMore, query, isDefault, bodyResults);
+        }
+      };
+
+      worker.postMessage({ type: "init", dbUrl });
+    } catch (err) {
+      console.error("[Kykloi Search] Failed to create search worker:", err);
+    }
+  }
+
+  function escapeHtml(str) {
+    if (!str) return "";
+    return str
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+  }
+
+  function renderResults(hits, hasMore, query, isDefault, container) {
+    if (!hits || hits.length === 0) {
+      container.innerHTML = `
+        <li style="list-style: none; padding: 1.5rem 0; text-align: center; color: var(--pico-muted-color);">
+          No documents matching "<strong>${escapeHtml(query.trim())}</strong>"
+        </li>`;
+      return;
+    }
+
+    let headerHtml = "";
+    if (isDefault) {
+      headerHtml = `
+        <li style="list-style: none; padding: 0.25rem 0 0.5rem 0; margin-bottom: 0.5rem; color: var(--pico-muted-color); font-size: 0.8rem; font-weight: bold; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 2px solid var(--pico-muted-border-color);">
+          Recent Notes (${hits.length})
+        </li>`;
+    }
+
+    let itemsHtml = hits
+      .map((item) => {
+        const cleanUrl = item.url.startsWith("/") ? item.url.slice(1) : item.url;
+        const targetUrl = `${relativeRoot}${cleanUrl}`;
+        const title = item.title || item.url;
+
+        const dateHtml = item.date_edtf
+          ? `<time style="opacity: 0.65; font-size: 0.85em; margin-left: 0.5rem; font-family: monospace;">(${escapeHtml(item.date_edtf)})</time>`
+          : "";
+
+        return `
+          <li style="list-style: none; border-bottom: 1px solid var(--pico-muted-border-color); padding: 0.6rem 0;">
+            <a href="${targetUrl}" style="text-decoration: none; display: block;">
+              <span style="color: var(--pico-primary); font-weight: bold;">${escapeHtml(title)}</span>
+              ${dateHtml}
+            </a>
+          </li>`;
+      })
+      .join("");
+
+    if (hasMore) {
+      itemsHtml += `
+        <li style="list-style: none; padding: 0.75rem 0; text-align: center; color: var(--pico-muted-color); font-size: 0.85rem;">
+          Showing top 100 results. Refine your query for more specific matches.
+        </li>`;
+    }
+
+    container.innerHTML = headerHtml + itemsHtml;
+  }
+
+  function dispatchSearch(query, container) {
+    initWorker();
+    activeSearchId += 1;
+    worker.postMessage({
+      type: "search",
+      query: (query || "").trim(),
+      searchId: activeSearchId,
+    });
+  }
+
+  function debounce(fn, delayMs) {
+    let timer = null;
+    return (...args) => {
+      clearTimeout(timer);
+      timer = setTimeout(() => fn(...args), delayMs);
+    };
+  }
+
+  const debouncedSearch = debounce(dispatchSearch, 120);
+
+  bodyInput.addEventListener("input", (e) => {
+    debouncedSearch(e.target.value, bodyResults);
+  });
+
+  if (navSearchBtn) {
+    navSearchBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      bodyInput.focus();
+      bodyInput.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+  }
+
+  if (window.location.search.includes("focus=1")) {
+    bodyInput.focus();
+  }
+
+  if (window.innerWidth > 768) {
+    bodyInput.focus();
+  }
+
+  window.addEventListener("keydown", (e) => {
+    const isModifierK = (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k";
+    const isSlash = e.key === "/" && !["INPUT", "TEXTAREA"].includes(document.activeElement?.tagName);
+
+    if (isModifierK || isSlash) {
+      e.preventDefault();
+      bodyInput.focus();
+      bodyInput.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  });
+
+  initWorker();
+});
+```
+
 ## system/build/root/index.html
 
 ```html
@@ -979,7 +979,7 @@ self.onmessage = (e) => {
         <link rel="stylesheet" href="assets/css/style.css" />
 
         <!-- Search Hub Driver (SQLite3 WASM FTS5) -->
-        <script src="assets/js/pico_search.js" defer></script>
+        <script src="assets/js/wasm-search.js" defer></script>
     </head>
 
     <body data-relative-root="">
@@ -1077,7 +1077,7 @@ self.onmessage = (e) => {
 </html>
 ```
 
-## system/build/templates/md_to_static_html.html
+## system/build/templates/pandoc-template.html
 
 ```html
 <!doctype html>
@@ -1284,12 +1284,12 @@ __KYKLOI_ENCRYPTED_PAYLOAD__
 </html>
 ```
 
-## system/build/build_site.py
+## system/build/build.py
 
 ```python
 #!/usr/bin/env python3
 """
-system/build/build_site.py - Zero-Dependency Deterministic SSG Compiler.
+system/build/build.py - Zero-Dependency Deterministic SSG Compiler.
 Part of Project Kykloi (v0.7.0).
 Leverages vault_index.db SQLite ledger for O(1) stat-cached incremental builds.
 Features Tiered Multi-Engine AES-256-GCM Acceleration with Deterministic Fallback.
@@ -2282,11 +2282,11 @@ def verify_cryptographic_engine():
 
 SRC = PROJECT_ROOT / "content"
 DST = PROJECT_ROOT / "dist"
-NORM_DB_PATH = SYSTEM_DIR / "normalize" / "vault_index.db"
+NORM_DB_PATH = SYSTEM_DIR / "normalize" / "vault-index.db"
 
-DEFAULTS_YAML = APP_DIR / "pandoc_md_to_static_html.yaml"
-DEFAULT_TEMPLATE = APP_DIR / "templates" / "md_to_static_html.html"
-LUA_FILTER = APP_DIR / "translate_links.lua"
+DEFAULTS_YAML = APP_DIR / "html-config.yaml"
+DEFAULT_TEMPLATE = APP_DIR / "templates" / "pandoc-template.html"
+LUA_FILTER = APP_DIR / "translate-links.lua"
 MANIFEST_FILE = APP_DIR / ".build_manifest.json"
 SEARCH_DB_FILE = DST / "search.db"
 
@@ -2368,7 +2368,7 @@ def resolve_pandoc_binary(root_dir: Path) -> str:
     pandoc_target = "windows-x86_64" if target == "windows-arm64" else target
 
     archives_dir = root_dir / "system" / "tools" / "archives"
-    manifest_path = root_dir / "system" / "tools" / "tools_manifest.json"
+    manifest_path = root_dir / "system" / "tools" / "tools-manifest.json"
 
     if system == "windows":
         runtime_dir = (
@@ -3297,7 +3297,7 @@ if __name__ == "__main__":
     main()
 ```
 
-## system/build/pandoc_md_to_static_html.yaml
+## system/build/html-config.yaml
 
 ```yaml
 from: markdown+mark+task_lists
@@ -3311,7 +3311,7 @@ variables:
   title: false
 ```
 
-## system/build/translate_links.lua
+## system/build/translate-links.lua
 
 ```lua
 local is_secure = os.getenv("KYKLOI_SECURE_BUILD") == "1"
@@ -3953,8 +3953,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--db-path",
         type=Path,
-        default=SCRIPT_DIR / "vault_index.db",
-        help="Path to SQLite acceleration ledger (default: system/normalize/vault_index.db)",
+        default=SCRIPT_DIR / "vault-index.db",
+        help="Path to SQLite acceleration ledger (default: system/normalize/vault-index.db)",
     )
     parser.add_argument(
         "--check",
@@ -4069,7 +4069,7 @@ class LinkRecord:
 
 
 class VaultDB:
-    """Manages transactional access to vault_index.db."""
+    """Manages transactional access to vault-index.db."""
 
     def __init__(self, db_path: Path):
         self.db_path = Path(db_path)
@@ -5342,7 +5342,7 @@ def sanitize_path_segments(rel_path: str) -> str:
     return filename
 ```
 
-## system/tools/tools_manifest.json
+## system/tools/tools-manifest.json
 
 ```json
 {
@@ -5461,8 +5461,8 @@ SYSTEM_DIR = Path(__file__).resolve().parent
 ROOT_DIR = SYSTEM_DIR.parent
 CONTENT_DIR = ROOT_DIR / "content"
 DIST_DIR = ROOT_DIR / "dist"
-BUILD_SCRIPT = SYSTEM_DIR / "build" / "build_site.py"
-NORM_DB_PATH = SYSTEM_DIR / "normalize" / "vault_index.db"
+BUILD_SCRIPT = SYSTEM_DIR / "build" / "build.py"
+NORM_DB_PATH = SYSTEM_DIR / "normalize" / "vault-index.db"
 
 # Ensure the root project repository and internal subsystems are on sys.path
 if str(ROOT_DIR) not in sys.path:
@@ -5472,7 +5472,7 @@ if str(SYSTEM_DIR) not in sys.path:
 if str(SYSTEM_DIR / "build") not in sys.path:
     sys.path.insert(0, str(SYSTEM_DIR / "build"))
 
-from build_site import ACTIVE_ENGINE_NAME, _resolve_active_crypto_engine
+from build import ACTIVE_ENGINE_NAME, _resolve_active_crypto_engine
 from logger import get_logger, setup_logging
 
 from system.normalize.cli import run_normalization_pipeline
@@ -5708,7 +5708,7 @@ def execute_build(
 
 
 def get_ledger_status_tag() -> str:
-    """Returns a short formatted string detailing the state of vault_index.db."""
+    """Returns a short formatted string detailing the state of vault-index.db."""
     if not NORM_DB_PATH.exists():
         return "Uninitialized"
     try:
@@ -6195,6 +6195,24 @@ def timed_step(logger: logging.Logger, operation_name: str, level: int = logging
         raise
 ```
 
+## .gitignore
+
+```
+# Python-generated files
+__pycache__/
+*.py[oc]
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Project binaries
+system/tools/archives/*.tar.gz
+system/tools/archives/*.zip
+!system/tools/archives/.gitkeep
+```
+
 ## launch.bat
 
 ```bat
@@ -6272,7 +6290,7 @@ set "TARGET=windows-x86_64"
 if /i "%PROCESSOR_ARCHITECTURE%"=="ARM64" set "TARGET=windows-arm64"
 if /i "%PROCESSOR_ARCHITEW6432%"=="ARM64" set "TARGET=windows-arm64"
 
-set "MANIFEST_PATH=%SCRIPT_DIR%system\tools\tools_manifest.json"
+set "MANIFEST_PATH=%SCRIPT_DIR%system\tools\tools-manifest.json"
 set "RUNTIME_ROOT=%TEMP%\kykloi_runtime_%TARGET%"
 set "LOCAL_PY=%RUNTIME_ROOT%\python.exe"
 set "STAMP_FILE=%RUNTIME_ROOT%\.verified_sha256"
@@ -6466,7 +6484,7 @@ esac
 # 3. HYDRATE RUNTIME TO LOCAL STORAGE (WITH SHA-256 VERIFICATION)
 # ---------------------------------------------------------------------------
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-MANIFEST_PATH="$SCRIPT_DIR/system/tools/tools_manifest.json"
+MANIFEST_PATH="$SCRIPT_DIR/system/tools/tools-manifest.json"
 
 # Prioritize persistent user cache over /tmp to prevent noexec mount execution traps
 if [ -n "$XDG_CACHE_HOME" ] && [ -w "$XDG_CACHE_HOME" ]; then
