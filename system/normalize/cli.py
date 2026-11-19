@@ -301,8 +301,10 @@ def audit_security_boundaries(
     scan_result: VaultScanResult,
 ) -> List[Tuple[str, str, int, str]]:
     """
-    Checks that no document in a secure context references an asset in a public context,
-    and vice-versa. Returns list of (source_rel, target_rel, line_no, reason).
+    Validates media isolation boundaries between secure and public contexts.
+    Cross-context document hyperlinks (Markdown -> Markdown) are permitted.
+    Cross-context media embeds (e.g. secure note embedding public image or vice-versa)
+    are flagged as fatal violations due to encryption runtime constraints.
     """
     violations = []
     canonical_map = {f.canonical_filename: f for f in scan_result.files}
@@ -319,7 +321,14 @@ def audit_security_boundaries(
                 if not target_file:
                     target_file = stem_map.get(link.target_stem)
 
-                if target_file and target_file.is_secure != f.is_secure:
+                if not target_file:
+                    continue
+
+                # Document-to-document navigation across boundaries is permitted.
+                # Only enforce boundary separation on media asset embeds.
+                if (
+                    link.is_image or target_file.is_media
+                ) and target_file.is_secure != f.is_secure:
                     s_ctx = "SECURE" if f.is_secure else "PUBLIC"
                     t_ctx = "SECURE" if target_file.is_secure else "PUBLIC"
                     violations.append(
@@ -327,7 +336,7 @@ def audit_security_boundaries(
                             f.rel_path,
                             target_file.rel_path,
                             link.line_number,
-                            f"{s_ctx} file references {t_ctx} asset",
+                            f"{s_ctx} document embeds {t_ctx} media asset",
                         )
                     )
         except OSError:
