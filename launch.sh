@@ -119,7 +119,7 @@ esac
 # 3. HYDRATE RUNTIME TO LOCAL STORAGE (WITH SHA-256 VERIFICATION)
 # ---------------------------------------------------------------------------
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-MANIFEST_PATH="$SCRIPT_DIR/system/tools/tools_manifest.json"
+MANIFEST_PATH="$SCRIPT_DIR/system/tools/tools-manifest.json"
 
 # Prioritize persistent user cache over /tmp to prevent noexec mount execution traps
 if [ -n "$XDG_CACHE_HOME" ] && [ -w "$XDG_CACHE_HOME" ]; then

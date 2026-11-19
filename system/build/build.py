@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-system/build/build_site.py - Zero-Dependency Deterministic SSG Compiler.
+system/build/build.py - Zero-Dependency Deterministic SSG Compiler.
 Part of Project Kykloi (v0.7.0).
 Leverages vault_index.db SQLite ledger for O(1) stat-cached incremental builds.
 Features Tiered Multi-Engine AES-256-GCM Acceleration with Deterministic Fallback.
@@ -993,11 +993,11 @@ def verify_cryptographic_engine():
 
 SRC = PROJECT_ROOT / "content"
 DST = PROJECT_ROOT / "dist"
-NORM_DB_PATH = SYSTEM_DIR / "normalize" / "vault_index.db"
+NORM_DB_PATH = SYSTEM_DIR / "normalize" / "vault-index.db"
 
-DEFAULTS_YAML = APP_DIR / "pandoc_md_to_static_html.yaml"
-DEFAULT_TEMPLATE = APP_DIR / "templates" / "md_to_static_html.html"
-LUA_FILTER = APP_DIR / "translate_links.lua"
+DEFAULTS_YAML = APP_DIR / "html-config.yaml"
+DEFAULT_TEMPLATE = APP_DIR / "templates" / "pandoc-template.html"
+LUA_FILTER = APP_DIR / "translate-links.lua"
 MANIFEST_FILE = APP_DIR / ".build_manifest.json"
 SEARCH_DB_FILE = DST / "search.db"
 
@@ -1079,7 +1079,7 @@ def resolve_pandoc_binary(root_dir: Path) -> str:
     pandoc_target = "windows-x86_64" if target == "windows-arm64" else target
 
     archives_dir = root_dir / "system" / "tools" / "archives"
-    manifest_path = root_dir / "system" / "tools" / "tools_manifest.json"
+    manifest_path = root_dir / "system" / "tools" / "tools-manifest.json"
 
     if system == "windows":
         runtime_dir = (

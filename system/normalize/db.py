@@ -74,7 +74,7 @@ class LinkRecord:
 
 
 class VaultDB:
-    """Manages transactional access to vault_index.db."""
+    """Manages transactional access to vault-index.db."""
 
     def __init__(self, db_path: Path):
         self.db_path = Path(db_path)

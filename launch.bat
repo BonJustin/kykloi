@@ -72,7 +72,7 @@ set "TARGET=windows-x86_64"
 if /i "%PROCESSOR_ARCHITECTURE%"=="ARM64" set "TARGET=windows-arm64"
 if /i "%PROCESSOR_ARCHITEW6432%"=="ARM64" set "TARGET=windows-arm64"
 
-set "MANIFEST_PATH=%SCRIPT_DIR%system\tools\tools_manifest.json"
+set "MANIFEST_PATH=%SCRIPT_DIR%system\tools\tools-manifest.json"
 set "RUNTIME_ROOT=%TEMP%\kykloi_runtime_%TARGET%"
 set "LOCAL_PY=%RUNTIME_ROOT%\python.exe"
 set "STAMP_FILE=%RUNTIME_ROOT%\.verified_sha256"

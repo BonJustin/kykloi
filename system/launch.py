@@ -25,8 +25,8 @@ SYSTEM_DIR = Path(__file__).resolve().parent
 ROOT_DIR = SYSTEM_DIR.parent
 CONTENT_DIR = ROOT_DIR / "content"
 DIST_DIR = ROOT_DIR / "dist"
-BUILD_SCRIPT = SYSTEM_DIR / "build" / "build_site.py"
-NORM_DB_PATH = SYSTEM_DIR / "normalize" / "vault_index.db"
+BUILD_SCRIPT = SYSTEM_DIR / "build" / "build.py"
+NORM_DB_PATH = SYSTEM_DIR / "normalize" / "vault-index.db"
 
 # Ensure the root project repository and internal subsystems are on sys.path
 if str(ROOT_DIR) not in sys.path:
@@ -36,7 +36,7 @@ if str(SYSTEM_DIR) not in sys.path:
 if str(SYSTEM_DIR / "build") not in sys.path:
     sys.path.insert(0, str(SYSTEM_DIR / "build"))
 
-from build_site import ACTIVE_ENGINE_NAME, _resolve_active_crypto_engine
+from build import ACTIVE_ENGINE_NAME, _resolve_active_crypto_engine
 from logger import get_logger, setup_logging
 
 from system.normalize.cli import run_normalization_pipeline
@@ -272,7 +272,7 @@ def execute_build(
 
 
 def get_ledger_status_tag() -> str:
-    """Returns a short formatted string detailing the state of vault_index.db."""
+    """Returns a short formatted string detailing the state of vault-index.db."""
     if not NORM_DB_PATH.exists():
         return "Uninitialized"
     try:

@@ -508,8 +508,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--db-path",
         type=Path,
-        default=SCRIPT_DIR / "vault_index.db",
-        help="Path to SQLite acceleration ledger (default: system/normalize/vault_index.db)",
+        default=SCRIPT_DIR / "vault-index.db",
+        help="Path to SQLite acceleration ledger (default: system/normalize/vault-index.db)",
     )
     parser.add_argument(
         "--check",

@@ -57,11 +57,6 @@ kykloi/
 │   │   ├── graph.py
 │   │   ├── scanner.py
 │   │   ├── slugify.py
-│   │   ├── test_phase1.py
-│   │   ├── test_phase2.py
-│   │   ├── test_phase3.py
-│   │   ├── test_phase4.py
-│   │   ├── test_phase5.py
 │   │   └── vault_index.db
 │   ├── tools/
 │   │   ├── archives/
@@ -86,7 +81,6 @@ kykloi/
 ├── .gitignore
 ├── .python-version
 ├── assemble_code_to_md.py
-├── error-vectors-identified.md
 ├── launch.bat
 ├── launch.sh
 ├── pyproject.toml
@@ -1296,7 +1290,7 @@ __KYKLOI_ENCRYPTED_PAYLOAD__
 #!/usr/bin/env python3
 """
 system/build/build_site.py - Zero-Dependency Deterministic SSG Compiler.
-Part of Project Kykloi (v0.6.0).
+Part of Project Kykloi (v0.7.0).
 Leverages vault_index.db SQLite ledger for O(1) stat-cached incremental builds.
 Features Tiered Multi-Engine AES-256-GCM Acceleration with Deterministic Fallback.
 Priority Order:
@@ -1322,6 +1316,7 @@ import shutil
 import sqlite3
 import subprocess
 import sys
+import urllib.parse
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Optional, Tuple
@@ -3751,8 +3746,10 @@ def audit_security_boundaries(
     scan_result: VaultScanResult,
 ) -> List[Tuple[str, str, int, str]]:
     """
-    Checks that no document in a secure context references an asset in a public context,
-    and vice-versa. Returns list of (source_rel, target_rel, line_no, reason).
+    Validates media isolation boundaries between secure and public contexts.
+    Cross-context document hyperlinks (Markdown -> Markdown) are permitted.
+    Cross-context media embeds (e.g. secure note embedding public image or vice-versa)
+    are flagged as fatal violations due to encryption runtime constraints.
     """
     violations = []
     canonical_map = {f.canonical_filename: f for f in scan_result.files}
@@ -3769,7 +3766,14 @@ def audit_security_boundaries(
                 if not target_file:
                     target_file = stem_map.get(link.target_stem)
 
-                if target_file and target_file.is_secure != f.is_secure:
+                if not target_file:
+                    continue
+
+                # Document-to-document navigation across boundaries is permitted.
+                # Only enforce boundary separation on media asset embeds.
+                if (
+                    link.is_image or target_file.is_media
+                ) and target_file.is_secure != f.is_secure:
                     s_ctx = "SECURE" if f.is_secure else "PUBLIC"
                     t_ctx = "SECURE" if target_file.is_secure else "PUBLIC"
                     violations.append(
@@ -3777,7 +3781,7 @@ def audit_security_boundaries(
                             f.rel_path,
                             target_file.rel_path,
                             link.line_number,
-                            f"{s_ctx} file references {t_ctx} asset",
+                            f"{s_ctx} document embeds {t_ctx} media asset",
                         )
                     )
         except OSError:
@@ -4722,27 +4726,29 @@ def compute_diff(scan_result: VaultScanResult, db: VaultDB) -> DiffPlan:
                 )
             )
 
-    # Step 6: Remaining unmatched DB files -> DELETE
-    for rel_path in sorted(unmatched_db_paths):
-        db_rec = db_files[rel_path]
-        inbound_links = db.get_referencing_links(db_rec.stem)
+        # Step 6: Remaining unmatched DB files -> DELETE
+        for rel_path in sorted(unmatched_db_paths):
+            db_rec = db_files[rel_path]
+            inbound_links = db.get_referencing_links(db_rec.canonical_filename)
 
-        if inbound_links:
-            plan.broken_references[db_rec.stem] = [l.source_stem for l in inbound_links]
+            if inbound_links:
+                plan.broken_references[db_rec.stem] = [
+                    l.source_canonical for l in inbound_links
+                ]
 
-        plan.actions.append(
-            FileAction(
-                action_type=ActionType.DELETE,
-                src_rel_path=db_rec.rel_path,
-                dst_rel_path=None,
-                old_stem=db_rec.stem,
-                new_stem=None,
-                sha256=db_rec.sha256,
-                is_media=db_rec.is_media,
-                is_secure=db_rec.is_secure,
-                reason=f"File removed from disk (had {len(inbound_links)} inbound references).",
+            plan.actions.append(
+                FileAction(
+                    action_type=ActionType.DELETE,
+                    src_rel_path=db_rec.rel_path,
+                    dst_rel_path=None,
+                    old_stem=db_rec.stem,
+                    new_stem=None,
+                    sha256=db_rec.sha256,
+                    is_media=db_rec.is_media,
+                    is_secure=db_rec.is_secure,
+                    reason=f"File removed from disk (had {len(inbound_links)} inbound references).",
+                )
             )
-        )
 
     return plan
 ```
@@ -5336,413 +5342,13 @@ def sanitize_path_segments(rel_path: str) -> str:
     return filename
 ```
 
-## system/normalize/test_phase1.py
-
-```python
-# system/normalize/test_phase1.py
-import sys
-from pathlib import Path
-
-# Ensure project root (kykloi/) is on sys.path regardless of execution cwd
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
-
-from system.normalize.db import FileRecord, LinkRecord, VaultDB
-from system.normalize.slugify import is_valid_stem, sanitize_path_segments, slugify_stem
-
-
-def run_tests():
-    print("[1/3] Testing slugify and validation...")
-    test_cases = [
-        ("My Note 2026!", "my-note-2026"),
-        ("über_mathematics...", "ber_mathematics"),
-        ("20261116170353-kykloi-introduction", "20261116170353-kykloi-introduction"),
-        ("test:::invalid<chars>", "testinvalidchars"),
-        ("---leading-and-trailing---", "leading-and-trailing"),
-        ("__double__underscores__", "double_underscores"),
-    ]
-    for raw, expected in test_cases:
-        slug = slugify_stem(raw)
-        assert slug == expected, f"Expected '{expected}', got '{slug}' for '{raw}'"
-        assert is_valid_stem(slug), f"Slug '{slug}' is not valid per UID regex"
-
-    path_test = "Research Folder/Quantum Physics/Wave Function.MD"
-    assert (
-        sanitize_path_segments(path_test)
-        == "research-folder/quantum-physics/wave-function.md"
-    )
-    print("  -> Slugify & Path tests passed.")
-
-    print("[2/3] Testing SQLite schema initialization & FileRecord operations...")
-    test_db_path = Path(__file__).resolve().parent / "test_vault_index.db"
-
-    # Clean previous run artifacts
-    for f in test_db_path.parent.glob("test_vault_index.db*"):
-        try:
-            f.unlink()
-        except OSError:
-            pass
-
-    with VaultDB(test_db_path) as db:
-        db.init_schema()
-        assert db.get_meta("schema_version") == "1.0"
-
-        rec1 = FileRecord(
-            id=None,
-            stem="matrix-notes",
-            rel_path="math/matrix-notes.md",
-            sha256="abc123hash",
-            mtime=1700000000.0,
-            size=1024,
-            is_media=False,
-            is_secure=False,
-        )
-        db.upsert_file(rec1)
-
-        fetched = db.get_file_by_stem("matrix-notes")
-        assert fetched is not None
-        assert fetched.rel_path == "math/matrix-notes.md"
-        assert fetched.size == 1024
-
-        # Stat-cache test
-        assert db.is_stat_cache_hit("math/matrix-notes.md", 1700000000.0, 1024) is True
-        assert db.is_stat_cache_hit("math/matrix-notes.md", 1700000000.0, 2048) is False
-
-        print("  -> File ledger and stat-cache tests passed.")
-
-        print("[3/3] Testing Foreign Key cascading & link graph operations...")
-        rec2 = FileRecord(
-            id=None,
-            stem="linear-algebra",
-            rel_path="math/linear-algebra.md",
-            sha256="def456hash",
-            mtime=1700000001.0,
-            size=2048,
-            is_media=False,
-            is_secure=False,
-        )
-        db.upsert_file(rec2)
-
-        links = [
-            LinkRecord(
-                "matrix-notes", "linear-algebra", "../math/linear-algebra.md", 12
-            )
-        ]
-        db.replace_document_links("matrix-notes", links)
-
-        refs = db.get_referencing_links("linear-algebra")
-        assert len(refs) == 1
-        assert refs[0].source_stem == "matrix-notes"
-
-        # Cascade test: Deleting source file cascades to its outgoing links
-        db.delete_file_by_stem("matrix-notes")
-        assert len(db.get_outgoing_links("matrix-notes")) == 0
-        assert len(db.get_referencing_links("linear-algebra")) == 0
-
-        print("  -> Link graph & cascading delete tests passed.")
-
-    # Clean up test artifacts
-    for f in test_db_path.parent.glob("test_vault_index.db*"):
-        try:
-            f.unlink()
-        except OSError:
-            pass
-
-    print("[SUCCESS] All Phase 1 modules verified.")
-
-
-if __name__ == "__main__":
-    run_tests()
-```
-
-## system/normalize/test_phase2.py
-
-```python
-# system/normalize/test_phase2.py
-import sys
-import tempfile
-from pathlib import Path
-
-# Ensure project root (kykloi/) is on sys.path
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
-
-from system.normalize.db import FileRecord, LinkRecord, VaultDB
-from system.normalize.engine import ActionType, compute_diff
-from system.normalize.scanner import scan_vault
-
-
-def run_tests():
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        vault_path = Path(tmp_dir) / "content"
-        vault_path.mkdir()
-        db_path = Path(tmp_dir) / "vault_index.db"
-
-        with VaultDB(db_path) as db:
-            db.init_schema()
-
-            print("[1/5] Testing Clean Vault & Fast-Path Stat Cache...")
-            file_a = vault_path / "note-a.md"
-            file_a.write_text("# Note A content", encoding="utf-8")
-
-            # First scan: cache miss, baseline creation
-            res1 = scan_vault(vault_path, db)
-            assert res1.cache_hits == 0
-            assert res1.cache_misses == 1
-
-            diff1 = compute_diff(res1, db)
-            assert len(diff1.actions) == 1
-            assert diff1.actions[0].action_type == ActionType.CREATE
-
-            # Commit initial record to DB
-            stat_a = file_a.stat()
-            db.upsert_file(
-                FileRecord(
-                    id=None,
-                    stem="note-a",
-                    rel_path="note-a.md",
-                    sha256=res1.files[0].sha256,
-                    mtime=stat_a.st_mtime,
-                    size=stat_a.st_size,
-                    is_media=False,
-                    is_secure=False,
-                )
-            )
-
-            # Second scan: cache hit, zero disk reads
-            res2 = scan_vault(vault_path, db)
-            assert res2.cache_hits == 1
-            assert res2.cache_misses == 0
-            diff2 = compute_diff(res2, db)
-            assert diff2.actions[0].action_type == ActionType.NOOP
-            print("  -> Stat-cache hit verified.")
-
-            print("[2/5] Testing Decision Matrix: Clean Move (P -> P', S=S, H=H)...")
-            subfolder = vault_path / "sub"
-            subfolder.mkdir()
-            file_a_moved = subfolder / "note-a.md"
-            file_a.rename(file_a_moved)
-
-            res_move = scan_vault(vault_path, db)
-            diff_move = compute_diff(res_move, db)
-            assert any(a.action_type == ActionType.MOVE for a in diff_move.actions)
-            print("  -> Clean move resolved via identical content hash and stem.")
-
-            print("[3/5] Testing Decision Matrix: Clean Rename (P=P, S -> S', H=H)...")
-            file_a_renamed = subfolder / "note-renamed.md"
-            file_a_moved.rename(file_a_renamed)
-
-            res_rename = scan_vault(vault_path, db)
-            diff_rename = compute_diff(res_rename, db)
-            assert any(
-                a.action_type in (ActionType.RENAME, ActionType.MOVE_AND_RENAME)
-                for a in diff_rename.actions
-            )
-            print("  -> Clean rename recognized via content hash identity.")
-
-            print(
-                "[4/5] Testing Decision Matrix: Move + Content Edit (P -> P', S=S, H -> H')..."
-            )
-            # Move back to root and modify content
-            file_a_edited = vault_path / "note-a.md"
-            file_a_renamed.rename(file_a_edited)
-            file_a_edited.write_text(
-                "# Substantially altered content", encoding="utf-8"
-            )
-
-            res_edit_move = scan_vault(vault_path, db)
-            diff_edit_move = compute_diff(res_edit_move, db)
-            # Anchored by Stem UID: recognized as MOVE (or MODIFY) instead of atomic delete/recreate
-            assert any(
-                a.action_type in (ActionType.MOVE, ActionType.MODIFY_CONTENT)
-                for a in diff_edit_move.actions
-            )
-            print("  -> Stem UID identity anchor preserved across move + edit.")
-
-            print("[5/5] Testing Stem Collisions & Broken Link Diagnostics...")
-            # Create a duplicate stem in another directory
-            colliding_dir = vault_path / "other"
-            colliding_dir.mkdir()
-            colliding_file = colliding_dir / "note-a.md"
-            colliding_file.write_text(
-                "# Different note with colliding stem", encoding="utf-8"
-            )
-
-            # Mock an inbound link from an external file targeting note-a
-            db.upsert_file(
-                FileRecord(
-                    id=None,
-                    stem="referrer",
-                    rel_path="referrer.md",
-                    sha256="refhash",
-                    mtime=1.0,
-                    size=10,
-                    is_media=False,
-                    is_secure=False,
-                )
-            )
-            db.replace_document_links(
-                "referrer",
-                [LinkRecord("referrer", "note-a", "note-a.md", 1)],
-            )
-
-            res_collision = scan_vault(vault_path, db)
-            diff_collision = compute_diff(res_collision, db)
-            assert "note-a" in diff_collision.collisions
-            assert len(diff_collision.collisions["note-a"]) == 2
-            print("  -> Multi-file stem collision identified.")
-
-    print("[SUCCESS] All Phase 2 scanner and decision engine tests verified.")
-
-
-if __name__ == "__main__":
-    run_tests()
-```
-
-## system/normalize/test_phase4.py
-
-```python
-# system/normalize/test_phase4.py
-import subprocess
-import sys
-import tempfile
-from pathlib import Path
-
-# Ensure project root (kykloi/) is on sys.path
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
-
-from system.normalize.cli import (
-    build_transaction_manifest,
-    execute_transaction,
-)
-from system.normalize.db import VaultDB
-from system.normalize.engine import compute_diff
-from system.normalize.scanner import scan_vault
-
-
-def run_tests():
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        vault_path = Path(tmp_dir) / "content"
-        vault_path.mkdir()
-        db_path = Path(tmp_dir) / "vault_index.db"
-
-        # Initialize mock documents with un-normalized folder & filename
-        notes_dir = vault_path / "Math Notes"
-        notes_dir.mkdir()
-        doc_a = notes_dir / "Matrix Calculation.MD"
-        doc_b = vault_path / "doc-b.md"
-
-        doc_a.write_text("# Matrix Math\nFormula details.", encoding="utf-8")
-        doc_b.write_text(
-            "# Document B\nReference to [Matrix Notes](Math%20Notes/Matrix%20Calculation.MD).",
-            encoding="utf-8",
-        )
-
-        cli_script = PROJECT_ROOT / "system" / "normalize" / "cli.py"
-
-        print("[1/4] Testing --check (Lint Mode on un-normalized vault)...")
-        res = subprocess.run(
-            [
-                sys.executable,
-                str(cli_script),
-                "--vault-dir",
-                str(vault_path),
-                "--db-path",
-                str(db_path),
-                "--check",
-            ],
-            capture_output=True,
-            text=True,
-        )
-        assert res.returncode == 1, "Expected exit code 1 for un-normalized vault"
-        print("  -> Lint exit code verified.")
-
-        print("[2/4] Testing --auto-apply (Path sanitization & link healing)...")
-        res_apply = subprocess.run(
-            [
-                sys.executable,
-                str(cli_script),
-                "--vault-dir",
-                str(vault_path),
-                "--db-path",
-                str(db_path),
-                "--auto-apply",
-            ],
-            capture_output=True,
-            text=True,
-        )
-        assert res_apply.returncode == 0, f"Auto-apply failed: {res_apply.stderr}"
-
-        # Assert disk renames took effect (both folder and file normalized)
-        sanitized_doc_a = vault_path / "math-notes" / "matrix-calculation.md"
-        assert sanitized_doc_a.exists(), "math-notes/matrix-calculation.md should exist"
-        assert not doc_a.exists(), (
-            "Original un-normalized file should have been renamed"
-        )
-
-        # Assert link inside doc_b was healed to follow the new canonical path
-        doc_b_content = doc_b.read_text(encoding="utf-8")
-        assert "math-notes/matrix-calculation.md" in doc_b_content, (
-            f"Link target should be rewritten to canonical path, got: {doc_b_content}"
-        )
-        print("  -> Disk rename and link healing executed successfully.")
-
-        print("[3/4] Testing Idempotence (Second run performs zero writes)...")
-        res_idempotent = subprocess.run(
-            [
-                sys.executable,
-                str(cli_script),
-                "--vault-dir",
-                str(vault_path),
-                "--db-path",
-                str(db_path),
-                "--check",
-            ],
-            capture_output=True,
-            text=True,
-        )
-        assert res_idempotent.returncode == 0, (
-            f"Second run must detect 0 mutations and return code 0, stderr: {res_idempotent.stderr}"
-        )
-        print("  -> Idempotence invariant confirmed.")
-
-        print("[4/4] Testing Atomic Rollback on Disk Mutation Failure...")
-        with VaultDB(db_path) as db:
-            scan_res = scan_vault(vault_path, db)
-            diff = compute_diff(scan_res, db)
-            manifest, _ = build_transaction_manifest(vault_path, diff, db)
-
-            invalid_src = vault_path / "doc-b.md"
-            invalid_dst = Path("/dev/null/forbidden/cannot_exist.md")
-            manifest.disk_renames.append((invalid_src, invalid_dst))
-
-            try:
-                execute_transaction(manifest, db)
-                assert False, "Execution should have raised an exception"
-            except Exception:
-                assert invalid_src.exists(), (
-                    "Rollback should restore original file location"
-                )
-                print("  -> Rollback journal safely reverted disk mutations.")
-
-    print("[SUCCESS] All Phase 4 CLI and transaction tests verified.")
-
-
-if __name__ == "__main__":
-    run_tests()
-```
-
 ## system/tools/tools_manifest.json
 
 ```json
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "description": "Kykloi Offline Appliance Toolchain Manifest",
-  "version": "1.1",
+  "version": "1.0",
   "tools": {
     "pandoc": {
       "version": "3.14",
@@ -5889,7 +5495,7 @@ RANGE_REGEX = re.compile(r"^bytes=(\d*)-(\d*)$")
 
 
 class KykloiVaultHandler(http.server.BaseHTTPRequestHandler):
-    server_version = "KykloiServer/0.6"
+    server_version = "KykloiServer/0.7.0"
     protocol_version = "HTTP/1.1"
 
     def guess_mime(self, filepath: str) -> str:
@@ -6684,10 +6290,9 @@ if not exist "%MANIFEST_PATH%" (
 
 echo [Kykloi] Querying manifest definitions for %TARGET%...
 :: Atomic single-process extraction to avoid multi-invocation latency
-for /f "usebackq tokens=1,2* delims=|" %%A in (`powershell -NoProfile -Command "$m=(Get-Content -Raw '%MANIFEST_PATH%' | ConvertFrom-Json).tools.python.targets.'%TARGET%'; if($m){Write-Output ($m.archive + '|' + $m.sha256 + '|' + $m.url)}" 2^>nul`) do (
+for /f "usebackq tokens=1,2 delims=|" %%A in (`powershell -NoProfile -Command "$m=(Get-Content -Raw '%MANIFEST_PATH%' | ConvertFrom-Json).tools.python.targets.'%TARGET%'; if($m){Write-Output ($m.archive + '|' + $m.sha256)}" 2^>nul`) do (
     set "ARCHIVE_NAME=%%A"
     set "EXPECTED_SHA=%%B"
-    set "DOWNLOAD_URL=%%C"
 )
 
 if "%ARCHIVE_NAME%"=="" (
@@ -6699,15 +6304,10 @@ if "%ARCHIVE_NAME%"=="" (
 set "ARCHIVE_PY=%SCRIPT_DIR%system\tools\archives\%ARCHIVE_NAME%"
 
 if not exist "%ARCHIVE_PY%" (
-    echo [Kykloi] Pre-packaged archive not found locally: %ARCHIVE_NAME%
-    echo [Kykloi] Attempting automatic download...
-    if not exist "%SCRIPT_DIR%system\tools\archives" mkdir "%SCRIPT_DIR%system\tools\archives"
-    powershell -NoProfile -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; (New-Object Net.WebClient).DownloadFile('%DOWNLOAD_URL%', '%ARCHIVE_PY%')"
-    if not exist "%ARCHIVE_PY%" (
-        echo [FATAL] Download failed from: %DOWNLOAD_URL%
-        pause
-        exit /b 1
-    )
+    echo [FATAL] Pre-packaged archive not found: %ARCHIVE_NAME%
+    echo         Expected at: %ARCHIVE_PY%
+    pause
+    exit /b 1
 )
 
 echo [Kykloi] Verifying SHA-256 checksum for %ARCHIVE_NAME%...
@@ -6754,13 +6354,13 @@ REQ_MIN="${REQ_MIN:-10}"
 # ---------------------------------------------------------------------------
 # 0. PARSE CLI FLAGS (e.g. --force-fallback)
 # ---------------------------------------------------------------------------
-for arg do
-    if [ "$arg" = "--force-fallback" ]; then
-        KYKLOI_FORCE_FALLBACK=1
-    else
-        set -- "$@" "$arg"
-    fi
-    shift
+for arg; do
+  if [ "$arg" = "--force-fallback" ]; then
+    KYKLOI_FORCE_FALLBACK=1
+  else
+    set -- "$@" "$arg"
+  fi
+  shift
 done
 
 # ---------------------------------------------------------------------------
@@ -6769,17 +6369,17 @@ done
 USE_HOST_PY=0
 
 if [ "${KYKLOI_FORCE_FALLBACK}" != "1" ] && command -v python3 >/dev/null 2>&1; then
-    PY_VER=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>/dev/null || echo "0.0")
-    MAJ=$(echo "$PY_VER" | cut -d. -f1)
-    MIN=$(echo "$PY_VER" | cut -d. -f2)
-    if [ "$MAJ" -eq "$REQ_MAJ" ] && [ "$MIN" -ge "$REQ_MIN" ]; then
-        USE_HOST_PY=1
-    fi
+  PY_VER=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>/dev/null || echo "0.0")
+  MAJ=$(echo "$PY_VER" | cut -d. -f1)
+  MIN=$(echo "$PY_VER" | cut -d. -f2)
+  if [ "$MAJ" -eq "$REQ_MAJ" ] && [ "$MIN" -ge "$REQ_MIN" ]; then
+    USE_HOST_PY=1
+  fi
 fi
 
 if [ "$USE_HOST_PY" -eq 1 ]; then
-    echo "[Kykloi] Using host Python runtime: $(which python3) (${PY_VER})"
-    exec python3 system/launch.py "$@"
+  echo "[Kykloi] Using host Python runtime: $(which python3) (${PY_VER})"
+  exec python3 system/launch.py "$@"
 fi
 
 # ---------------------------------------------------------------------------
@@ -6789,70 +6389,77 @@ OS="$(uname -s)"
 ARCH="$(uname -m)"
 
 detect_linux_libc() {
-    # 1. Allow explicit user override
-    if [ -n "$KYKLOI_LIBC" ]; then
-        echo "$KYKLOI_LIBC"
-        return
-    fi
+  # 1. Allow explicit user override
+  if [ -n "$KYKLOI_LIBC" ]; then
+    echo "$KYKLOI_LIBC"
+    return
+  fi
 
-    # 2. Check for glibc via getconf (standard on Fedora, Debian, Ubuntu, etc.)
-    if getconf GNU_LIBC_VERSION >/dev/null 2>&1; then
-        echo "gnu"
-        return
-    fi
-
-    # 3. Check ldd signature
-    if ldd --version 2>&1 | grep -iq "glibc\|gnu"; then
-        echo "gnu"
-        return
-    fi
-
-    if ldd --version 2>&1 | grep -iq "musl"; then
-        echo "musl"
-        return
-    fi
-
-    # 4. Check for dynamic linkers in /lib or /lib64
-    if ls /lib/ld-musl-*.so* >/dev/null 2>&1 || ls /lib64/ld-musl-*.so* >/dev/null 2>&1; then
-        echo "musl"
-        return
-    fi
-
-    # 5. Default to GNU
+  # 2. Check for glibc via getconf (standard on Fedora, Debian, Ubuntu, etc.)
+  if getconf GNU_LIBC_VERSION >/dev/null 2>&1; then
     echo "gnu"
+    return
+  fi
+
+  # 3. Check ldd signature
+  if ldd --version 2>&1 | grep -iq "glibc\|gnu"; then
+    echo "gnu"
+    return
+  fi
+
+  if ldd --version 2>&1 | grep -iq "musl"; then
+    echo "musl"
+    return
+  fi
+
+  # 4. Check for dynamic linkers in /lib or /lib64
+  if ls /lib/ld-musl-*.so* >/dev/null 2>&1 || ls /lib64/ld-musl-*.so* >/dev/null 2>&1; then
+    echo "musl"
+    return
+  fi
+
+  # 5. Default to GNU
+  echo "gnu"
 }
 
 case "$OS" in
-    Linux)
-        LIBC="$(detect_linux_libc)"
-        case "$ARCH" in
-            x86_64)
-                if [ "$LIBC" = "musl" ]; then
-                    TARGET="linux-x86_64-musl"
-                else
-                    TARGET="linux-x86_64"
-                fi
-                ;;
-            aarch64|arm64)
-                if [ "$LIBC" = "musl" ]; then
-                    TARGET="linux-arm64-musl"
-                else
-                    TARGET="linux-arm64"
-                fi
-                ;;
-            *) echo "[FATAL] Unsupported Linux architecture: $ARCH" >&2; exit 1 ;;
-        esac
-        ;;
-    Darwin)
-        case "$ARCH" in
-            x86_64) TARGET="macos-x86_64" ;;
-            arm64)  TARGET="macos-arm64" ;;
-            *) echo "[FATAL] Unsupported macOS architecture: $ARCH" >&2; exit 1 ;;
-        esac
-        ;;
-    *)
-        echo "[FATAL] Unsupported operating system: $OS" >&2; exit 1
-        ;;
+Linux)
+  LIBC="$(detect_linux_libc)"
+  case "$ARCH" in
+  x86_64)
+    if [ "$LIBC" = "musl" ]; then
+      TARGET="linux-x86_64-musl"
+    else
+      TARGET="linux-x86_64"
+    fi
+    ;;
+  aarch64 | arm64)
+    if [ "$LIBC" = "musl" ]; then
+      TARGET="linux-arm64-musl"
+    else
+      TARGET="linux-arm64"
+    fi
+    ;;
+  *)
+    echo "[FATAL] Unsupported Linux architecture: $ARCH" >&2
+    exit 1
+    ;;
+  esac
+  ;;
+Darwin)
+  case "$ARCH" in
+  x86_64) TARGET="macos-x86_64" ;;
+  arm64) TARGET="macos-arm64" ;;
+  *)
+    echo "[FATAL] Unsupported macOS architecture: $ARCH" >&2
+    exit 1
+    ;;
+  esac
+  ;;
+*)
+  echo "[FATAL] Unsupported operating system: $OS" >&2
+  exit 1
+  ;;
 esac
 
 # ---------------------------------------------------------------------------
@@ -6863,16 +6470,16 @@ MANIFEST_PATH="$SCRIPT_DIR/system/tools/tools_manifest.json"
 
 # Prioritize persistent user cache over /tmp to prevent noexec mount execution traps
 if [ -n "$XDG_CACHE_HOME" ] && [ -w "$XDG_CACHE_HOME" ]; then
-    BASE_RUNTIME="$XDG_CACHE_HOME"
+  BASE_RUNTIME="$XDG_CACHE_HOME"
 elif [ -n "$HOME" ] && [ -w "$HOME" ]; then
-    mkdir -p "$HOME/.cache" 2>/dev/null || true
-    if [ -d "$HOME/.cache" ] && [ -w "$HOME/.cache" ]; then
-        BASE_RUNTIME="$HOME/.cache"
-    else
-        BASE_RUNTIME="/tmp"
-    fi
-else
+  mkdir -p "$HOME/.cache" 2>/dev/null || true
+  if [ -d "$HOME/.cache" ] && [ -w "$HOME/.cache" ]; then
+    BASE_RUNTIME="$HOME/.cache"
+  else
     BASE_RUNTIME="/tmp"
+  fi
+else
+  BASE_RUNTIME="/tmp"
 fi
 
 RUNTIME_ROOT="${BASE_RUNTIME}/kykloi_runtime_${TARGET}"
@@ -6880,24 +6487,24 @@ LOCAL_PY="$RUNTIME_ROOT/bin/python3"
 STAMP_FILE="$RUNTIME_ROOT/.verified_sha256"
 
 compute_sha256() {
-    target_file="$1"
-    if command -v sha256sum >/dev/null 2>&1; then
-        sha256sum "$target_file" | cut -d' ' -f1
-    elif command -v shasum >/dev/null 2>&1; then
-        shasum -a 256 "$target_file" | cut -d' ' -f1
-    elif command -v openssl >/dev/null 2>&1; then
-        openssl dgst -sha256 "$target_file" | awk '{print $NF}'
-    else
-        echo "[FATAL] No SHA-256 verification utility (sha256sum, shasum, openssl) available." >&2
-        exit 1
-    fi
+  target_file="$1"
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$target_file" | cut -d' ' -f1
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$target_file" | cut -d' ' -f1
+  elif command -v openssl >/dev/null 2>&1; then
+    openssl dgst -sha256 "$target_file" | awk '{print $NF}'
+  else
+    echo "[FATAL] No SHA-256 verification utility (sha256sum, shasum, openssl) available." >&2
+    exit 1
+  fi
 }
 
 extract_python_field() {
-    target="$1"
-    field="$2"
-    manifest="$3"
-    awk -v tgt="$target" -v fld="$field" '
+  target="$1"
+  field="$2"
+  manifest="$3"
+  awk -v tgt="$target" -v fld="$field" '
         BEGIN { in_py=0; in_tgt=0 }
         /"python"[[:space:]]*:/ { in_py=1; next }
         in_py && $0 ~ "\"" tgt "\"[[:space:]]*:" { in_tgt=1; next }
@@ -6912,55 +6519,46 @@ extract_python_field() {
 }
 
 if [ ! -f "$LOCAL_PY" ] || [ ! -f "$STAMP_FILE" ]; then
-    if [ ! -f "$MANIFEST_PATH" ]; then
-        echo "[FATAL] Verification manifest missing at: $MANIFEST_PATH" >&2
-        exit 1
-    fi
+  if [ ! -f "$MANIFEST_PATH" ]; then
+    echo "[FATAL] Verification manifest missing at: $MANIFEST_PATH" >&2
+    exit 1
+  fi
 
-    ARCHIVE_NAME=$(extract_python_field "$TARGET" "archive" "$MANIFEST_PATH")
-    EXPECTED_SHA=$(extract_python_field "$TARGET" "sha256" "$MANIFEST_PATH")
-    DOWNLOAD_URL=$(extract_python_field "$TARGET" "url" "$MANIFEST_PATH")
+  ARCHIVE_NAME=$(extract_python_field "$TARGET" "archive" "$MANIFEST_PATH")
+  EXPECTED_SHA=$(extract_python_field "$TARGET" "sha256" "$MANIFEST_PATH")
 
-    if [ -z "$ARCHIVE_NAME" ] || [ -z "$EXPECTED_SHA" ]; then
-        echo "[FATAL] Target ${TARGET} not found in manifest python definitions." >&2
-        exit 1
-    fi
+  if [ -z "$ARCHIVE_NAME" ] || [ -z "$EXPECTED_SHA" ]; then
+    echo "[FATAL] Target ${TARGET} not found in manifest python definitions." >&2
+    exit 1
+  fi
 
-    ARCHIVE_PY="$SCRIPT_DIR/system/tools/archives/$ARCHIVE_NAME"
+  ARCHIVE_PY="$SCRIPT_DIR/system/tools/archives/$ARCHIVE_NAME"
 
-    if [ ! -f "$ARCHIVE_PY" ]; then
-        echo "[Kykloi] Pre-packaged archive not found locally: $ARCHIVE_NAME"
-        echo "[Kykloi] Attempting automatic download..."
-        mkdir -p "$SCRIPT_DIR/system/tools/archives"
-        if command -v curl >/dev/null 2>&1; then
-            curl -fSL "$DOWNLOAD_URL" -o "$ARCHIVE_PY"
-        elif command -v wget >/dev/null 2>&1; then
-            wget "$DOWNLOAD_URL" -O "$ARCHIVE_PY"
-        else
-            echo "[FATAL] No network downloader (curl, wget) available and local archive missing." >&2
-            exit 1
-        fi
-    fi
+  if [ ! -f "$ARCHIVE_PY" ]; then
+    echo "[FATAL] Pre-packaged archive not found: $ARCHIVE_NAME" >&2
+    echo "        Expected at: $ARCHIVE_PY" >&2
+    exit 1
+  fi
 
-    echo "[Kykloi] Verifying SHA-256 for $ARCHIVE_NAME..."
-    ACTUAL_SHA=$(compute_sha256 "$ARCHIVE_PY")
+  echo "[Kykloi] Verifying SHA-256 for $ARCHIVE_NAME..."
+  ACTUAL_SHA=$(compute_sha256 "$ARCHIVE_PY")
 
-    if [ "$ACTUAL_SHA" != "$EXPECTED_SHA" ]; then
-        echo "[FATAL] Checksum verification failed for $ARCHIVE_NAME" >&2
-        echo "        Expected: $EXPECTED_SHA" >&2
-        echo "        Actual:   $ACTUAL_SHA" >&2
-        exit 1
-    fi
+  if [ "$ACTUAL_SHA" != "$EXPECTED_SHA" ]; then
+    echo "[FATAL] Checksum verification failed for $ARCHIVE_NAME" >&2
+    echo "        Expected: $EXPECTED_SHA" >&2
+    echo "        Actual:   $ACTUAL_SHA" >&2
+    exit 1
+  fi
 
-    echo "[Kykloi] Checksum verified. Extracting portable Python runtime to $RUNTIME_ROOT..."
-    rm -rf "$RUNTIME_ROOT"
-    mkdir -p "$RUNTIME_ROOT"
-    tar -xzf "$ARCHIVE_PY" -C "$RUNTIME_ROOT" --strip-components=1
-    printf "%s" "$ACTUAL_SHA" > "$STAMP_FILE"
+  echo "[Kykloi] Checksum verified. Extracting portable Python runtime to $RUNTIME_ROOT..."
+  rm -rf "$RUNTIME_ROOT"
+  mkdir -p "$RUNTIME_ROOT"
+  tar -xzf "$ARCHIVE_PY" -C "$RUNTIME_ROOT" --strip-components=1
+  printf "%s" "$ACTUAL_SHA" >"$STAMP_FILE"
 
-    if [ "$OS" = "Darwin" ]; then
-        xattr -dr com.apple.quarantine "$RUNTIME_ROOT" 2>/dev/null || true
-    fi
+  if [ "$OS" = "Darwin" ]; then
+    xattr -dr com.apple.quarantine "$RUNTIME_ROOT" 2>/dev/null || true
+  fi
 fi
 
 # ---------------------------------------------------------------------------
@@ -6974,9 +6572,9 @@ exec "$LOCAL_PY" "$SCRIPT_DIR/system/launch.py" "$@"
 
 ```toml
 [project]
-name = "kykloi"
-version = "0.5.0"
-description = "Deterministic Archival Markdown SSG with WebCrypto Encryption"
+name = "Kykloi"
+version = "0.7.0"
+description = "Deterministic Archival Knowlege Management and SSG"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = []
