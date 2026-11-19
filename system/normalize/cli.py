@@ -5,6 +5,7 @@ system/normalize/cli.py
 
 import argparse
 import os
+import re
 import sys
 import time
 from dataclasses import dataclass, field
@@ -17,6 +18,10 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from system.normalize.db import FileRecord, VaultDB
+
+CITATION_PATTERN = re.compile(
+    r"(?:\[@[a-zA-Z0-9_:.#$%&-]+|(?<!\w)@[a-zA-Z0-9_:.#$%&-]+)"
+)
 from system.normalize.engine import ActionType, DiffPlan, compute_diff
 from system.normalize.graph import (
     heal_markdown_links,
@@ -258,6 +263,110 @@ def execute_transaction(manifest: TransactionManifest, db: VaultDB) -> bool:
         raise
 
 
+def parse_frontmatter_dict(text: str) -> dict:
+    if not text.startswith("---"):
+        return {}
+
+    lines = text.splitlines()
+    yaml_lines = []
+    for line in lines[1:]:
+        if line.strip() in ("---", "..."):
+            break
+        yaml_lines.append(line)
+
+    result = {}
+    current_key = None
+    multiline_mode = None
+    multiline_accumulator = []
+
+    def commit_multiline():
+        nonlocal current_key, multiline_mode, multiline_accumulator
+        if current_key and multiline_mode:
+            val = (
+                "\n".join(multiline_accumulator)
+                if multiline_mode == "|"
+                else " ".join(" ".join(multiline_accumulator).split())
+            )
+            result[current_key] = val
+        multiline_mode = None
+        multiline_accumulator = []
+
+    for line in yaml_lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+
+        indent = len(line) - len(line.lstrip())
+
+        if multiline_mode and indent > 0:
+            multiline_accumulator.append(stripped)
+            continue
+        elif multiline_mode and indent == 0:
+            commit_multiline()
+
+        if stripped.startswith("- ") and current_key:
+            item = stripped[2:].strip().strip("'\"")
+            if not isinstance(result.get(current_key), list):
+                result[current_key] = []
+            result[current_key].append(item)
+            continue
+
+        if ":" in stripped:
+            key, raw_val = stripped.split(":", 1)
+            key = key.strip()
+            raw_val = raw_val.strip()
+            current_key = key
+
+            if raw_val in ("|", ">"):
+                multiline_mode = raw_val
+                multiline_accumulator = []
+                continue
+
+            if raw_val.startswith("[") and raw_val.endswith("]"):
+                inner = raw_val[1:-1].strip()
+                result[key] = (
+                    [x.strip().strip("'\"") for x in inner.split(",") if x.strip()]
+                    if inner
+                    else []
+                )
+                continue
+
+            if (raw_val.startswith('"') and raw_val.endswith('"')) or (
+                raw_val.startswith("'") and raw_val.endswith("'")
+            ):
+                raw_val = raw_val[1:-1]
+
+            result[key] = raw_val
+
+    commit_multiline()
+    return result
+
+
+def extract_frontmatter_metadata(content: str, stem: str) -> Tuple[str, str, str, bool]:
+    parsed = parse_frontmatter_dict(content)
+    title = str(parsed.get("title", "")).strip()
+    date_edtf = str(parsed.get("date_edtf") or parsed.get("date", "")).strip()
+
+    keywords_val = parsed.get("keywords", "")
+    if isinstance(keywords_val, list):
+        keywords = " ".join(str(k).strip() for k in keywords_val)
+    elif isinstance(keywords_val, str):
+        keywords = keywords_val.strip()
+    else:
+        keywords = ""
+
+    has_citations = bool(CITATION_PATTERN.search(content))
+
+    if not title:
+        clean_stem = stem
+        ts_match = re.match(r"^(\d{8}|\d{12}|\d{14})[-_\s]+(.+)$", clean_stem)
+        if ts_match:
+            clean_stem = ts_match.group(2)
+        title = clean_stem.replace("-", " ").replace("_", " ").title()
+
+    return title, date_edtf, keywords, has_citations
+
+
 def sync_db_with_disk(content_root: Path, db: VaultDB):
     """Refreshes the SQLite ledger to match physical disk state after execution."""
     scan_res = scan_vault(content_root, db)
@@ -292,6 +401,19 @@ def sync_db_with_disk(content_root: Path, db: VaultDB):
                 ]
                 db.replace_document_links(
                     f.canonical_filename, to_link_records(valid_links)
+                )
+
+                title, date_edtf, keywords, has_cites = extract_frontmatter_metadata(
+                    content, f.stem
+                )
+                db.upsert_doc_metadata(
+                    DocMetadataRecord(
+                        canonical_filename=f.canonical_filename,
+                        title=title,
+                        date_edtf=date_edtf,
+                        keywords=keywords,
+                        has_citations=has_cites,
+                    )
                 )
             except OSError:
                 pass

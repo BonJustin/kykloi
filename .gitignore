@@ -7,6 +7,17 @@ wheels/
 # Virtual environments
 .venv
 
+# Logs
+*.log
+
+# Databases (auto-generated)
+*.db
+*.db-wal
+*.db-shm
+
+# Generated artifacts
+dist/
+
 # Project binaries
 system/tools/archives/*.tar.gz
 system/tools/archives/*.zip

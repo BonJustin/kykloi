@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional
 
-SCHEMA_VERSION = "2.0"
+SCHEMA_VERSION = "3.0"
 
 SCHEMA_SQL = """
 PRAGMA foreign_keys = ON;
@@ -48,6 +48,21 @@ CREATE TABLE IF NOT EXISTS links (
 
 CREATE INDEX IF NOT EXISTS idx_links_target ON links(target_canonical);
 CREATE INDEX IF NOT EXISTS idx_links_source ON links(source_canonical);
+
+CREATE TABLE IF NOT EXISTS doc_metadata (
+    canonical_filename TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    date_edtf TEXT NOT NULL,
+    keywords TEXT NOT NULL,
+    has_citations INTEGER NOT NULL DEFAULT 0,
+    FOREIGN KEY(canonical_filename) REFERENCES files(canonical_filename) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS build_artifacts (
+    target_rel_path TEXT PRIMARY KEY,
+    source_sha256 TEXT NOT NULL,
+    artifact_category TEXT NOT NULL
+);
 """
 
 
@@ -71,6 +86,22 @@ class LinkRecord:
     target_canonical: str
     raw_target: str
     line_number: Optional[int]
+
+
+@dataclass(frozen=True)
+class DocMetadataRecord:
+    canonical_filename: str
+    title: str
+    date_edtf: str
+    keywords: str
+    has_citations: bool
+
+
+@dataclass(frozen=True)
+class BuildArtifactRecord:
+    target_rel_path: str
+    source_sha256: str
+    artifact_category: str
 
 
 class VaultDB:
@@ -126,6 +157,8 @@ class VaultDB:
         if current_version != SCHEMA_VERSION:
             with conn:
                 conn.execute("PRAGMA foreign_keys = OFF;")
+                conn.execute("DROP TABLE IF EXISTS build_artifacts;")
+                conn.execute("DROP TABLE IF EXISTS doc_metadata;")
                 conn.execute("DROP TABLE IF EXISTS links;")
                 conn.execute("DROP TABLE IF EXISTS files;")
                 conn.execute("DROP TABLE IF EXISTS meta;")
@@ -309,9 +342,125 @@ class VaultDB:
             for r in rows
         ]
 
-    # -----------------------------------------------------------------------
-    # Helper Conversion
-    # -----------------------------------------------------------------------
+        # -----------------------------------------------------------------------
+        # Document Metadata Operations
+        # -----------------------------------------------------------------------
+
+        def upsert_doc_metadata(self, record: DocMetadataRecord):
+            conn = self.connect()
+            conn.execute(
+                """
+                INSERT INTO doc_metadata (canonical_filename, title, date_edtf, keywords, has_citations)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(canonical_filename) DO UPDATE SET
+                    title = excluded.title,
+                    date_edtf = excluded.date_edtf,
+                    keywords = excluded.keywords,
+                    has_citations = excluded.has_citations;
+                """,
+                (
+                    record.canonical_filename,
+                    record.title,
+                    record.date_edtf,
+                    record.keywords,
+                    1 if record.has_citations else 0,
+                ),
+            )
+
+        def get_doc_metadata(
+            self, canonical_filename: str
+        ) -> Optional[DocMetadataRecord]:
+            conn = self.connect()
+            row = conn.execute(
+                "SELECT * FROM doc_metadata WHERE canonical_filename = ?;",
+                (canonical_filename,),
+            ).fetchone()
+            if not row:
+                return None
+            return DocMetadataRecord(
+                canonical_filename=row["canonical_filename"],
+                title=row["title"],
+                date_edtf=row["date_edtf"],
+                keywords=row["keywords"],
+                has_citations=bool(row["has_citations"]),
+            )
+
+        def get_all_doc_metadata(self) -> Dict[str, DocMetadataRecord]:
+            conn = self.connect()
+            rows = conn.execute("SELECT * FROM doc_metadata;").fetchall()
+            return {
+                r["canonical_filename"]: DocMetadataRecord(
+                    canonical_filename=r["canonical_filename"],
+                    title=r["title"],
+                    date_edtf=r["date_edtf"],
+                    keywords=r["keywords"],
+                    has_citations=bool(r["has_citations"]),
+                )
+                for r in rows
+            }
+
+        # -----------------------------------------------------------------------
+        # Build Artifact Operations
+        # -----------------------------------------------------------------------
+
+        def upsert_build_artifacts(self, records: List[BuildArtifactRecord]):
+            if not records:
+                return
+            conn = self.connect()
+            with conn:
+                conn.executemany(
+                    """
+                    INSERT INTO build_artifacts (target_rel_path, source_sha256, artifact_category)
+                    VALUES (?, ?, ?)
+                    ON CONFLICT(target_rel_path) DO UPDATE SET
+                        source_sha256 = excluded.source_sha256,
+                        artifact_category = excluded.artifact_category;
+                    """,
+                    [
+                        (r.target_rel_path, r.source_sha256, r.artifact_category)
+                        for r in records
+                    ],
+                )
+
+        def get_all_build_artifacts(self) -> Dict[str, BuildArtifactRecord]:
+            conn = self.connect()
+            rows = conn.execute("SELECT * FROM build_artifacts;").fetchall()
+            return {
+                r["target_rel_path"]: BuildArtifactRecord(
+                    target_rel_path=r["target_rel_path"],
+                    source_sha256=r["source_sha256"],
+                    artifact_category=r["artifact_category"],
+                )
+                for r in rows
+            }
+
+        def prune_build_artifacts(self, valid_targets: Set[str]) -> int:
+            conn = self.connect()
+            rows = conn.execute(
+                "SELECT target_rel_path FROM build_artifacts;"
+            ).fetchall()
+            to_delete = [
+                r["target_rel_path"]
+                for r in rows
+                if r["target_rel_path"] not in valid_targets
+            ]
+            if to_delete:
+                with conn:
+                    conn.executemany(
+                        "DELETE FROM build_artifacts WHERE target_rel_path = ?;",
+                        [(t,) for t in to_delete],
+                    )
+            return len(to_delete)
+
+        def clear_build_state(self):
+            conn = self.connect()
+            with conn:
+                conn.execute("DELETE FROM build_artifacts;")
+                conn.execute("DELETE FROM meta WHERE key != 'schema_version';")
+
+        # -----------------------------------------------------------------------
+        # Helper Conversion
+        # -----------------------------------------------------------------------
 
     @staticmethod
     def _row_to_file_record(row: sqlite3.Row) -> FileRecord:

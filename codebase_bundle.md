@@ -5806,14 +5806,6 @@ def parse_args():
     return p.parse_args()
 
 
-def pause_for_user(prompt: str = "\nPress Enter to return to the menu..."):
-    """Pauses terminal output until the user presses Enter, handling SIGINT gracefully."""
-    try:
-        input(prompt)
-    except (KeyboardInterrupt, EOFError):
-        print()
-
-
 def interactive_menu(
     vault_url: str,
     initial_password: str | None,
@@ -5859,10 +5851,8 @@ def interactive_menu(
 
         if choice == "1":
             execute_build(clean=False, passphrase=session_password, log_file=log_file)
-            pause_for_user()
         elif choice == "2":
             execute_build(clean=True, passphrase=session_password, log_file=log_file)
-            pause_for_user()
         elif choice == "3":
             logger.info("Initiating vault normalization pipeline...")
             run_normalization_pipeline(
@@ -5872,7 +5862,6 @@ def interactive_menu(
                 auto_apply=False,
                 check_only=False,
             )
-            pause_for_user()
         elif choice == "4":
             logger.info("Auditing vault structure and links...")
             run_normalization_pipeline(
@@ -5882,7 +5871,6 @@ def interactive_menu(
                 auto_apply=False,
                 check_only=True,
             )
-            pause_for_user()
         elif choice == "5":
             import getpass
 
@@ -5898,22 +5886,18 @@ def interactive_menu(
             except (KeyboardInterrupt, EOFError):
                 print()
                 logger.warning("Passphrase input aborted by user.")
-            pause_for_user()
         elif choice == "6":
             if not vault_ready:
                 logger.warning("Vault must be compiled before opening in browser.")
             else:
                 logger.info("Opening browser target: %s", vault_url)
                 webbrowser.open(vault_url)
-            pause_for_user()
         elif choice == "7":
             print_crypto_diagnostics()
-            pause_for_user()
         elif choice == "0":
             break
         else:
             logger.warning("Unrecognized menu option: %s", choice)
-            pause_for_user()
 
 
 def main():
