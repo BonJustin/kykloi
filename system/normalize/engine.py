@@ -397,26 +397,28 @@ def compute_diff(scan_result: VaultScanResult, db: VaultDB) -> DiffPlan:
                 )
             )
 
-    # Step 6: Remaining unmatched DB files -> DELETE
-    for rel_path in sorted(unmatched_db_paths):
-        db_rec = db_files[rel_path]
-        inbound_links = db.get_referencing_links(db_rec.stem)
+        # Step 6: Remaining unmatched DB files -> DELETE
+        for rel_path in sorted(unmatched_db_paths):
+            db_rec = db_files[rel_path]
+            inbound_links = db.get_referencing_links(db_rec.canonical_filename)
 
-        if inbound_links:
-            plan.broken_references[db_rec.stem] = [l.source_stem for l in inbound_links]
+            if inbound_links:
+                plan.broken_references[db_rec.stem] = [
+                    l.source_canonical for l in inbound_links
+                ]
 
-        plan.actions.append(
-            FileAction(
-                action_type=ActionType.DELETE,
-                src_rel_path=db_rec.rel_path,
-                dst_rel_path=None,
-                old_stem=db_rec.stem,
-                new_stem=None,
-                sha256=db_rec.sha256,
-                is_media=db_rec.is_media,
-                is_secure=db_rec.is_secure,
-                reason=f"File removed from disk (had {len(inbound_links)} inbound references).",
+            plan.actions.append(
+                FileAction(
+                    action_type=ActionType.DELETE,
+                    src_rel_path=db_rec.rel_path,
+                    dst_rel_path=None,
+                    old_stem=db_rec.stem,
+                    new_stem=None,
+                    sha256=db_rec.sha256,
+                    is_media=db_rec.is_media,
+                    is_secure=db_rec.is_secure,
+                    reason=f"File removed from disk (had {len(inbound_links)} inbound references).",
+                )
             )
-        )
 
     return plan
