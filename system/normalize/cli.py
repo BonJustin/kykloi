@@ -1,8 +1,6 @@
 # system/normalize/cli.py
 """
-system/normalize/cli.py - Standalone Normalization CLI & Transaction Engine.
-Part of Project Kykloi.
-Features non-destructive atomic execution, rollback journaling, and terminal diffs.
+system/normalize/cli.py
 """
 
 import argparse

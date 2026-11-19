@@ -21,10 +21,9 @@ EXTERNAL_OR_ANCHOR_PATTERN = re.compile(
 # Inline code span regex: `code` or ``code``
 INLINE_CODE_PATTERN = re.compile(r"`+[^`]+`+")
 
-# CommonMark Link and Image Regex:
-# Matches [label](url "optional title") and ![alt](url)
+# Match: [label](<destination with spaces>) OR [label](bare_destination)
 LINK_OR_IMAGE_PATTERN = re.compile(
-    r"(!?\[((?:[^\[\]]|\\.)*)\])\(\s*([^\s\)\"\']+)(?:\s+([\"'])(.*?)\4)?\s*\)"
+    r"(!?\[((?:[^\[\]]|\\.)*)\])\(\s*(?:<([^>]+)>|([^\s\)\"\']+))(?:\s+([\"'])(.*?)\5)?\s*\)"
 )
 
 
@@ -110,7 +109,8 @@ def parse_markdown_links(content: str, source_stem: str) -> List[ExtractedLink]:
         for match in LINK_OR_IMAGE_PATTERN.finditer(sanitized_line):
             is_image = match.group(1).startswith("!")
             label = match.group(2)
-            raw_url = match.group(3)
+            # Group 3 is <destination>, Group 4 is bare destination
+            raw_url = (match.group(3) or match.group(4) or "").strip()
 
             if is_external_or_anchor(raw_url):
                 continue
@@ -213,9 +213,11 @@ def heal_markdown_links(
                 return m.group(0)
 
             prefix = m.group(1)
-            raw_url = m.group(3)
-            quote_char = m.group(4) or ""
-            title_text = m.group(5) or ""
+            # Group 3 is <destination>, Group 4 is bare destination
+            raw_url = (m.group(3) or m.group(4) or "").strip()
+            # Quote character and title shifted from groups 4 & 5 to 5 & 6
+            quote_char = m.group(5) or ""
+            title_text = m.group(6) or ""
 
             if is_external_or_anchor(raw_url):
                 return m.group(0)
