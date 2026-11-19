@@ -189,6 +189,10 @@ document.addEventListener("DOMContentLoaded", () => {
         const blob = new Blob([decryptedBuffer], { type: mimeType });
         const blobUrl = URL.createObjectURL(blob);
 
+        img.onload = () => {
+          URL.revokeObjectURL(blobUrl);
+        };
+
         img.src = blobUrl;
         img.removeAttribute("data-encrypted-media");
       } catch (mediaErr) {

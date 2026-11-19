@@ -5,7 +5,8 @@ local function is_external(url)
 end
 
 function Link(el)
-  if is_external(el.target) or el.target:sub(1, 1) == "#" then
+  -- Bypass external protocols and pure in-page anchors immediately
+  if is_external(el.target) or el.target:sub(1, 1) == "#" or el.target:sub(1, 1) == "?" then
     return el
   end
 
@@ -16,9 +17,18 @@ function Link(el)
     suffix = ""
   end
 
-  if path:match("%.md$") then
-    path = path:gsub("%.md$", ".html")
-    el.target = path .. separator .. suffix
+  -- If path component is empty, it is an in-page query or fragment
+  if path == "" then
+    return el
+  end
+
+  local ext = path:match("%.([a-zA-Z0-9]+)$")
+  if ext then
+    local lower_ext = ext:lower()
+    if lower_ext == "md" or lower_ext == "markdown" then
+      path = path:sub(1, -#ext - 2) .. ".html"
+      el.target = path .. separator .. suffix
+    end
   end
 
   return el

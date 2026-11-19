@@ -40,6 +40,15 @@ class FileAction:
     reason: str
 
 
+@dataclass(frozen=True)
+class BoundaryViolation:
+    source_rel_path: str
+    target_rel_path: str
+    source_is_secure: bool
+    target_is_secure: bool
+    line_number: int
+
+
 @dataclass
 class DiffPlan:
     actions: List[FileAction] = field(default_factory=list)
@@ -47,19 +56,23 @@ class DiffPlan:
     broken_references: Dict[str, List[str]] = field(
         default_factory=lambda: defaultdict(list)
     )
+    boundary_violations: List[BoundaryViolation] = field(default_factory=list)
 
     @property
     def has_mutations(self) -> bool:
         return any(a.action_type != ActionType.NOOP for a in self.actions)
 
 
-def resolve_collision_stem(base_stem: str, existing_stems: Set[str]) -> str:
-    """Appends the lowest available positive integer suffix (e.g. 'energy-1')."""
+def resolve_collision_stem(
+    base_stem: str, ext: str, existing_filenames: Set[str]
+) -> str:
+    """Appends the lowest available positive integer suffix (e.g. 'energy-1.md')."""
     counter = 1
     while True:
-        candidate = f"{base_stem}-{counter}"
-        if candidate not in existing_stems:
-            return candidate
+        candidate_stem = f"{base_stem}-{counter}"
+        candidate_filename = f"{candidate_stem}{ext}"
+        if candidate_filename not in existing_filenames:
+            return candidate_stem
         counter += 1
 
 
@@ -79,15 +92,14 @@ def compute_diff(scan_result: VaultScanResult, db: VaultDB) -> DiffPlan:
     disk_files = scan_result.files
     disk_by_path: Dict[str, ScannedFile] = {f.rel_path: f for f in disk_files}
 
-    # Step 1: Detect canonical stem collisions across scanned disk files
-    disk_stems: Dict[str, List[ScannedFile]] = defaultdict(list)
+    # Step 1: Detect canonical filename collisions across scanned disk files
+    disk_filenames: Dict[str, List[ScannedFile]] = defaultdict(list)
     for f in disk_files:
-        canonical = slugify_stem(f.stem)
-        disk_stems[canonical].append(f)
+        disk_filenames[f.canonical_filename].append(f)
 
-    for stem, occurrences in disk_stems.items():
+    for c_filename, occurrences in disk_filenames.items():
         if len(occurrences) > 1:
-            plan.collisions[stem] = [o.rel_path for o in occurrences]
+            plan.collisions[c_filename] = [o.rel_path for o in occurrences]
 
     unmatched_db_paths: Set[str] = set(db_files.keys())
     unmatched_disk_paths: Set[str] = set(disk_by_path.keys())
@@ -128,8 +140,11 @@ def compute_diff(scan_result: VaultScanResult, db: VaultDB) -> DiffPlan:
                 unmatched_db_paths.remove(db_rec.rel_path)
                 unmatched_disk_paths.remove(rel_path)
 
-    # Track allocated stems to ensure uniqueness in new mutations
-    allocated_stems: Set[str] = set()
+    # Track allocated canonical filenames to ensure global uniqueness across content/
+    allocated_filenames: Set[str] = set()
+
+    # Sort matched pairs deterministically by (mtime, rel_path)
+    matched_pairs.sort(key=lambda pair: (pair[1].mtime, pair[1].rel_path))
 
     # Evaluate correlated pairs
     for db_rec, disk_rec in matched_pairs:
@@ -138,24 +153,27 @@ def compute_diff(scan_result: VaultScanResult, db: VaultDB) -> DiffPlan:
         h_match = db_rec.sha256 == disk_rec.sha256
 
         canonical_stem = slugify_stem(disk_rec.stem)
+        canonical_filename = f"{canonical_stem}{disk_rec.ext}"
         canonical_path = sanitize_path_segments(disk_rec.rel_path)
 
         needs_stem_sanitize = (
             not is_valid_stem(disk_rec.stem) or disk_rec.stem != canonical_stem
         )
         needs_path_sanitize = disk_rec.rel_path != canonical_path
+        is_colliding = canonical_filename in allocated_filenames
 
         if p_match and s_match and h_match:
-            if needs_stem_sanitize:
+            if is_colliding or needs_stem_sanitize:
                 target_stem = canonical_stem
-                if target_stem in allocated_stems:
+                if is_colliding:
                     target_stem = resolve_collision_stem(
-                        canonical_stem, allocated_stems
+                        canonical_stem, disk_rec.ext, allocated_filenames
                     )
-                allocated_stems.add(target_stem)
+                target_filename = f"{target_stem}{disk_rec.ext}"
+                allocated_filenames.add(target_filename)
                 action_type = (
                     ActionType.RESOLVE_COLLISION
-                    if target_stem != canonical_stem
+                    if is_colliding
                     else ActionType.SANITIZE_STEM
                 )
                 plan.actions.append(
@@ -163,18 +181,18 @@ def compute_diff(scan_result: VaultScanResult, db: VaultDB) -> DiffPlan:
                         action_type=action_type,
                         src_rel_path=disk_rec.rel_path,
                         dst_rel_path=str(
-                            PurePosixPath(disk_rec.rel_path).with_stem(target_stem)
+                            PurePosixPath(disk_rec.rel_path).with_name(target_filename)
                         ),
                         old_stem=disk_rec.stem,
                         new_stem=target_stem,
                         sha256=disk_rec.sha256,
                         is_media=disk_rec.is_media,
                         is_secure=disk_rec.is_secure,
-                        reason="Stem violates archival UID specification.",
+                        reason="Collision resolved or stem violates archival specification.",
                     )
                 )
             elif needs_path_sanitize:
-                allocated_stems.add(disk_rec.stem)
+                allocated_filenames.add(canonical_filename)
                 plan.actions.append(
                     FileAction(
                         action_type=ActionType.SANITIZE_PATH,
@@ -189,7 +207,7 @@ def compute_diff(scan_result: VaultScanResult, db: VaultDB) -> DiffPlan:
                     )
                 )
             else:
-                allocated_stems.add(disk_rec.stem)
+                allocated_filenames.add(canonical_filename)
                 plan.actions.append(
                     FileAction(
                         action_type=ActionType.NOOP,
@@ -205,7 +223,7 @@ def compute_diff(scan_result: VaultScanResult, db: VaultDB) -> DiffPlan:
                 )
 
         elif p_match and s_match and not h_match:
-            allocated_stems.add(disk_rec.stem)
+            allocated_filenames.add(canonical_filename)
             plan.actions.append(
                 FileAction(
                     action_type=ActionType.MODIFY_CONTENT,
@@ -221,7 +239,7 @@ def compute_diff(scan_result: VaultScanResult, db: VaultDB) -> DiffPlan:
             )
 
         elif not p_match and s_match and h_match:
-            allocated_stems.add(disk_rec.stem)
+            allocated_filenames.add(canonical_filename)
             plan.actions.append(
                 FileAction(
                     action_type=ActionType.MOVE,
@@ -242,7 +260,7 @@ def compute_diff(scan_result: VaultScanResult, db: VaultDB) -> DiffPlan:
             and not s_match
             and h_match
         ):
-            allocated_stems.add(disk_rec.stem)
+            allocated_filenames.add(canonical_filename)
             plan.actions.append(
                 FileAction(
                     action_type=ActionType.RENAME,
@@ -263,7 +281,7 @@ def compute_diff(scan_result: VaultScanResult, db: VaultDB) -> DiffPlan:
             and not s_match
             and h_match
         ):
-            allocated_stems.add(disk_rec.stem)
+            allocated_filenames.add(canonical_filename)
             plan.actions.append(
                 FileAction(
                     action_type=ActionType.MOVE_AND_RENAME,
@@ -279,7 +297,7 @@ def compute_diff(scan_result: VaultScanResult, db: VaultDB) -> DiffPlan:
             )
 
         elif not p_match and s_match and not h_match:
-            allocated_stems.add(disk_rec.stem)
+            allocated_filenames.add(canonical_filename)
             plan.actions.append(
                 FileAction(
                     action_type=ActionType.MOVE,
@@ -295,12 +313,10 @@ def compute_diff(scan_result: VaultScanResult, db: VaultDB) -> DiffPlan:
             )
 
     # Step 5: Remaining unmatched disk files -> CREATE, SANITIZE, or RESOLVE_COLLISION
-    # Seed allocated stems with surviving DB stems not matched to a file
-    for db_stem, db_rec in db_by_stem.items():
+    for db_rec in db_files.values():
         if db_rec.rel_path in unmatched_db_paths:
-            allocated_stems.add(db_stem)
+            allocated_filenames.add(db_rec.canonical_filename)
 
-    # Sort deterministically by (mtime, rel_path) per Section 5.1
     sorted_unmatched_disk = sorted(
         unmatched_disk_paths,
         key=lambda p: (disk_by_path[p].mtime, p),
@@ -309,18 +325,24 @@ def compute_diff(scan_result: VaultScanResult, db: VaultDB) -> DiffPlan:
     for rel_path in sorted_unmatched_disk:
         disk_rec = disk_by_path[rel_path]
         canonical_stem = slugify_stem(disk_rec.stem)
+        canonical_filename = f"{canonical_stem}{disk_rec.ext}"
         target_stem = canonical_stem
         is_collision = False
 
-        if target_stem in allocated_stems:
-            target_stem = resolve_collision_stem(canonical_stem, allocated_stems)
+        if canonical_filename in allocated_filenames:
+            target_stem = resolve_collision_stem(
+                canonical_stem, disk_rec.ext, allocated_filenames
+            )
             is_collision = True
 
-        allocated_stems.add(target_stem)
+        target_filename = f"{target_stem}{disk_rec.ext}"
+        allocated_filenames.add(target_filename)
 
         canonical_path = sanitize_path_segments(rel_path)
         if target_stem != disk_rec.stem:
-            canonical_path = str(PurePosixPath(canonical_path).with_stem(target_stem))
+            canonical_path = str(
+                PurePosixPath(canonical_path).with_name(target_filename)
+            )
 
         needs_stem_sanitize = (
             not is_valid_stem(disk_rec.stem) or disk_rec.stem != target_stem

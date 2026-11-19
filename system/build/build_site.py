@@ -1881,7 +1881,8 @@ def main():
     search_records: list[dict] = []
     for idx, rec in enumerate(md_records):
         src_path = SRC / rec.rel_path
-        clean_url = Path(rec.rel_path).with_suffix(".html").as_posix().lstrip("/")
+        raw_url = Path(rec.rel_path).with_suffix(".html").as_posix().lstrip("/")
+        clean_url = urllib.parse.quote(raw_url, safe="/")
         meta = file_metadata_map[src_path]
         search_records.append(
             {

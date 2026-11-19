@@ -86,6 +86,7 @@ kykloi/
 ├── .gitignore
 ├── .python-version
 ├── assemble_code_to_md.py
+├── error-vectors-identified.md
 ├── launch.bat
 ├── launch.sh
 ├── pyproject.toml
@@ -443,6 +444,10 @@ document.addEventListener("DOMContentLoaded", () => {
         const mimeType = getMimeTypeFromUrl(srcUrl);
         const blob = new Blob([decryptedBuffer], { type: mimeType });
         const blobUrl = URL.createObjectURL(blob);
+
+        img.onload = () => {
+          URL.revokeObjectURL(blobUrl);
+        };
 
         img.src = blobUrl;
         img.removeAttribute("data-encrypted-media");
@@ -3171,7 +3176,8 @@ def main():
     search_records: list[dict] = []
     for idx, rec in enumerate(md_records):
         src_path = SRC / rec.rel_path
-        clean_url = Path(rec.rel_path).with_suffix(".html").as_posix().lstrip("/")
+        raw_url = Path(rec.rel_path).with_suffix(".html").as_posix().lstrip("/")
+        clean_url = urllib.parse.quote(raw_url, safe="/")
         meta = file_metadata_map[src_path]
         search_records.append(
             {
@@ -3320,7 +3326,8 @@ local function is_external(url)
 end
 
 function Link(el)
-  if is_external(el.target) or el.target:sub(1, 1) == "#" then
+  -- Bypass external protocols and pure in-page anchors immediately
+  if is_external(el.target) or el.target:sub(1, 1) == "#" or el.target:sub(1, 1) == "?" then
     return el
   end
 
@@ -3331,9 +3338,18 @@ function Link(el)
     suffix = ""
   end
 
-  if path:match("%.md$") then
-    path = path:gsub("%.md$", ".html")
-    el.target = path .. separator .. suffix
+  -- If path component is empty, it is an in-page query or fragment
+  if path == "" then
+    return el
+  end
+
+  local ext = path:match("%.([a-zA-Z0-9]+)$")
+  if ext then
+    local lower_ext = ext:lower()
+    if lower_ext == "md" or lower_ext == "markdown" then
+      path = path:sub(1, -#ext - 2) .. ".html"
+      el.target = path .. separator .. suffix
+    end
   end
 
   return el
@@ -3622,20 +3638,25 @@ def execute_transaction(manifest: TransactionManifest, db: VaultDB) -> bool:
             tmp_path.write_text(new_content, encoding="utf-8")
             created_tmp_files.append(tmp_path)
 
-        # Phase 2: Execute disk renames
-        for src, dst in manifest.disk_renames:
-            if src == dst:
-                continue
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            if src.parent == dst.parent and src.name.lower() == dst.name.lower():
-                case_tmp = (
-                    dst.parent / f".norm_case_tmp_{os.urandom(4).hex()}_{dst.name}"
-                )
-                src.rename(case_tmp)
-                case_tmp.rename(dst)
-            else:
-                src.rename(dst)
-            executed_renames.append((dst, src))
+            # Phase 2: Execute disk renames
+            for src, dst in manifest.disk_renames:
+                if src == dst:
+                    continue
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                if src.parent == dst.parent and src.name.lower() == dst.name.lower():
+                    case_tmp = (
+                        dst.parent / f".norm_case_tmp_{os.urandom(4).hex()}_{dst.name}"
+                    )
+                    try:
+                        src.rename(case_tmp)
+                        case_tmp.rename(dst)
+                    except Exception:
+                        if case_tmp.exists() and not src.exists():
+                            case_tmp.rename(src)
+                        raise
+                else:
+                    src.rename(dst)
+                executed_renames.append((dst, src))
 
         # Phase 3: Atomically swap text rewrites
         for abs_path, _ in manifest.text_rewrites:
@@ -3691,7 +3712,7 @@ def sync_db_with_disk(content_root: Path, db: VaultDB):
     """Refreshes the SQLite ledger to match physical disk state after execution."""
     scan_res = scan_vault(content_root, db)
     current_paths = {f.rel_path for f in scan_res.files}
-    current_stems = {f.stem for f in scan_res.files}
+    current_canonicals = {f.canonical_filename for f in scan_res.files}
 
     for rel_path, rec in db.get_all_files().items():
         if rel_path not in current_paths:
@@ -3701,7 +3722,9 @@ def sync_db_with_disk(content_root: Path, db: VaultDB):
         db.upsert_file(
             FileRecord(
                 id=None,
+                canonical_filename=f.canonical_filename,
                 stem=f.stem,
+                ext=f.ext,
                 rel_path=f.rel_path,
                 sha256=f.sha256,
                 mtime=f.mtime,
@@ -3713,26 +3736,78 @@ def sync_db_with_disk(content_root: Path, db: VaultDB):
         if not f.is_media and f.ext in MARKDOWN_EXTENSIONS:
             try:
                 content = f.abs_path.read_text(encoding="utf-8")
-                extracted = parse_markdown_links(content, f.stem)
-                valid_links = [l for l in extracted if l.target_stem in current_stems]
-                db.replace_document_links(f.stem, to_link_records(valid_links))
+                extracted = parse_markdown_links(content, f.canonical_filename)
+                valid_links = [
+                    l for l in extracted if l.target_canonical in current_canonicals
+                ]
+                db.replace_document_links(
+                    f.canonical_filename, to_link_records(valid_links)
+                )
             except OSError:
                 pass
+
+
+def audit_security_boundaries(
+    scan_result: VaultScanResult,
+) -> List[Tuple[str, str, int, str]]:
+    """
+    Checks that no document in a secure context references an asset in a public context,
+    and vice-versa. Returns list of (source_rel, target_rel, line_no, reason).
+    """
+    violations = []
+    canonical_map = {f.canonical_filename: f for f in scan_result.files}
+    stem_map = {f.stem: f for f in scan_result.files if not f.is_media}
+
+    for f in scan_result.files:
+        if f.is_media or f.ext not in MARKDOWN_EXTENSIONS:
+            continue
+        try:
+            content = f.abs_path.read_text(encoding="utf-8")
+            links = parse_markdown_links(content, f.canonical_filename)
+            for link in links:
+                target_file = canonical_map.get(link.target_canonical)
+                if not target_file:
+                    target_file = stem_map.get(link.target_stem)
+
+                if target_file and target_file.is_secure != f.is_secure:
+                    s_ctx = "SECURE" if f.is_secure else "PUBLIC"
+                    t_ctx = "SECURE" if target_file.is_secure else "PUBLIC"
+                    violations.append(
+                        (
+                            f.rel_path,
+                            target_file.rel_path,
+                            link.line_number,
+                            f"{s_ctx} file references {t_ctx} asset",
+                        )
+                    )
+        except OSError:
+            pass
+
+    return violations
 
 
 def print_diff_report(
     diff_plan: DiffPlan,
     manifest: TransactionManifest,
     scan_time_ms: float,
+    boundary_violations: List[Tuple[str, str, int, str]],
 ):
     """Outputs an ANSI-colorized summary table of planned mutations."""
     print(f"\n{BOLD}{CYAN}=== Kykloi Content Normalization Plan ==={RESET}")
     print(f"{DIM}Scan duration: {scan_time_ms:.2f} ms{RESET}\n")
 
+    if boundary_violations:
+        print(f"{BOLD}{RED}CRITICAL SECURITY BOUNDARY VIOLATIONS:{RESET}")
+        for src, tgt, line, reason in boundary_violations:
+            print(f"  {RED}[!] {src}:{line} -> {tgt} ({reason}){RESET}")
+        print(
+            f"\n  {YELLOW}Resolve security context mismatches by moving/duplicating assets.{RESET}\n"
+        )
+
     if diff_plan.collisions:
-        print(f"{BOLD}{RED}CRITICAL ANOMALIES (Stem Collisions Detected):{RESET}")
-        for stem, paths in diff_plan.collisions.items():
-            print(f"  {RED}Stem collision on '{stem}':{RESET}")
+        print(f"{BOLD}{RED}CRITICAL ANOMALIES (Filename Collisions Detected):{RESET}")
+        for fname, paths in diff_plan.collisions.items():
+            print(f"  {RED}Filename collision on '{fname}':{RESET}")
             for p in paths:
                 print(f"    - {p}")
         print()
@@ -3804,11 +3879,19 @@ def run_normalization_pipeline(
         db.init_schema()
 
         scan_result = scan_vault(content_root, db)
+        boundary_violations = audit_security_boundaries(scan_result)
         diff_plan = compute_diff(scan_result, db)
         manifest, _ = build_transaction_manifest(content_root, diff_plan, db)
         scan_time_ms = (time.perf_counter() - t0) * 1000.0
 
-        print_diff_report(diff_plan, manifest, scan_time_ms)
+        print_diff_report(diff_plan, manifest, scan_time_ms, boundary_violations)
+
+        if boundary_violations:
+            print(
+                f"{RED}[FATAL] Execution halted: {len(boundary_violations)} security boundary violation(s) must be manually resolved.{RESET}\n",
+                file=sys.stderr,
+            )
+            return 1
 
         has_work = manifest.has_changes or diff_plan.has_mutations
 
@@ -3916,7 +3999,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional
 
-SCHEMA_VERSION = "1.0"
+SCHEMA_VERSION = "2.0"
 
 SCHEMA_SQL = """
 PRAGMA foreign_keys = ON;
@@ -3930,7 +4013,9 @@ CREATE TABLE IF NOT EXISTS meta (
 
 CREATE TABLE IF NOT EXISTS files (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    stem TEXT UNIQUE NOT NULL,
+    canonical_filename TEXT UNIQUE NOT NULL,
+    stem TEXT NOT NULL,
+    ext TEXT NOT NULL,
     rel_path TEXT UNIQUE NOT NULL,
     sha256 TEXT NOT NULL,
     mtime REAL NOT NULL,
@@ -3939,27 +4024,30 @@ CREATE TABLE IF NOT EXISTS files (
     is_secure INTEGER NOT NULL DEFAULT 0
 );
 
+CREATE INDEX IF NOT EXISTS idx_files_canonical ON files(canonical_filename);
 CREATE INDEX IF NOT EXISTS idx_files_stem ON files(stem);
 CREATE INDEX IF NOT EXISTS idx_files_sha256 ON files(sha256);
 CREATE INDEX IF NOT EXISTS idx_files_rel_path ON files(rel_path);
 
 CREATE TABLE IF NOT EXISTS links (
-    source_stem TEXT NOT NULL,
-    target_stem TEXT NOT NULL,
+    source_canonical TEXT NOT NULL,
+    target_canonical TEXT NOT NULL,
     raw_target TEXT NOT NULL,
     line_number INTEGER,
-    FOREIGN KEY(source_stem) REFERENCES files(stem) ON DELETE CASCADE
+    FOREIGN KEY(source_canonical) REFERENCES files(canonical_filename) ON DELETE CASCADE
 );
 
-CREATE INDEX IF NOT EXISTS idx_links_target ON links(target_stem);
-CREATE INDEX IF NOT EXISTS idx_links_source ON links(source_stem);
+CREATE INDEX IF NOT EXISTS idx_links_target ON links(target_canonical);
+CREATE INDEX IF NOT EXISTS idx_links_source ON links(source_canonical);
 """
 
 
 @dataclass(frozen=True)
 class FileRecord:
     id: Optional[int]
+    canonical_filename: str
     stem: str
+    ext: str
     rel_path: str
     sha256: str
     mtime: float
@@ -3970,8 +4058,8 @@ class FileRecord:
 
 @dataclass(frozen=True)
 class LinkRecord:
-    source_stem: str
-    target_stem: str
+    source_canonical: str
+    target_canonical: str
     raw_target: str
     line_number: Optional[int]
 
@@ -4011,14 +4099,36 @@ class VaultDB:
         self.close()
 
     def init_schema(self):
-        """Initializes tables, indices, and default metadata."""
+        """
+        Initializes tables, indices, and default metadata.
+        Automatically drops and rebuilds tables if schema_version mismatches.
+        """
         conn = self.connect()
-        with conn:
-            conn.executescript(SCHEMA_SQL)
+        # Verify existing schema version if meta table exists
+        has_meta = (
             conn.execute(
-                "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?);",
-                ("schema_version", SCHEMA_VERSION),
-            )
+                "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='meta';"
+            ).fetchone()[0]
+            > 0
+        )
+
+        current_version = self.get_meta("schema_version") if has_meta else None
+
+        if current_version != SCHEMA_VERSION:
+            with conn:
+                conn.execute("PRAGMA foreign_keys = OFF;")
+                conn.execute("DROP TABLE IF EXISTS links;")
+                conn.execute("DROP TABLE IF EXISTS files;")
+                conn.execute("DROP TABLE IF EXISTS meta;")
+                conn.execute("PRAGMA foreign_keys = ON;")
+                conn.executescript(SCHEMA_SQL)
+                conn.execute(
+                    "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?);",
+                    ("schema_version", SCHEMA_VERSION),
+                )
+        else:
+            with conn:
+                conn.executescript(SCHEMA_SQL)
 
     # -----------------------------------------------------------------------
     # Metadata Queries
@@ -4042,14 +4152,16 @@ class VaultDB:
 
     def upsert_file(self, record: FileRecord) -> int:
         """
-        Inserts or updates a file record. If the stem already exists, updates path, hash, and stat cache.
+        Inserts or updates a file record keyed on canonical_filename.
         """
         conn = self.connect()
         cursor = conn.execute(
             """
-            INSERT INTO files (stem, rel_path, sha256, mtime, size, is_media, is_secure)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(stem) DO UPDATE SET
+            INSERT INTO files (canonical_filename, stem, ext, rel_path, sha256, mtime, size, is_media, is_secure)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(canonical_filename) DO UPDATE SET
+                stem = excluded.stem,
+                ext = excluded.ext,
                 rel_path = excluded.rel_path,
                 sha256 = excluded.sha256,
                 mtime = excluded.mtime,
@@ -4058,7 +4170,9 @@ class VaultDB:
                 is_secure = excluded.is_secure;
             """,
             (
+                record.canonical_filename,
                 record.stem,
+                record.ext,
                 record.rel_path,
                 record.sha256,
                 record.mtime,
@@ -4069,9 +4183,11 @@ class VaultDB:
         )
         return cursor.lastrowid
 
-    def get_file_by_stem(self, stem: str) -> Optional[FileRecord]:
+    def get_file_by_canonical(self, canonical_filename: str) -> Optional[FileRecord]:
         conn = self.connect()
-        row = conn.execute("SELECT * FROM files WHERE stem = ?;", (stem,)).fetchone()
+        row = conn.execute(
+            "SELECT * FROM files WHERE canonical_filename = ?;", (canonical_filename,)
+        ).fetchone()
         if not row:
             return None
         return self._row_to_file_record(row)
@@ -4098,9 +4214,11 @@ class VaultDB:
         rows = conn.execute("SELECT * FROM files;").fetchall()
         return {r["rel_path"]: self._row_to_file_record(r) for r in rows}
 
-    def delete_file_by_stem(self, stem: str):
+    def delete_file_by_canonical(self, canonical_filename: str):
         conn = self.connect()
-        conn.execute("DELETE FROM files WHERE stem = ?;", (stem,))
+        conn.execute(
+            "DELETE FROM files WHERE canonical_filename = ?;", (canonical_filename,)
+        )
 
     def delete_file_by_path(self, rel_path: str):
         conn = self.connect()
@@ -4111,10 +4229,6 @@ class VaultDB:
     # -----------------------------------------------------------------------
 
     def is_stat_cache_hit(self, rel_path: str, mtime: float, size: int) -> bool:
-        """
-        O(1) index check: returns True if rel_path exists and (mtime, size) match exactly.
-        Eliminates redundant disk I/O and SHA-256 computation.
-        """
         conn = self.connect()
         row = conn.execute(
             "SELECT mtime, size FROM files WHERE rel_path = ?;",
@@ -4122,64 +4236,64 @@ class VaultDB:
         ).fetchone()
         if not row:
             return False
-        # Account for precision variations in float mtime across OS filesystems
         return abs(row["mtime"] - mtime) < 0.0001 and row["size"] == size
 
     # -----------------------------------------------------------------------
     # Link Graph Operations
     # -----------------------------------------------------------------------
 
-    def replace_document_links(self, source_stem: str, links: List[LinkRecord]):
+    def replace_document_links(self, source_canonical: str, links: List[LinkRecord]):
         """
-        Atomically replaces all outgoing link edges for a given source stem.
+        Atomically replaces all outgoing link edges for a given source canonical filename.
         """
         conn = self.connect()
         with conn:
-            conn.execute("DELETE FROM links WHERE source_stem = ?;", (source_stem,))
+            conn.execute(
+                "DELETE FROM links WHERE source_canonical = ?;", (source_canonical,)
+            )
             if links:
                 conn.executemany(
                     """
-                    INSERT INTO links (source_stem, target_stem, raw_target, line_number)
+                    INSERT INTO links (source_canonical, target_canonical, raw_target, line_number)
                     VALUES (?, ?, ?, ?);
                     """,
                     [
-                        (l.source_stem, l.target_stem, l.raw_target, l.line_number)
+                        (
+                            l.source_canonical,
+                            l.target_canonical,
+                            l.raw_target,
+                            l.line_number,
+                        )
                         for l in links
                     ],
                 )
 
-    def get_referencing_links(self, target_stem: str) -> List[LinkRecord]:
-        """
-        Retrieves all link records across the vault targeting this stem.
-        """
+    def get_referencing_links(self, target_canonical: str) -> List[LinkRecord]:
         conn = self.connect()
         rows = conn.execute(
-            "SELECT source_stem, target_stem, raw_target, line_number FROM links WHERE target_stem = ?;",
-            (target_stem,),
+            "SELECT source_canonical, target_canonical, raw_target, line_number FROM links WHERE target_canonical = ?;",
+            (target_canonical,),
         ).fetchall()
         return [
             LinkRecord(
-                source_stem=r["source_stem"],
-                target_stem=r["target_stem"],
+                source_canonical=r["source_canonical"],
+                target_canonical=r["target_canonical"],
                 raw_target=r["raw_target"],
                 line_number=r["line_number"],
             )
             for r in rows
         ]
 
-    def get_outgoing_links(self, source_stem: str) -> List[LinkRecord]:
-        """
-        Retrieves all outgoing link records originating from this stem.
-        """
+    def get_outgoing_links(self, source_canonical: str) -> List[LinkRecord]:
         conn = self.connect()
         rows = conn.execute(
-            "SELECT source_stem, target_stem, raw_target, line_number FROM links WHERE source_stem = ?;",
-            (source_stem,),
+            "SELECT source_canonical, target_canonical, raw_target, line_number FROM links WHERE source_canonical = ?;",
+            (source_canonical,),
         ).fetchall()
         return [
             LinkRecord(
-                source_stem=r["source_stem"],
-                target_stem=r["target_stem"],
+                source_canonical=r["source_canonical"],
+                target_canonical=r["target_canonical"],
                 raw_target=r["raw_target"],
                 line_number=r["line_number"],
             )
@@ -4194,7 +4308,9 @@ class VaultDB:
     def _row_to_file_record(row: sqlite3.Row) -> FileRecord:
         return FileRecord(
             id=row["id"],
+            canonical_filename=row["canonical_filename"],
             stem=row["stem"],
+            ext=row["ext"],
             rel_path=row["rel_path"],
             sha256=row["sha256"],
             mtime=row["mtime"],
@@ -4249,6 +4365,15 @@ class FileAction:
     reason: str
 
 
+@dataclass(frozen=True)
+class BoundaryViolation:
+    source_rel_path: str
+    target_rel_path: str
+    source_is_secure: bool
+    target_is_secure: bool
+    line_number: int
+
+
 @dataclass
 class DiffPlan:
     actions: List[FileAction] = field(default_factory=list)
@@ -4256,19 +4381,23 @@ class DiffPlan:
     broken_references: Dict[str, List[str]] = field(
         default_factory=lambda: defaultdict(list)
     )
+    boundary_violations: List[BoundaryViolation] = field(default_factory=list)
 
     @property
     def has_mutations(self) -> bool:
         return any(a.action_type != ActionType.NOOP for a in self.actions)
 
 
-def resolve_collision_stem(base_stem: str, existing_stems: Set[str]) -> str:
-    """Appends the lowest available positive integer suffix (e.g. 'energy-1')."""
+def resolve_collision_stem(
+    base_stem: str, ext: str, existing_filenames: Set[str]
+) -> str:
+    """Appends the lowest available positive integer suffix (e.g. 'energy-1.md')."""
     counter = 1
     while True:
-        candidate = f"{base_stem}-{counter}"
-        if candidate not in existing_stems:
-            return candidate
+        candidate_stem = f"{base_stem}-{counter}"
+        candidate_filename = f"{candidate_stem}{ext}"
+        if candidate_filename not in existing_filenames:
+            return candidate_stem
         counter += 1
 
 
@@ -4288,15 +4417,14 @@ def compute_diff(scan_result: VaultScanResult, db: VaultDB) -> DiffPlan:
     disk_files = scan_result.files
     disk_by_path: Dict[str, ScannedFile] = {f.rel_path: f for f in disk_files}
 
-    # Step 1: Detect canonical stem collisions across scanned disk files
-    disk_stems: Dict[str, List[ScannedFile]] = defaultdict(list)
+    # Step 1: Detect canonical filename collisions across scanned disk files
+    disk_filenames: Dict[str, List[ScannedFile]] = defaultdict(list)
     for f in disk_files:
-        canonical = slugify_stem(f.stem)
-        disk_stems[canonical].append(f)
+        disk_filenames[f.canonical_filename].append(f)
 
-    for stem, occurrences in disk_stems.items():
+    for c_filename, occurrences in disk_filenames.items():
         if len(occurrences) > 1:
-            plan.collisions[stem] = [o.rel_path for o in occurrences]
+            plan.collisions[c_filename] = [o.rel_path for o in occurrences]
 
     unmatched_db_paths: Set[str] = set(db_files.keys())
     unmatched_disk_paths: Set[str] = set(disk_by_path.keys())
@@ -4337,8 +4465,11 @@ def compute_diff(scan_result: VaultScanResult, db: VaultDB) -> DiffPlan:
                 unmatched_db_paths.remove(db_rec.rel_path)
                 unmatched_disk_paths.remove(rel_path)
 
-    # Track allocated stems to ensure uniqueness in new mutations
-    allocated_stems: Set[str] = set()
+    # Track allocated canonical filenames to ensure global uniqueness across content/
+    allocated_filenames: Set[str] = set()
+
+    # Sort matched pairs deterministically by (mtime, rel_path)
+    matched_pairs.sort(key=lambda pair: (pair[1].mtime, pair[1].rel_path))
 
     # Evaluate correlated pairs
     for db_rec, disk_rec in matched_pairs:
@@ -4347,24 +4478,27 @@ def compute_diff(scan_result: VaultScanResult, db: VaultDB) -> DiffPlan:
         h_match = db_rec.sha256 == disk_rec.sha256
 
         canonical_stem = slugify_stem(disk_rec.stem)
+        canonical_filename = f"{canonical_stem}{disk_rec.ext}"
         canonical_path = sanitize_path_segments(disk_rec.rel_path)
 
         needs_stem_sanitize = (
             not is_valid_stem(disk_rec.stem) or disk_rec.stem != canonical_stem
         )
         needs_path_sanitize = disk_rec.rel_path != canonical_path
+        is_colliding = canonical_filename in allocated_filenames
 
         if p_match and s_match and h_match:
-            if needs_stem_sanitize:
+            if is_colliding or needs_stem_sanitize:
                 target_stem = canonical_stem
-                if target_stem in allocated_stems:
+                if is_colliding:
                     target_stem = resolve_collision_stem(
-                        canonical_stem, allocated_stems
+                        canonical_stem, disk_rec.ext, allocated_filenames
                     )
-                allocated_stems.add(target_stem)
+                target_filename = f"{target_stem}{disk_rec.ext}"
+                allocated_filenames.add(target_filename)
                 action_type = (
                     ActionType.RESOLVE_COLLISION
-                    if target_stem != canonical_stem
+                    if is_colliding
                     else ActionType.SANITIZE_STEM
                 )
                 plan.actions.append(
@@ -4372,18 +4506,18 @@ def compute_diff(scan_result: VaultScanResult, db: VaultDB) -> DiffPlan:
                         action_type=action_type,
                         src_rel_path=disk_rec.rel_path,
                         dst_rel_path=str(
-                            PurePosixPath(disk_rec.rel_path).with_stem(target_stem)
+                            PurePosixPath(disk_rec.rel_path).with_name(target_filename)
                         ),
                         old_stem=disk_rec.stem,
                         new_stem=target_stem,
                         sha256=disk_rec.sha256,
                         is_media=disk_rec.is_media,
                         is_secure=disk_rec.is_secure,
-                        reason="Stem violates archival UID specification.",
+                        reason="Collision resolved or stem violates archival specification.",
                     )
                 )
             elif needs_path_sanitize:
-                allocated_stems.add(disk_rec.stem)
+                allocated_filenames.add(canonical_filename)
                 plan.actions.append(
                     FileAction(
                         action_type=ActionType.SANITIZE_PATH,
@@ -4398,7 +4532,7 @@ def compute_diff(scan_result: VaultScanResult, db: VaultDB) -> DiffPlan:
                     )
                 )
             else:
-                allocated_stems.add(disk_rec.stem)
+                allocated_filenames.add(canonical_filename)
                 plan.actions.append(
                     FileAction(
                         action_type=ActionType.NOOP,
@@ -4414,7 +4548,7 @@ def compute_diff(scan_result: VaultScanResult, db: VaultDB) -> DiffPlan:
                 )
 
         elif p_match and s_match and not h_match:
-            allocated_stems.add(disk_rec.stem)
+            allocated_filenames.add(canonical_filename)
             plan.actions.append(
                 FileAction(
                     action_type=ActionType.MODIFY_CONTENT,
@@ -4430,7 +4564,7 @@ def compute_diff(scan_result: VaultScanResult, db: VaultDB) -> DiffPlan:
             )
 
         elif not p_match and s_match and h_match:
-            allocated_stems.add(disk_rec.stem)
+            allocated_filenames.add(canonical_filename)
             plan.actions.append(
                 FileAction(
                     action_type=ActionType.MOVE,
@@ -4451,7 +4585,7 @@ def compute_diff(scan_result: VaultScanResult, db: VaultDB) -> DiffPlan:
             and not s_match
             and h_match
         ):
-            allocated_stems.add(disk_rec.stem)
+            allocated_filenames.add(canonical_filename)
             plan.actions.append(
                 FileAction(
                     action_type=ActionType.RENAME,
@@ -4472,7 +4606,7 @@ def compute_diff(scan_result: VaultScanResult, db: VaultDB) -> DiffPlan:
             and not s_match
             and h_match
         ):
-            allocated_stems.add(disk_rec.stem)
+            allocated_filenames.add(canonical_filename)
             plan.actions.append(
                 FileAction(
                     action_type=ActionType.MOVE_AND_RENAME,
@@ -4488,7 +4622,7 @@ def compute_diff(scan_result: VaultScanResult, db: VaultDB) -> DiffPlan:
             )
 
         elif not p_match and s_match and not h_match:
-            allocated_stems.add(disk_rec.stem)
+            allocated_filenames.add(canonical_filename)
             plan.actions.append(
                 FileAction(
                     action_type=ActionType.MOVE,
@@ -4504,12 +4638,10 @@ def compute_diff(scan_result: VaultScanResult, db: VaultDB) -> DiffPlan:
             )
 
     # Step 5: Remaining unmatched disk files -> CREATE, SANITIZE, or RESOLVE_COLLISION
-    # Seed allocated stems with surviving DB stems not matched to a file
-    for db_stem, db_rec in db_by_stem.items():
+    for db_rec in db_files.values():
         if db_rec.rel_path in unmatched_db_paths:
-            allocated_stems.add(db_stem)
+            allocated_filenames.add(db_rec.canonical_filename)
 
-    # Sort deterministically by (mtime, rel_path) per Section 5.1
     sorted_unmatched_disk = sorted(
         unmatched_disk_paths,
         key=lambda p: (disk_by_path[p].mtime, p),
@@ -4518,18 +4650,24 @@ def compute_diff(scan_result: VaultScanResult, db: VaultDB) -> DiffPlan:
     for rel_path in sorted_unmatched_disk:
         disk_rec = disk_by_path[rel_path]
         canonical_stem = slugify_stem(disk_rec.stem)
+        canonical_filename = f"{canonical_stem}{disk_rec.ext}"
         target_stem = canonical_stem
         is_collision = False
 
-        if target_stem in allocated_stems:
-            target_stem = resolve_collision_stem(canonical_stem, allocated_stems)
+        if canonical_filename in allocated_filenames:
+            target_stem = resolve_collision_stem(
+                canonical_stem, disk_rec.ext, allocated_filenames
+            )
             is_collision = True
 
-        allocated_stems.add(target_stem)
+        target_filename = f"{target_stem}{disk_rec.ext}"
+        allocated_filenames.add(target_filename)
 
         canonical_path = sanitize_path_segments(rel_path)
         if target_stem != disk_rec.stem:
-            canonical_path = str(PurePosixPath(canonical_path).with_stem(target_stem))
+            canonical_path = str(
+                PurePosixPath(canonical_path).with_name(target_filename)
+            )
 
         needs_stem_sanitize = (
             not is_valid_stem(disk_rec.stem) or disk_rec.stem != target_stem
@@ -4632,9 +4770,6 @@ EXTERNAL_OR_ANCHOR_PATTERN = re.compile(
     r"^(?:[a-zA-Z][a-zA-Z0-9+.-]*://|//|mailto:|tel:|#)"
 )
 
-# Inline code span regex: `code` or ``code``
-INLINE_CODE_PATTERN = re.compile(r"`+[^`]+`+")
-
 # Match: [label](<destination with spaces>) OR [label](bare_destination)
 LINK_OR_IMAGE_PATTERN = re.compile(
     r"(!?\[((?:[^\[\]]|\\.)*)\])\(\s*(?:<([^>]+)>|([^\s\)\"\']+))(?:\s+([\"'])(.*?)\5)?\s*\)"
@@ -4643,7 +4778,8 @@ LINK_OR_IMAGE_PATTERN = re.compile(
 
 @dataclass(frozen=True)
 class ExtractedLink:
-    source_stem: str
+    source_canonical: str
+    target_canonical: str
     target_stem: str
     raw_target: str
     line_number: int
@@ -4651,6 +4787,34 @@ class ExtractedLink:
     label: str
     target_path: str
     suffix: str  # #fragment or ?query
+
+
+def mask_inline_code_spans(text: str) -> str:
+    """
+    Scans a single line and replaces contents of inline code spans with whitespace.
+    Strictly adheres to CommonMark delimiter matching without regex backtracking.
+    """
+    out = []
+    i = 0
+    n = len(text)
+    while i < n:
+        if text[i] == "`":
+            start = i
+            while i < n and text[i] == "`":
+                i += 1
+            delim_len = i - start
+            delim = "`" * delim_len
+            end = text.find(delim, i)
+            if end != -1:
+                total_len = (end + delim_len) - start
+                out.append(" " * total_len)
+                i = end + delim_len
+            else:
+                out.append(text[start:i])
+        else:
+            out.append(text[i])
+            i += 1
+    return "".join(out)
 
 
 def split_target_url(raw_target: str) -> Tuple[str, str]:
@@ -4681,7 +4845,7 @@ def extract_stem_from_path(path_str: str) -> str:
     return slugify_stem(pure.stem)
 
 
-def parse_markdown_links(content: str, source_stem: str) -> List[ExtractedLink]:
+def parse_markdown_links(content: str, source_canonical: str) -> List[ExtractedLink]:
     """
     Parses Markdown text and extracts relative links and images.
     Accurately ignores links enclosed inside fenced or inline code spans.
@@ -4714,16 +4878,11 @@ def parse_markdown_links(content: str, source_stem: str) -> List[ExtractedLink]:
         if in_fenced_block:
             continue
 
-        # Mask inline code spans to prevent false link extraction
-        def mask_inline_code(m):
-            return " " * len(m.group(0))
-
-        sanitized_line = INLINE_CODE_PATTERN.sub(mask_inline_code, line)
+        sanitized_line = mask_inline_code_spans(line)
 
         for match in LINK_OR_IMAGE_PATTERN.finditer(sanitized_line):
             is_image = match.group(1).startswith("!")
             label = match.group(2)
-            # Group 3 is <destination>, Group 4 is bare destination
             raw_url = (match.group(3) or match.group(4) or "").strip()
 
             if is_external_or_anchor(raw_url):
@@ -4735,9 +4894,16 @@ def parse_markdown_links(content: str, source_stem: str) -> List[ExtractedLink]:
             if not target_stem:
                 continue
 
+            unquoted_path = urllib.parse.unquote(path_part)
+            ext = PurePosixPath(unquoted_path).suffix.lower()
+            if not ext:
+                ext = ".md"
+            target_canonical = f"{target_stem}{ext}"
+
             extracted.append(
                 ExtractedLink(
-                    source_stem=source_stem,
+                    source_canonical=source_canonical,
+                    target_canonical=target_canonical,
                     target_stem=target_stem,
                     raw_target=raw_url,
                     line_number=line_idx,
@@ -4755,8 +4921,8 @@ def to_link_records(extracted_links: List[ExtractedLink]) -> List[LinkRecord]:
     """Converts ExtractedLink items into SQLite LinkRecord objects."""
     return [
         LinkRecord(
-            source_stem=link.source_stem,
-            target_stem=link.target_stem,
+            source_canonical=link.source_canonical,
+            target_canonical=link.target_canonical,
             raw_target=link.raw_target,
             line_number=link.line_number,
         )
@@ -4815,14 +4981,31 @@ def heal_markdown_links(
             new_lines.append(line)
             continue
 
-        # Detect spans of inline code on the current line to guard against false rewrites
-        inline_spans = [m.span() for m in INLINE_CODE_PATTERN.finditer(line)]
+        # Compute code spans via linear scan to avoid false matches
+        inline_spans = []
+        i = 0
+        n = len(line)
+        while i < n:
+            if line[i] == "`":
+                s = i
+                while i < n and line[i] == "`":
+                    i += 1
+                d_len = i - s
+                d = "`" * d_len
+                e = line.find(d, i)
+                if e != -1:
+                    inline_spans.append((s, e + d_len))
+                    i = e + d_len
+                else:
+                    break
+            else:
+                i += 1
+
         line_rewrites = 0
 
         def replace_link(m: re.Match) -> str:
             nonlocal line_rewrites
 
-            # Bypass replacement if the match begins inside an inline code span
             if any(start <= m.start() < end for start, end in inline_spans):
                 return m.group(0)
 
@@ -4936,6 +5119,7 @@ def compute_file_sha256(file_path: Path) -> str:
 class ScannedFile:
     abs_path: Path
     rel_path: str  # POSIX format (e.g. 'notes/math.md')
+    canonical_filename: str
     stem: str
     ext: str
     mtime: float
@@ -4997,10 +5181,13 @@ def scan_vault(content_root: Path, db: Optional[VaultDB] = None) -> VaultScanRes
             mtime = stat.st_mtime
             size = stat.st_size
 
+            from .slugify import slugify_stem
+
             ext = abs_path.suffix.lower()
             is_media = ext not in MARKDOWN_EXTENSIONS
             is_secure = is_secure_rel_path(rel_path)
             stem = abs_path.stem
+            canonical_filename = f"{slugify_stem(stem)}{ext}"
 
             sha256: Optional[str] = None
             is_cache_hit = False
@@ -5019,6 +5206,7 @@ def scan_vault(content_root: Path, db: Optional[VaultDB] = None) -> VaultScanRes
             record = ScannedFile(
                 abs_path=abs_path,
                 rel_path=rel_path,
+                canonical_filename=canonical_filename,
                 stem=stem,
                 ext=ext,
                 mtime=mtime,
@@ -5028,6 +5216,7 @@ def scan_vault(content_root: Path, db: Optional[VaultDB] = None) -> VaultScanRes
                 is_secure=is_secure,
                 is_cache_hit=is_cache_hit,
             )
+
             scanned_files.append(record)
             files_by_path[rel_path] = record
 
@@ -5895,18 +6084,16 @@ def execute_build(
     cmd = [sys.executable, str(BUILD_SCRIPT)]
     if clean:
         cmd.append("--clean")
-    if passphrase:
-        cmd.extend(["--password", passphrase])
     if log_file:
         cmd.extend(["--log-file", log_file])
 
-    masked_cmd = [
-        "********" if i > 0 and cmd[i - 1] == "--password" else arg
-        for i, arg in enumerate(cmd)
-    ]
-    logger.info("Executing build: %s", " ".join(masked_cmd))
+    env = os.environ.copy()
+    if passphrase:
+        env["KYKLOI_ENCRYPT_KEY"] = passphrase
 
-    res = subprocess.run(cmd, cwd=str(ROOT_DIR))
+    logger.info("Executing build: %s", " ".join(cmd))
+
+    res = subprocess.run(cmd, cwd=str(ROOT_DIR), env=env)
     if res.returncode == 0:
         logger.info("Compilation process exited normally (code 0).")
     else:

@@ -188,20 +188,25 @@ def execute_transaction(manifest: TransactionManifest, db: VaultDB) -> bool:
             tmp_path.write_text(new_content, encoding="utf-8")
             created_tmp_files.append(tmp_path)
 
-        # Phase 2: Execute disk renames
-        for src, dst in manifest.disk_renames:
-            if src == dst:
-                continue
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            if src.parent == dst.parent and src.name.lower() == dst.name.lower():
-                case_tmp = (
-                    dst.parent / f".norm_case_tmp_{os.urandom(4).hex()}_{dst.name}"
-                )
-                src.rename(case_tmp)
-                case_tmp.rename(dst)
-            else:
-                src.rename(dst)
-            executed_renames.append((dst, src))
+            # Phase 2: Execute disk renames
+            for src, dst in manifest.disk_renames:
+                if src == dst:
+                    continue
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                if src.parent == dst.parent and src.name.lower() == dst.name.lower():
+                    case_tmp = (
+                        dst.parent / f".norm_case_tmp_{os.urandom(4).hex()}_{dst.name}"
+                    )
+                    try:
+                        src.rename(case_tmp)
+                        case_tmp.rename(dst)
+                    except Exception:
+                        if case_tmp.exists() and not src.exists():
+                            case_tmp.rename(src)
+                        raise
+                else:
+                    src.rename(dst)
+                executed_renames.append((dst, src))
 
         # Phase 3: Atomically swap text rewrites
         for abs_path, _ in manifest.text_rewrites:
@@ -257,7 +262,7 @@ def sync_db_with_disk(content_root: Path, db: VaultDB):
     """Refreshes the SQLite ledger to match physical disk state after execution."""
     scan_res = scan_vault(content_root, db)
     current_paths = {f.rel_path for f in scan_res.files}
-    current_stems = {f.stem for f in scan_res.files}
+    current_canonicals = {f.canonical_filename for f in scan_res.files}
 
     for rel_path, rec in db.get_all_files().items():
         if rel_path not in current_paths:
@@ -267,7 +272,9 @@ def sync_db_with_disk(content_root: Path, db: VaultDB):
         db.upsert_file(
             FileRecord(
                 id=None,
+                canonical_filename=f.canonical_filename,
                 stem=f.stem,
+                ext=f.ext,
                 rel_path=f.rel_path,
                 sha256=f.sha256,
                 mtime=f.mtime,
@@ -279,26 +286,78 @@ def sync_db_with_disk(content_root: Path, db: VaultDB):
         if not f.is_media and f.ext in MARKDOWN_EXTENSIONS:
             try:
                 content = f.abs_path.read_text(encoding="utf-8")
-                extracted = parse_markdown_links(content, f.stem)
-                valid_links = [l for l in extracted if l.target_stem in current_stems]
-                db.replace_document_links(f.stem, to_link_records(valid_links))
+                extracted = parse_markdown_links(content, f.canonical_filename)
+                valid_links = [
+                    l for l in extracted if l.target_canonical in current_canonicals
+                ]
+                db.replace_document_links(
+                    f.canonical_filename, to_link_records(valid_links)
+                )
             except OSError:
                 pass
+
+
+def audit_security_boundaries(
+    scan_result: VaultScanResult,
+) -> List[Tuple[str, str, int, str]]:
+    """
+    Checks that no document in a secure context references an asset in a public context,
+    and vice-versa. Returns list of (source_rel, target_rel, line_no, reason).
+    """
+    violations = []
+    canonical_map = {f.canonical_filename: f for f in scan_result.files}
+    stem_map = {f.stem: f for f in scan_result.files if not f.is_media}
+
+    for f in scan_result.files:
+        if f.is_media or f.ext not in MARKDOWN_EXTENSIONS:
+            continue
+        try:
+            content = f.abs_path.read_text(encoding="utf-8")
+            links = parse_markdown_links(content, f.canonical_filename)
+            for link in links:
+                target_file = canonical_map.get(link.target_canonical)
+                if not target_file:
+                    target_file = stem_map.get(link.target_stem)
+
+                if target_file and target_file.is_secure != f.is_secure:
+                    s_ctx = "SECURE" if f.is_secure else "PUBLIC"
+                    t_ctx = "SECURE" if target_file.is_secure else "PUBLIC"
+                    violations.append(
+                        (
+                            f.rel_path,
+                            target_file.rel_path,
+                            link.line_number,
+                            f"{s_ctx} file references {t_ctx} asset",
+                        )
+                    )
+        except OSError:
+            pass
+
+    return violations
 
 
 def print_diff_report(
     diff_plan: DiffPlan,
     manifest: TransactionManifest,
     scan_time_ms: float,
+    boundary_violations: List[Tuple[str, str, int, str]],
 ):
     """Outputs an ANSI-colorized summary table of planned mutations."""
     print(f"\n{BOLD}{CYAN}=== Kykloi Content Normalization Plan ==={RESET}")
     print(f"{DIM}Scan duration: {scan_time_ms:.2f} ms{RESET}\n")
 
+    if boundary_violations:
+        print(f"{BOLD}{RED}CRITICAL SECURITY BOUNDARY VIOLATIONS:{RESET}")
+        for src, tgt, line, reason in boundary_violations:
+            print(f"  {RED}[!] {src}:{line} -> {tgt} ({reason}){RESET}")
+        print(
+            f"\n  {YELLOW}Resolve security context mismatches by moving/duplicating assets.{RESET}\n"
+        )
+
     if diff_plan.collisions:
-        print(f"{BOLD}{RED}CRITICAL ANOMALIES (Stem Collisions Detected):{RESET}")
-        for stem, paths in diff_plan.collisions.items():
-            print(f"  {RED}Stem collision on '{stem}':{RESET}")
+        print(f"{BOLD}{RED}CRITICAL ANOMALIES (Filename Collisions Detected):{RESET}")
+        for fname, paths in diff_plan.collisions.items():
+            print(f"  {RED}Filename collision on '{fname}':{RESET}")
             for p in paths:
                 print(f"    - {p}")
         print()
@@ -370,11 +429,19 @@ def run_normalization_pipeline(
         db.init_schema()
 
         scan_result = scan_vault(content_root, db)
+        boundary_violations = audit_security_boundaries(scan_result)
         diff_plan = compute_diff(scan_result, db)
         manifest, _ = build_transaction_manifest(content_root, diff_plan, db)
         scan_time_ms = (time.perf_counter() - t0) * 1000.0
 
-        print_diff_report(diff_plan, manifest, scan_time_ms)
+        print_diff_report(diff_plan, manifest, scan_time_ms, boundary_violations)
+
+        if boundary_violations:
+            print(
+                f"{RED}[FATAL] Execution halted: {len(boundary_violations)} security boundary violation(s) must be manually resolved.{RESET}\n",
+                file=sys.stderr,
+            )
+            return 1
 
         has_work = manifest.has_changes or diff_plan.has_mutations
 

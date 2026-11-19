@@ -18,9 +18,6 @@ EXTERNAL_OR_ANCHOR_PATTERN = re.compile(
     r"^(?:[a-zA-Z][a-zA-Z0-9+.-]*://|//|mailto:|tel:|#)"
 )
 
-# Inline code span regex: `code` or ``code``
-INLINE_CODE_PATTERN = re.compile(r"`+[^`]+`+")
-
 # Match: [label](<destination with spaces>) OR [label](bare_destination)
 LINK_OR_IMAGE_PATTERN = re.compile(
     r"(!?\[((?:[^\[\]]|\\.)*)\])\(\s*(?:<([^>]+)>|([^\s\)\"\']+))(?:\s+([\"'])(.*?)\5)?\s*\)"
@@ -29,7 +26,8 @@ LINK_OR_IMAGE_PATTERN = re.compile(
 
 @dataclass(frozen=True)
 class ExtractedLink:
-    source_stem: str
+    source_canonical: str
+    target_canonical: str
     target_stem: str
     raw_target: str
     line_number: int
@@ -37,6 +35,34 @@ class ExtractedLink:
     label: str
     target_path: str
     suffix: str  # #fragment or ?query
+
+
+def mask_inline_code_spans(text: str) -> str:
+    """
+    Scans a single line and replaces contents of inline code spans with whitespace.
+    Strictly adheres to CommonMark delimiter matching without regex backtracking.
+    """
+    out = []
+    i = 0
+    n = len(text)
+    while i < n:
+        if text[i] == "`":
+            start = i
+            while i < n and text[i] == "`":
+                i += 1
+            delim_len = i - start
+            delim = "`" * delim_len
+            end = text.find(delim, i)
+            if end != -1:
+                total_len = (end + delim_len) - start
+                out.append(" " * total_len)
+                i = end + delim_len
+            else:
+                out.append(text[start:i])
+        else:
+            out.append(text[i])
+            i += 1
+    return "".join(out)
 
 
 def split_target_url(raw_target: str) -> Tuple[str, str]:
@@ -67,7 +93,7 @@ def extract_stem_from_path(path_str: str) -> str:
     return slugify_stem(pure.stem)
 
 
-def parse_markdown_links(content: str, source_stem: str) -> List[ExtractedLink]:
+def parse_markdown_links(content: str, source_canonical: str) -> List[ExtractedLink]:
     """
     Parses Markdown text and extracts relative links and images.
     Accurately ignores links enclosed inside fenced or inline code spans.
@@ -100,16 +126,11 @@ def parse_markdown_links(content: str, source_stem: str) -> List[ExtractedLink]:
         if in_fenced_block:
             continue
 
-        # Mask inline code spans to prevent false link extraction
-        def mask_inline_code(m):
-            return " " * len(m.group(0))
-
-        sanitized_line = INLINE_CODE_PATTERN.sub(mask_inline_code, line)
+        sanitized_line = mask_inline_code_spans(line)
 
         for match in LINK_OR_IMAGE_PATTERN.finditer(sanitized_line):
             is_image = match.group(1).startswith("!")
             label = match.group(2)
-            # Group 3 is <destination>, Group 4 is bare destination
             raw_url = (match.group(3) or match.group(4) or "").strip()
 
             if is_external_or_anchor(raw_url):
@@ -121,9 +142,16 @@ def parse_markdown_links(content: str, source_stem: str) -> List[ExtractedLink]:
             if not target_stem:
                 continue
 
+            unquoted_path = urllib.parse.unquote(path_part)
+            ext = PurePosixPath(unquoted_path).suffix.lower()
+            if not ext:
+                ext = ".md"
+            target_canonical = f"{target_stem}{ext}"
+
             extracted.append(
                 ExtractedLink(
-                    source_stem=source_stem,
+                    source_canonical=source_canonical,
+                    target_canonical=target_canonical,
                     target_stem=target_stem,
                     raw_target=raw_url,
                     line_number=line_idx,
@@ -141,8 +169,8 @@ def to_link_records(extracted_links: List[ExtractedLink]) -> List[LinkRecord]:
     """Converts ExtractedLink items into SQLite LinkRecord objects."""
     return [
         LinkRecord(
-            source_stem=link.source_stem,
-            target_stem=link.target_stem,
+            source_canonical=link.source_canonical,
+            target_canonical=link.target_canonical,
             raw_target=link.raw_target,
             line_number=link.line_number,
         )
@@ -201,14 +229,31 @@ def heal_markdown_links(
             new_lines.append(line)
             continue
 
-        # Detect spans of inline code on the current line to guard against false rewrites
-        inline_spans = [m.span() for m in INLINE_CODE_PATTERN.finditer(line)]
+        # Compute code spans via linear scan to avoid false matches
+        inline_spans = []
+        i = 0
+        n = len(line)
+        while i < n:
+            if line[i] == "`":
+                s = i
+                while i < n and line[i] == "`":
+                    i += 1
+                d_len = i - s
+                d = "`" * d_len
+                e = line.find(d, i)
+                if e != -1:
+                    inline_spans.append((s, e + d_len))
+                    i = e + d_len
+                else:
+                    break
+            else:
+                i += 1
+
         line_rewrites = 0
 
         def replace_link(m: re.Match) -> str:
             nonlocal line_rewrites
 
-            # Bypass replacement if the match begins inside an inline code span
             if any(start <= m.start() < end for start, end in inline_spans):
                 return m.group(0)
 

@@ -1475,3 +1475,60 @@
 2026-11-18 14:24:26 | INFO     | kykloi.menu              | Auditing vault structure and links...
 2026-11-18 14:36:27 | INFO     | kykloi.launcher          | Shutting down vault server daemon...
 2026-11-18 14:36:28 | INFO     | kykloi.launcher          | Daemon cleanly terminated.
+2026-11-19 03:20:49 | INFO     | kykloi.launcher          | Vault daemon online at http://127.0.0.1:8000/ (bound to port 8000)
+2026-11-19 03:21:00 | INFO     | kykloi.menu              | Auditing vault structure and links...
+2026-11-19 03:22:08 | INFO     | kykloi.menu              | Opening browser target: http://127.0.0.1:8000/
+2026-11-19 03:22:08 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET / HTTP/1.1" 200 -
+2026-11-19 03:22:08 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/css/pico.css HTTP/1.1" 200 -
+2026-11-19 03:22:08 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/css/style.css HTTP/1.1" 200 -
+2026-11-19 03:22:08 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/js/pico_search.js HTTP/1.1" 200 -
+2026-11-19 03:22:08 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/fonts/libertinusserif-regular-webfont.woff2 HTTP/1.1" 200 -
+2026-11-19 03:22:08 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/fonts/libertinusserif-bold-webfont.woff2 HTTP/1.1" 200 -
+2026-11-19 03:22:08 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/js/search_worker.js HTTP/1.1" 200 -
+2026-11-19 03:22:09 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/js/sqlite3.js HTTP/1.1" 200 -
+2026-11-19 03:22:09 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/js/sqlite3.wasm HTTP/1.1" 200 -
+2026-11-19 03:22:09 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /search.db HTTP/1.1" 200 -
+2026-11-19 03:22:22 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /kykloi/20261117053719-kykloi-cryptography.html HTTP/1.1" 200 -
+2026-11-19 03:22:22 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/css/pico.css HTTP/1.1" 200 -
+2026-11-19 03:22:22 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/css/style.css HTTP/1.1" 200 -
+2026-11-19 03:22:22 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/fonts/jetbrainsmono-variablefont_wght-webfont.woff2 HTTP/1.1" 200 -
+2026-11-19 03:22:24 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /index.html HTTP/1.1" 200 -
+2026-11-19 03:22:24 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/css/pico.css HTTP/1.1" 200 -
+2026-11-19 03:22:24 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/js/pico_search.js HTTP/1.1" 200 -
+2026-11-19 03:22:24 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/css/style.css HTTP/1.1" 200 -
+2026-11-19 03:22:24 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/js/search_worker.js HTTP/1.1" 200 -
+2026-11-19 03:22:24 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/js/sqlite3.js HTTP/1.1" 200 -
+2026-11-19 03:22:24 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/js/sqlite3.wasm HTTP/1.1" 200 -
+2026-11-19 03:22:24 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /search.db HTTP/1.1" 200 -
+2026-11-19 03:22:26 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /kykloi/20261117181402-kykloi-highlights.html HTTP/1.1" 200 -
+2026-11-19 03:22:26 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/css/pico.css HTTP/1.1" 200 -
+2026-11-19 03:22:26 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/css/style.css HTTP/1.1" 200 -
+2026-11-19 03:22:28 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /index.html HTTP/1.1" 200 -
+2026-11-19 03:22:28 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/css/pico.css HTTP/1.1" 200 -
+2026-11-19 03:22:28 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/css/style.css HTTP/1.1" 200 -
+2026-11-19 03:22:28 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/js/pico_search.js HTTP/1.1" 200 -
+2026-11-19 03:22:28 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/js/search_worker.js HTTP/1.1" 200 -
+2026-11-19 03:22:28 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/js/sqlite3.js HTTP/1.1" 200 -
+2026-11-19 03:22:28 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/js/sqlite3.wasm HTTP/1.1" 200 -
+2026-11-19 03:22:28 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /search.db HTTP/1.1" 200 -
+2026-11-19 03:22:30 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /kykloi/20261117053719-kykloi-cryptography.html HTTP/1.1" 200 -
+2026-11-19 03:22:30 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/css/style.css HTTP/1.1" 200 -
+2026-11-19 03:22:30 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/css/pico.css HTTP/1.1" 200 -
+2026-11-19 03:22:31 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /index.html HTTP/1.1" 200 -
+2026-11-19 03:22:31 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/css/pico.css HTTP/1.1" 200 -
+2026-11-19 03:22:31 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/css/style.css HTTP/1.1" 200 -
+2026-11-19 03:22:31 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/js/pico_search.js HTTP/1.1" 200 -
+2026-11-19 03:22:31 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/js/search_worker.js HTTP/1.1" 200 -
+2026-11-19 03:22:31 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/js/sqlite3.js HTTP/1.1" 200 -
+2026-11-19 03:22:31 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/js/sqlite3.wasm HTTP/1.1" 200 -
+2026-11-19 03:22:31 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /search.db HTTP/1.1" 200 -
+2026-11-19 03:22:52 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /index.html HTTP/1.1" 200 -
+2026-11-19 03:22:53 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/css/pico.css HTTP/1.1" 200 -
+2026-11-19 03:22:53 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/css/style.css HTTP/1.1" 200 -
+2026-11-19 03:22:53 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/js/pico_search.js HTTP/1.1" 200 -
+2026-11-19 03:22:53 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/js/search_worker.js HTTP/1.1" 200 -
+2026-11-19 03:22:53 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/js/sqlite3.js HTTP/1.1" 200 -
+2026-11-19 03:22:53 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/js/sqlite3.wasm HTTP/1.1" 200 -
+2026-11-19 03:22:53 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /search.db HTTP/1.1" 200 -
+2026-11-19 03:23:08 | INFO     | kykloi.launcher          | Shutting down vault server daemon...
+2026-11-19 03:23:08 | INFO     | kykloi.launcher          | Daemon cleanly terminated.

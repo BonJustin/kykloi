@@ -254,18 +254,16 @@ def execute_build(
     cmd = [sys.executable, str(BUILD_SCRIPT)]
     if clean:
         cmd.append("--clean")
-    if passphrase:
-        cmd.extend(["--password", passphrase])
     if log_file:
         cmd.extend(["--log-file", log_file])
 
-    masked_cmd = [
-        "********" if i > 0 and cmd[i - 1] == "--password" else arg
-        for i, arg in enumerate(cmd)
-    ]
-    logger.info("Executing build: %s", " ".join(masked_cmd))
+    env = os.environ.copy()
+    if passphrase:
+        env["KYKLOI_ENCRYPT_KEY"] = passphrase
 
-    res = subprocess.run(cmd, cwd=str(ROOT_DIR))
+    logger.info("Executing build: %s", " ".join(cmd))
+
+    res = subprocess.run(cmd, cwd=str(ROOT_DIR), env=env)
     if res.returncode == 0:
         logger.info("Compilation process exited normally (code 0).")
     else:

@@ -68,6 +68,7 @@ def compute_file_sha256(file_path: Path) -> str:
 class ScannedFile:
     abs_path: Path
     rel_path: str  # POSIX format (e.g. 'notes/math.md')
+    canonical_filename: str
     stem: str
     ext: str
     mtime: float
@@ -129,10 +130,13 @@ def scan_vault(content_root: Path, db: Optional[VaultDB] = None) -> VaultScanRes
             mtime = stat.st_mtime
             size = stat.st_size
 
+            from .slugify import slugify_stem
+
             ext = abs_path.suffix.lower()
             is_media = ext not in MARKDOWN_EXTENSIONS
             is_secure = is_secure_rel_path(rel_path)
             stem = abs_path.stem
+            canonical_filename = f"{slugify_stem(stem)}{ext}"
 
             sha256: Optional[str] = None
             is_cache_hit = False
@@ -151,6 +155,7 @@ def scan_vault(content_root: Path, db: Optional[VaultDB] = None) -> VaultScanRes
             record = ScannedFile(
                 abs_path=abs_path,
                 rel_path=rel_path,
+                canonical_filename=canonical_filename,
                 stem=stem,
                 ext=ext,
                 mtime=mtime,
@@ -160,6 +165,7 @@ def scan_vault(content_root: Path, db: Optional[VaultDB] = None) -> VaultScanRes
                 is_secure=is_secure,
                 is_cache_hit=is_cache_hit,
             )
+
             scanned_files.append(record)
             files_by_path[rel_path] = record
 
