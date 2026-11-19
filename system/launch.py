@@ -59,7 +59,7 @@ RANGE_REGEX = re.compile(r"^bytes=(\d*)-(\d*)$")
 
 
 class KykloiVaultHandler(http.server.BaseHTTPRequestHandler):
-    server_version = "KykloiServer/0.6"
+    server_version = "KykloiServer/0.7.0"
     protocol_version = "HTTP/1.1"
 
     def guess_mime(self, filepath: str) -> str:

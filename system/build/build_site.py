@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 system/build/build_site.py - Zero-Dependency Deterministic SSG Compiler.
-Part of Project Kykloi (v0.6.0).
+Part of Project Kykloi (v0.7.0).
 Leverages vault_index.db SQLite ledger for O(1) stat-cached incremental builds.
 Features Tiered Multi-Engine AES-256-GCM Acceleration with Deterministic Fallback.
 Priority Order:

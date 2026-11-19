@@ -90,10 +90,9 @@ if not exist "%MANIFEST_PATH%" (
 
 echo [Kykloi] Querying manifest definitions for %TARGET%...
 :: Atomic single-process extraction to avoid multi-invocation latency
-for /f "usebackq tokens=1,2* delims=|" %%A in (`powershell -NoProfile -Command "$m=(Get-Content -Raw '%MANIFEST_PATH%' | ConvertFrom-Json).tools.python.targets.'%TARGET%'; if($m){Write-Output ($m.archive + '|' + $m.sha256 + '|' + $m.url)}" 2^>nul`) do (
+for /f "usebackq tokens=1,2 delims=|" %%A in (`powershell -NoProfile -Command "$m=(Get-Content -Raw '%MANIFEST_PATH%' | ConvertFrom-Json).tools.python.targets.'%TARGET%'; if($m){Write-Output ($m.archive + '|' + $m.sha256)}" 2^>nul`) do (
     set "ARCHIVE_NAME=%%A"
     set "EXPECTED_SHA=%%B"
-    set "DOWNLOAD_URL=%%C"
 )
 
 if "%ARCHIVE_NAME%"=="" (
@@ -105,15 +104,10 @@ if "%ARCHIVE_NAME%"=="" (
 set "ARCHIVE_PY=%SCRIPT_DIR%system\tools\archives\%ARCHIVE_NAME%"
 
 if not exist "%ARCHIVE_PY%" (
-    echo [Kykloi] Pre-packaged archive not found locally: %ARCHIVE_NAME%
-    echo [Kykloi] Attempting automatic download...
-    if not exist "%SCRIPT_DIR%system\tools\archives" mkdir "%SCRIPT_DIR%system\tools\archives"
-    powershell -NoProfile -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; (New-Object Net.WebClient).DownloadFile('%DOWNLOAD_URL%', '%ARCHIVE_PY%')"
-    if not exist "%ARCHIVE_PY%" (
-        echo [FATAL] Download failed from: %DOWNLOAD_URL%
-        pause
-        exit /b 1
-    )
+    echo [FATAL] Pre-packaged archive not found: %ARCHIVE_NAME%
+    echo         Expected at: %ARCHIVE_PY%
+    pause
+    exit /b 1
 )
 
 echo [Kykloi] Verifying SHA-256 checksum for %ARCHIVE_NAME%...
