@@ -43,7 +43,7 @@ for path_entry in (PROJECT_ROOT, SYSTEM_DIR, APP_DIR):
 from logger import get_logger, setup_logging, timed_step
 
 from system.normalize.cli import sync_db_with_disk
-from system.normalize.db import VaultDB
+from system.normalize.db import BuildArtifactRecord, VaultDB
 from system.normalize.scanner import is_junk_path
 
 # ===========================================================================
@@ -1076,19 +1076,51 @@ def resolve_pandoc_binary(root_dir: Path) -> str:
     manifest_path = root_dir / "system" / "tools" / "tools-manifest.json"
 
     if system == "windows":
-        runtime_dir = (
-            Path(os.environ.get("TEMP", "/tmp")) / f"kykloi_pandoc_{pandoc_target}"
+        base_runtime = Path(
+            os.environ.get("TEMP", os.environ.get("LOCALAPPDATA", "C:\\Temp"))
         )
+        runtime_dir = base_runtime / f"kykloi_pandoc_{pandoc_target}"
         pandoc_bin = runtime_dir / "pandoc.exe"
     else:
+
+        def _probe_exec(target_dir: Path) -> bool:
+            try:
+                target_dir.mkdir(parents=True, exist_ok=True)
+                probe = target_dir / f".probe_{os.getpid()}"
+                probe.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+                probe.chmod(0o700)
+                res = subprocess.run([str(probe)], capture_output=True)
+                probe.unlink(missing_ok=True)
+                return res.returncode == 0
+            except Exception:
+                return False
+
+        candidates = []
+        if "KYKLOI_RUNTIME_DIR" in os.environ:
+            candidates.append(Path(os.environ["KYKLOI_RUNTIME_DIR"]))
+
         xdg_cache = os.environ.get("XDG_CACHE_HOME")
-        if xdg_cache and Path(xdg_cache).is_dir():
-            base_runtime = Path(xdg_cache)
-        elif (Path.home() / ".cache").exists():
-            base_runtime = Path.home() / ".cache"
-        else:
-            base_runtime = Path("/tmp")
-        runtime_dir = base_runtime / f"kykloi_pandoc_{pandoc_target}"
+        if xdg_cache:
+            candidates.append(Path(xdg_cache) / "kykloi")
+        elif Path.home().exists():
+            candidates.append(Path.home() / ".cache" / "kykloi")
+
+        candidates.append(Path("/var/tmp/kykloi"))
+        candidates.append(Path("/tmp/kykloi"))
+
+        valid_base = next((c for c in candidates if _probe_exec(c)), None)
+        if valid_base is None:
+            sys_pandoc = shutil.which("pandoc")
+            if sys_pandoc:
+                return sys_pandoc
+            raise PermissionError(
+                "Execution boundary restriction: Cannot locate a writable, executable directory "
+                "to extract bundled Pandoc (all probed cache and temp mounts enforce 'noexec'). "
+                "Remediation: Install Pandoc natively via host package manager or define an "
+                "executable target via export KYKLOI_RUNTIME_DIR='/path/to/exec_dir'."
+            )
+
+        runtime_dir = valid_base / f"runtime_{pandoc_target}"
         pandoc_bin = runtime_dir / "bin" / "pandoc"
 
     stamp_file = runtime_dir / ".verified_sha256"

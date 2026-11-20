@@ -32,7 +32,6 @@ EXCLUDED_DIRS = {
 # Whitelist of files to bundle (match by filename or relative POSIX path)
 INCLUDED_FILES = {
     "pyproject.toml",
-    "README.md",
     "style.css",
     "decrypt.js",
     "wasm-search.js",
@@ -56,6 +55,7 @@ INCLUDED_FILES = {
     "graph.py",
     "cli.py",
     ".gitignore",
+    "additional-context.md",
 }
 
 # Optional overrides for markdown syntax highlighting; unlisted extensions

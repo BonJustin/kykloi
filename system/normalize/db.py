@@ -342,125 +342,121 @@ class VaultDB:
             for r in rows
         ]
 
-        # -----------------------------------------------------------------------
-        # Document Metadata Operations
-        # -----------------------------------------------------------------------
+    # -----------------------------------------------------------------------
+    # Document Metadata Operations
+    # -----------------------------------------------------------------------
 
-        def upsert_doc_metadata(self, record: DocMetadataRecord):
-            conn = self.connect()
-            conn.execute(
+    def upsert_doc_metadata(self, record: DocMetadataRecord):
+        conn = self.connect()
+        conn.execute(
+            """
+            INSERT INTO doc_metadata (canonical_filename, title, date_edtf, keywords, has_citations)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(canonical_filename) DO UPDATE SET
+                title = excluded.title,
+                date_edtf = excluded.date_edtf,
+                keywords = excluded.keywords,
+                has_citations = excluded.has_citations;
+            """,
+            (
+                record.canonical_filename,
+                record.title,
+                record.date_edtf,
+                record.keywords,
+                1 if record.has_citations else 0,
+            ),
+        )
+
+    def get_doc_metadata(self, canonical_filename: str) -> Optional[DocMetadataRecord]:
+        conn = self.connect()
+        row = conn.execute(
+            "SELECT * FROM doc_metadata WHERE canonical_filename = ?;",
+            (canonical_filename,),
+        ).fetchone()
+        if not row:
+            return None
+        return DocMetadataRecord(
+            canonical_filename=row["canonical_filename"],
+            title=row["title"],
+            date_edtf=row["date_edtf"],
+            keywords=row["keywords"],
+            has_citations=bool(row["has_citations"]),
+        )
+
+    def get_all_doc_metadata(self) -> Dict[str, DocMetadataRecord]:
+        conn = self.connect()
+        rows = conn.execute("SELECT * FROM doc_metadata;").fetchall()
+        return {
+            r["canonical_filename"]: DocMetadataRecord(
+                canonical_filename=r["canonical_filename"],
+                title=r["title"],
+                date_edtf=r["date_edtf"],
+                keywords=r["keywords"],
+                has_citations=bool(r["has_citations"]),
+            )
+            for r in rows
+        }
+
+    # -----------------------------------------------------------------------
+    # Build Artifact Operations
+    # -----------------------------------------------------------------------
+
+    def upsert_build_artifacts(self, records: List[BuildArtifactRecord]):
+        if not records:
+            return
+        conn = self.connect()
+        with conn:
+            conn.executemany(
                 """
-                INSERT INTO doc_metadata (canonical_filename, title, date_edtf, keywords, has_citations)
-                VALUES (?, ?, ?, ?, ?)
-                ON CONFLICT(canonical_filename) DO UPDATE SET
-                    title = excluded.title,
-                    date_edtf = excluded.date_edtf,
-                    keywords = excluded.keywords,
-                    has_citations = excluded.has_citations;
+                INSERT INTO build_artifacts (target_rel_path, source_sha256, artifact_category)
+                VALUES (?, ?, ?)
+                ON CONFLICT(target_rel_path) DO UPDATE SET
+                    source_sha256 = excluded.source_sha256,
+                    artifact_category = excluded.artifact_category;
                 """,
-                (
-                    record.canonical_filename,
-                    record.title,
-                    record.date_edtf,
-                    record.keywords,
-                    1 if record.has_citations else 0,
-                ),
+                [
+                    (r.target_rel_path, r.source_sha256, r.artifact_category)
+                    for r in records
+                ],
             )
 
-        def get_doc_metadata(
-            self, canonical_filename: str
-        ) -> Optional[DocMetadataRecord]:
-            conn = self.connect()
-            row = conn.execute(
-                "SELECT * FROM doc_metadata WHERE canonical_filename = ?;",
-                (canonical_filename,),
-            ).fetchone()
-            if not row:
-                return None
-            return DocMetadataRecord(
-                canonical_filename=row["canonical_filename"],
-                title=row["title"],
-                date_edtf=row["date_edtf"],
-                keywords=row["keywords"],
-                has_citations=bool(row["has_citations"]),
+    def get_all_build_artifacts(self) -> Dict[str, BuildArtifactRecord]:
+        conn = self.connect()
+        rows = conn.execute("SELECT * FROM build_artifacts;").fetchall()
+        return {
+            r["target_rel_path"]: BuildArtifactRecord(
+                target_rel_path=r["target_rel_path"],
+                source_sha256=r["source_sha256"],
+                artifact_category=r["artifact_category"],
             )
+            for r in rows
+        }
 
-        def get_all_doc_metadata(self) -> Dict[str, DocMetadataRecord]:
-            conn = self.connect()
-            rows = conn.execute("SELECT * FROM doc_metadata;").fetchall()
-            return {
-                r["canonical_filename"]: DocMetadataRecord(
-                    canonical_filename=r["canonical_filename"],
-                    title=r["title"],
-                    date_edtf=r["date_edtf"],
-                    keywords=r["keywords"],
-                    has_citations=bool(r["has_citations"]),
-                )
-                for r in rows
-            }
-
-        # -----------------------------------------------------------------------
-        # Build Artifact Operations
-        # -----------------------------------------------------------------------
-
-        def upsert_build_artifacts(self, records: List[BuildArtifactRecord]):
-            if not records:
-                return
-            conn = self.connect()
+    def prune_build_artifacts(self, valid_targets: Set[str]) -> int:
+        conn = self.connect()
+        rows = conn.execute("SELECT target_rel_path FROM build_artifacts;").fetchall()
+        to_delete = [
+            r["target_rel_path"]
+            for r in rows
+            if r["target_rel_path"] not in valid_targets
+        ]
+        if to_delete:
             with conn:
                 conn.executemany(
-                    """
-                    INSERT INTO build_artifacts (target_rel_path, source_sha256, artifact_category)
-                    VALUES (?, ?, ?)
-                    ON CONFLICT(target_rel_path) DO UPDATE SET
-                        source_sha256 = excluded.source_sha256,
-                        artifact_category = excluded.artifact_category;
-                    """,
-                    [
-                        (r.target_rel_path, r.source_sha256, r.artifact_category)
-                        for r in records
-                    ],
+                    "DELETE FROM build_artifacts WHERE target_rel_path = ?;",
+                    [(t,) for t in to_delete],
                 )
+        return len(to_delete)
 
-        def get_all_build_artifacts(self) -> Dict[str, BuildArtifactRecord]:
-            conn = self.connect()
-            rows = conn.execute("SELECT * FROM build_artifacts;").fetchall()
-            return {
-                r["target_rel_path"]: BuildArtifactRecord(
-                    target_rel_path=r["target_rel_path"],
-                    source_sha256=r["source_sha256"],
-                    artifact_category=r["artifact_category"],
-                )
-                for r in rows
-            }
+    def clear_build_state(self):
+        conn = self.connect()
+        with conn:
+            conn.execute("DELETE FROM build_artifacts;")
+            conn.execute("DELETE FROM meta WHERE key != 'schema_version';")
 
-        def prune_build_artifacts(self, valid_targets: Set[str]) -> int:
-            conn = self.connect()
-            rows = conn.execute(
-                "SELECT target_rel_path FROM build_artifacts;"
-            ).fetchall()
-            to_delete = [
-                r["target_rel_path"]
-                for r in rows
-                if r["target_rel_path"] not in valid_targets
-            ]
-            if to_delete:
-                with conn:
-                    conn.executemany(
-                        "DELETE FROM build_artifacts WHERE target_rel_path = ?;",
-                        [(t,) for t in to_delete],
-                    )
-            return len(to_delete)
-
-        def clear_build_state(self):
-            conn = self.connect()
-            with conn:
-                conn.execute("DELETE FROM build_artifacts;")
-                conn.execute("DELETE FROM meta WHERE key != 'schema_version';")
-
-        # -----------------------------------------------------------------------
-        # Helper Conversion
-        # -----------------------------------------------------------------------
+    # -----------------------------------------------------------------------
+    # Helper Conversion
+    # -----------------------------------------------------------------------
 
     @staticmethod
     def _row_to_file_record(row: sqlite3.Row) -> FileRecord:

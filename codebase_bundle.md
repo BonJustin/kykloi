@@ -44,7 +44,6 @@ kykloi/
 │   │   │   └── web-app-manifest-512x512.png
 │   │   ├── templates/
 │   │   │   └── pandoc-template.html
-│   │   ├── .build_manifest.json
 │   │   ├── build.py
 │   │   ├── html-config.yaml
 │   │   └── translate-links.lua
@@ -80,6 +79,7 @@ kykloi/
 │   └── logger.py
 ├── .gitignore
 ├── .python-version
+├── additional-context.md
 ├── assemble_code_to_md.py
 ├── launch.bat
 ├── launch.sh
@@ -1311,7 +1311,6 @@ import logging
 import multiprocessing
 import os
 import platform
-import re
 import shutil
 import sqlite3
 import subprocess
@@ -1333,7 +1332,7 @@ for path_entry in (PROJECT_ROOT, SYSTEM_DIR, APP_DIR):
 from logger import get_logger, setup_logging, timed_step
 
 from system.normalize.cli import sync_db_with_disk
-from system.normalize.db import VaultDB
+from system.normalize.db import BuildArtifactRecord, VaultDB
 from system.normalize.scanner import is_junk_path
 
 # ===========================================================================
@@ -2287,12 +2286,7 @@ NORM_DB_PATH = SYSTEM_DIR / "normalize" / "vault-index.db"
 DEFAULTS_YAML = APP_DIR / "html-config.yaml"
 DEFAULT_TEMPLATE = APP_DIR / "templates" / "pandoc-template.html"
 LUA_FILTER = APP_DIR / "translate-links.lua"
-MANIFEST_FILE = APP_DIR / ".build_manifest.json"
 SEARCH_DB_FILE = DST / "search.db"
-
-CITATION_PATTERN = re.compile(
-    r"(?:\[@[a-zA-Z0-9_:.#$%&-]+|(?<!\w)@[a-zA-Z0-9_:.#$%&-]+)"
-)
 
 
 @dataclass(frozen=True)
@@ -2371,19 +2365,51 @@ def resolve_pandoc_binary(root_dir: Path) -> str:
     manifest_path = root_dir / "system" / "tools" / "tools-manifest.json"
 
     if system == "windows":
-        runtime_dir = (
-            Path(os.environ.get("TEMP", "/tmp")) / f"kykloi_pandoc_{pandoc_target}"
+        base_runtime = Path(
+            os.environ.get("TEMP", os.environ.get("LOCALAPPDATA", "C:\\Temp"))
         )
+        runtime_dir = base_runtime / f"kykloi_pandoc_{pandoc_target}"
         pandoc_bin = runtime_dir / "pandoc.exe"
     else:
+
+        def _probe_exec(target_dir: Path) -> bool:
+            try:
+                target_dir.mkdir(parents=True, exist_ok=True)
+                probe = target_dir / f".probe_{os.getpid()}"
+                probe.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+                probe.chmod(0o700)
+                res = subprocess.run([str(probe)], capture_output=True)
+                probe.unlink(missing_ok=True)
+                return res.returncode == 0
+            except Exception:
+                return False
+
+        candidates = []
+        if "KYKLOI_RUNTIME_DIR" in os.environ:
+            candidates.append(Path(os.environ["KYKLOI_RUNTIME_DIR"]))
+
         xdg_cache = os.environ.get("XDG_CACHE_HOME")
-        if xdg_cache and Path(xdg_cache).is_dir():
-            base_runtime = Path(xdg_cache)
-        elif (Path.home() / ".cache").exists():
-            base_runtime = Path.home() / ".cache"
-        else:
-            base_runtime = Path("/tmp")
-        runtime_dir = base_runtime / f"kykloi_pandoc_{pandoc_target}"
+        if xdg_cache:
+            candidates.append(Path(xdg_cache) / "kykloi")
+        elif Path.home().exists():
+            candidates.append(Path.home() / ".cache" / "kykloi")
+
+        candidates.append(Path("/var/tmp/kykloi"))
+        candidates.append(Path("/tmp/kykloi"))
+
+        valid_base = next((c for c in candidates if _probe_exec(c)), None)
+        if valid_base is None:
+            sys_pandoc = shutil.which("pandoc")
+            if sys_pandoc:
+                return sys_pandoc
+            raise PermissionError(
+                "Execution boundary restriction: Cannot locate a writable, executable directory "
+                "to extract bundled Pandoc (all probed cache and temp mounts enforce 'noexec'). "
+                "Remediation: Install Pandoc natively via host package manager or define an "
+                "executable target via export KYKLOI_RUNTIME_DIR='/path/to/exec_dir'."
+            )
+
+        runtime_dir = valid_base / f"runtime_{pandoc_target}"
         pandoc_bin = runtime_dir / "bin" / "pandoc"
 
     stamp_file = runtime_dir / ".verified_sha256"
@@ -2556,144 +2582,9 @@ def encrypt_binary_file(src_path: Path, dst_path: Path, passphrase: str) -> None
     tmp_path.replace(dst_path)
 
 
-def load_manifest(manifest_path: Path) -> dict:
-    if manifest_path.exists():
-        try:
-            with open(manifest_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                if isinstance(data, dict):
-                    return data
-        except (json.JSONDecodeError, OSError):
-            pass
-    return {}
-
-
-def save_manifest(manifest_path: Path, manifest: dict, dry_run: bool):
-    if dry_run:
-        return
-    manifest_path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = manifest_path.with_suffix(".json.tmp")
-    with open(tmp_path, "w", encoding="utf-8") as f:
-        json.dump(manifest, f, indent=2, sort_keys=True)
-    tmp_path.replace(manifest_path)
-
-
 # ===========================================================================
-# 6. FRONTMATTER & METADATA-ONLY SQLITE FTS5
+# 6. SQLITE FTS5 SEARCH GENERATION
 # ===========================================================================
-
-
-def parse_frontmatter_robust(text: str) -> dict:
-    if not text.startswith("---"):
-        return {}
-
-    lines = text.splitlines()
-    yaml_lines = []
-    for line in lines[1:]:
-        if line.strip() in ("---", "..."):
-            break
-        yaml_lines.append(line)
-
-    result = {}
-    current_key = None
-    multiline_mode = None
-    multiline_accumulator = []
-
-    def commit_multiline():
-        nonlocal current_key, multiline_mode, multiline_accumulator
-        if current_key and multiline_mode:
-            val = (
-                "\n".join(multiline_accumulator)
-                if multiline_mode == "|"
-                else " ".join(" ".join(multiline_accumulator).split())
-            )
-            result[current_key] = val
-        multiline_mode = None
-        multiline_accumulator = []
-
-    for line in yaml_lines:
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
-            continue
-
-        indent = len(line) - len(line.lstrip())
-
-        if multiline_mode and indent > 0:
-            multiline_accumulator.append(stripped)
-            continue
-        elif multiline_mode and indent == 0:
-            commit_multiline()
-
-        if stripped.startswith("- ") and current_key:
-            item = stripped[2:].strip().strip("'\"")
-            if not isinstance(result.get(current_key), list):
-                result[current_key] = []
-            result[current_key].append(item)
-            continue
-
-        if ":" in stripped:
-            key, raw_val = stripped.split(":", 1)
-            key = key.strip()
-            raw_val = raw_val.strip()
-            current_key = key
-
-            if raw_val in ("|", ">"):
-                multiline_mode = raw_val
-                multiline_accumulator = []
-                continue
-
-            if raw_val.startswith("[") and raw_val.endswith("]"):
-                inner = raw_val[1:-1].strip()
-                result[key] = (
-                    [x.strip().strip("'\"") for x in inner.split(",") if x.strip()]
-                    if inner
-                    else []
-                )
-                continue
-
-            if (raw_val.startswith('"') and raw_val.endswith('"')) or (
-                raw_val.startswith("'") and raw_val.endswith("'")
-            ):
-                raw_val = raw_val[1:-1]
-
-            result[key] = raw_val
-
-    commit_multiline()
-    return result
-
-
-def extract_metadata_fast(md_path: Path) -> tuple[Path, dict[str, str], bool]:
-    meta = {"title": "", "keywords": "", "date_edtf": ""}
-    has_citations = False
-    try:
-        with open(md_path, "r", encoding="utf-8") as f:
-            full_content = f.read()
-
-        parsed = parse_frontmatter_robust(full_content)
-        meta["title"] = str(parsed.get("title", "")).strip()
-        meta["date_edtf"] = str(
-            parsed.get("date_edtf") or parsed.get("date", "")
-        ).strip()
-
-        keywords_val = parsed.get("keywords", "")
-        if isinstance(keywords_val, list):
-            meta["keywords"] = " ".join(str(k).strip() for k in keywords_val)
-        elif isinstance(keywords_val, str):
-            meta["keywords"] = keywords_val.strip()
-
-        has_citations = bool(CITATION_PATTERN.search(full_content))
-
-    except OSError as err:
-        get_logger("frontmatter").warning("Error reading %s: %s", md_path.name, err)
-
-    if not meta["title"]:
-        clean_stem = md_path.stem
-        ts_match = re.match(r"^(\d{8}|\d{12}|\d{14})[-_\s]+(.+)$", clean_stem)
-        if ts_match:
-            clean_stem = ts_match.group(2)
-        meta["title"] = clean_stem.replace("-", " ").replace("_", " ").title()
-
-    return md_path, meta, has_citations
 
 
 def build_sqlite_search_index(
@@ -2963,334 +2854,322 @@ def main():
             log.error("Missing required pipeline dependency: %s at %s", desc, path)
             sys.exit(1)
 
-    if args.clean:
-        if DST.exists() and not args.dry_run:
-            shutil.rmtree(DST)
-        if MANIFEST_FILE.exists() and not args.dry_run:
-            MANIFEST_FILE.unlink()
-
-    DST.mkdir(parents=True, exist_ok=True)
-
-    old_manifest = load_manifest(MANIFEST_FILE)
-    new_manifest: dict = {}
-
-    central_bib = find_vault_bibliography(SRC)
-    current_global_hash = compute_global_dependencies_hash(central_bib)
-    new_manifest["__GLOBAL_DEPENDENCIES__"] = current_global_hash
-    global_deps_changed = (
-        old_manifest.get("__GLOBAL_DEPENDENCIES__") != current_global_hash
-    )
-
-    if global_deps_changed:
-        log.info("Core templates/toolchain modified. Triggering full re-compilation.")
-
-    # -----------------------------------------------------------------------
-    # Synchronize Vault Ledger with O(1) Stat-Cache
-    # -----------------------------------------------------------------------
-    with timed_step(log, "Ledger Synchronization & Fast Stat Check"):
-        with VaultDB(NORM_DB_PATH) as db:
-            db.init_schema()
-            sync_db_with_disk(SRC, db)
-            vault_records = list(db.get_all_files().values())
-
-    md_records = [r for r in vault_records if not r.is_media]
-    media_records = [r for r in vault_records if r.is_media]
-    has_secure_files = any(r.is_secure for r in vault_records)
-
-    passphrase = args.password
-    if has_secure_files and not passphrase and not args.dry_run:
-        if not sys.stdin.isatty():
-            log.error(
-                "Passphrase required for /secure/ notes in non-interactive environment. "
-                "Provide --password or set KYKLOI_ENCRYPT_KEY."
-            )
-            sys.exit(1)
-
-        try:
-            passphrase = getpass.getpass("Enter passphrase for /secure/ notes: ")
-        except (OSError, EOFError):
-            log.error("Terminal disconnected: Unable to prompt for passphrase.")
-            sys.exit(1)
-
-        if not passphrase:
-            log.error("Passphrase required for secure notes.")
-            sys.exit(1)
-
-    passphrase_changed = False
-    if has_secure_files and passphrase:
-        current_key_fingerprint = compute_passphrase_fingerprint(passphrase)
-        new_manifest["__PASSPHRASE_FINGERPRINT__"] = current_key_fingerprint
-        old_key_fingerprint = old_manifest.get("__PASSPHRASE_FINGERPRINT__")
-        if old_manifest and old_key_fingerprint != current_key_fingerprint:
-            passphrase_changed = True
-            log.info(
-                "Passphrase rotation detected. Invalidating encrypted document cache."
-            )
-
-    expected_outputs: set[Path] = set()
-    compile_tasks: list[CompileTask] = []
-    encrypt_blob_tasks: list[EncryptBlobTask] = []
-    asset_sync_jobs: list[tuple[Path, Path]] = []
-
-    # -----------------------------------------------------------------------
-    # Media & Binary Assets Dispatch (Zero Redundant Hashing)
-    # -----------------------------------------------------------------------
-    for rec in media_records:
-        src_path = SRC / rec.rel_path
-        rel_posix = Path(rec.rel_path)
-
-        if rec.is_secure:
-            target = DST / rel_posix.with_name(rel_posix.name + ".enc")
-            expected_outputs.add(target.resolve())
-            manifest_key = f"secure_blob:{rec.rel_path}"
-            new_manifest[manifest_key] = rec.sha256
-
-            if (
-                not target.exists()
-                or passphrase_changed
-                or old_manifest.get(manifest_key) != rec.sha256
-            ):
-                encrypt_blob_tasks.append(
-                    EncryptBlobTask(
-                        src_path=src_path,
-                        dst_path=target,
-                        passphrase=passphrase or "",
-                        dry_run=args.dry_run,
-                    )
-                )
-        else:
-            target = DST / rel_posix
-            expected_outputs.add(target.resolve())
-            manifest_key = f"media:{rec.rel_path}"
-            new_manifest[manifest_key] = rec.sha256
-
-            if not target.exists() or old_manifest.get(manifest_key) != rec.sha256:
-                asset_sync_jobs.append((src_path, target))
-
-    # -----------------------------------------------------------------------
-    # Markdown Documents Dispatch (Zero Redundant Hashing)
-    # -----------------------------------------------------------------------
-    metadata_extraction_jobs: list[Path] = []
-    file_metadata_map: dict[Path, dict[str, str]] = {}
-    doc_has_citations_map: dict[Path, bool] = {}
-
-    for rec in md_records:
-        src_path = SRC / rec.rel_path
-        rel = Path(rec.rel_path)
-        manifest_key = f"content:{rec.rel_path}"
-        meta_cache_key = f"meta:{rec.rel_path}"
-        out = DST / rel.with_suffix(".html")
-        expected_outputs.add(out.resolve())
-
-        new_manifest[manifest_key] = rec.sha256
-
-        depth = len(rel.parent.parts) if rel.parent != Path(".") else 0
-        relative_root = ("../" * depth) if depth > 0 else ""
-
-        md_content_changed = old_manifest.get(manifest_key) != rec.sha256
-
-        is_dirty = (
-            not out.exists()
-            or global_deps_changed
-            or md_content_changed
-            or (rec.is_secure and passphrase_changed)
-        )
-
-        cached_meta = old_manifest.get(meta_cache_key)
-        meta_is_dirty = (
-            global_deps_changed
-            or md_content_changed
-            or not isinstance(cached_meta, dict)
-        )
-
-        if not meta_is_dirty and isinstance(cached_meta, dict):
-            file_metadata_map[src_path] = cached_meta
-            doc_has_citations_map[src_path] = cached_meta.get(
-                "__has_citations__", False
-            )
-            new_manifest[meta_cache_key] = cached_meta
-        else:
-            metadata_extraction_jobs.append(src_path)
-
-        if is_dirty:
-            compile_tasks.append(
-                CompileTask(
-                    md_path=src_path,
-                    out_path=out,
-                    template_path=DEFAULT_TEMPLATE,
-                    relative_root=relative_root,
-                    doc_title="",
-                    defaults_yaml=DEFAULTS_YAML,
-                    lua_filter=LUA_FILTER,
-                    bibliography_path=None,
-                    is_secure=rec.is_secure,
-                    passphrase=passphrase,
-                    dry_run=args.dry_run,
-                    pandoc_bin=pandoc_bin,
-                )
-            )
-
-    if metadata_extraction_jobs:
-        for md_path in metadata_extraction_jobs:
-            _, extracted_meta, has_cites = extract_metadata_fast(md_path)
-            extracted_meta["__has_citations__"] = has_cites
-            file_metadata_map[md_path] = extracted_meta
-            doc_has_citations_map[md_path] = has_cites
-            rel_str = md_path.relative_to(SRC).as_posix()
-            new_manifest[f"meta:{rel_str}"] = extracted_meta
-
-    final_compile_tasks: list[CompileTask] = []
-    for t in compile_tasks:
-        needs_bib = (
-            central_bib
-            if (central_bib and doc_has_citations_map.get(t.md_path, False))
-            else None
-        )
-        meta = file_metadata_map[t.md_path]
-        final_compile_tasks.append(
-            CompileTask(
-                md_path=t.md_path,
-                out_path=t.out_path,
-                template_path=t.template_path,
-                relative_root=t.relative_root,
-                doc_title=meta["title"],
-                defaults_yaml=t.defaults_yaml,
-                lua_filter=t.lua_filter,
-                bibliography_path=needs_bib,
-                is_secure=t.is_secure,
-                passphrase=t.passphrase,
-                dry_run=t.dry_run,
-                pandoc_bin=pandoc_bin,
-            )
-        )
-    compile_tasks = final_compile_tasks
-
-    # -----------------------------------------------------------------------
-    # Search Records Generation
-    # -----------------------------------------------------------------------
-    search_records: list[dict] = []
-    for idx, rec in enumerate(md_records):
-        src_path = SRC / rec.rel_path
-        raw_url = Path(rec.rel_path).with_suffix(".html").as_posix().lstrip("/")
-        clean_url = urllib.parse.quote(raw_url, safe="/")
-        meta = file_metadata_map[src_path]
-        search_records.append(
-            {
-                "id": idx + 1,
-                "title": meta["title"],
-                "keywords": meta["keywords"],
-                "date_edtf": meta["date_edtf"],
-                "url": clean_url,
-            }
-        )
-
-    expected_outputs.add(SEARCH_DB_FILE.resolve())
-
-    # -----------------------------------------------------------------------
-    # Static Assets Sync (UI Functional & Root Icons)
-    # -----------------------------------------------------------------------
-    for folder_name, manifest_prefix in [
-        ("assets", "functional_asset"),
-        ("root", "root_asset"),
-    ]:
-        src_dir = APP_DIR / folder_name
-        if not src_dir.exists():
-            continue
-        for p in src_dir.rglob("*"):
-            if p.is_file() and not is_junk_path(p, src_dir):
-                rel_p = p.relative_to(src_dir)
-                target = DST / ("assets" / rel_p if folder_name == "assets" else rel_p)
-                expected_outputs.add(target.resolve())
-                manifest_key = f"{manifest_prefix}:{rel_p.as_posix()}"
-                h = compute_file_hash(p)
-                new_manifest[manifest_key] = h
-                if not target.exists() or old_manifest.get(manifest_key) != h:
-                    asset_sync_jobs.append((p, target))
-
-    with timed_step(log, "Artifact Pruning", logging.DEBUG):
-        orphans_pruned = prune_orphans(
-            dst_dir=DST, expected_files=expected_outputs, dry_run=args.dry_run
-        )
-        if orphans_pruned:
-            log.info("Pruned %d orphaned artifact(s) from target.", orphans_pruned)
-
-    if asset_sync_jobs:
-        log.info("Synchronizing %d static/media asset(s)...", len(asset_sync_jobs))
-        for src_file, target_file in asset_sync_jobs:
-            if not args.dry_run:
-                target_file.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(src_file, target_file)
-            log.debug("Synchronized asset: %s -> %s", src_file.name, target_file.name)
-
-    failed = 0
-    mp_context = multiprocessing.get_context("spawn")
-
-    if encrypt_blob_tasks:
-        log.info("Encrypting %d binary blob(s)...", len(encrypt_blob_tasks))
-        with timed_step(
-            log, f"Binary Blob Encryption ({len(encrypt_blob_tasks)} items)"
-        ):
-            with concurrent.futures.ProcessPoolExecutor(
-                max_workers=args.workers, mp_context=mp_context
-            ) as executor:
-                futures = [
-                    executor.submit(encrypt_blob_worker, t) for t in encrypt_blob_tasks
-                ]
-                for future in concurrent.futures.as_completed(futures):
-                    path, ok, err = future.result()
-                    if not ok:
-                        failed += 1
-                        log.error("Failed to encrypt blob %s: %s", path.name, err)
-                    else:
-                        log.debug("Encrypted binary asset: %s", path.name)
-
-    if compile_tasks:
-        log.info("Compiling %d Markdown document(s)...", len(compile_tasks))
-        with timed_step(log, f"Markdown Compilation ({len(compile_tasks)} documents)"):
-            with concurrent.futures.ProcessPoolExecutor(
-                max_workers=args.workers, mp_context=mp_context
-            ) as executor:
-                futures = [
-                    executor.submit(compile_markdown_worker, t) for t in compile_tasks
-                ]
-                for future in concurrent.futures.as_completed(futures):
-                    path, ok, err = future.result()
-                    if not ok:
-                        failed += 1
-                        log.error("Compilation error in %s: %s", path.name, err)
-                    else:
-                        log.debug("Compiled: %s", path.name)
-    else:
-        log.info(
-            "Document compilation cache hit. All %d documents are up-to-date.",
-            len(md_records),
-        )
-
-    if failed == 0:
-        search_index_needed = (
-            not SEARCH_DB_FILE.exists()
-            or bool(metadata_extraction_jobs)
-            or orphans_pruned > 0
-        )
-        if search_index_needed:
-            build_sqlite_search_index(
-                search_records, SEARCH_DB_FILE, dry_run=args.dry_run
-            )
-            if SEARCH_DB_FILE.exists() and not args.dry_run:
-                new_manifest["__SEARCH_DB_HASH__"] = compute_file_hash(SEARCH_DB_FILE)
-        else:
-            new_manifest["__SEARCH_DB_HASH__"] = old_manifest.get(
-                "__SEARCH_DB_HASH__", ""
-            )
-
-        save_manifest(MANIFEST_FILE, new_manifest, args.dry_run)
-        log.info("Build pipeline completed successfully.")
-    else:
-        log.error(
-            "Build failed with %d error(s). Build manifest retained in prior state.",
-            failed,
+    if not NORM_DB_PATH.is_file():
+        log.critical(
+            "Vault ledger missing at '%s'. Normalization is required before building.\n"
+            "Run: python system/launch.py --normalize (or select option [3] in the control menu).",
+            NORM_DB_PATH,
         )
         sys.exit(1)
+
+    with VaultDB(NORM_DB_PATH) as db:
+        db.init_schema()
+        if args.clean:
+            if DST.exists() and not args.dry_run:
+                shutil.rmtree(DST)
+            if not args.dry_run:
+                db.clear_build_state()
+
+        DST.mkdir(parents=True, exist_ok=True)
+
+        central_bib = find_vault_bibliography(SRC)
+        current_global_hash = compute_global_dependencies_hash(central_bib)
+        old_global_hash = db.get_meta("__GLOBAL_DEPENDENCIES__")
+        global_deps_changed = old_global_hash != current_global_hash
+
+        if global_deps_changed:
+            log.info(
+                "Core templates/toolchain modified. Triggering full re-compilation."
+            )
+
+        with timed_step(log, "Ledger Synchronization & Fast Stat Check"):
+            sync_db_with_disk(SRC, db)
+            vault_records = list(db.get_all_files().values())
+            doc_metadata_map = db.get_all_doc_metadata()
+            existing_artifacts = db.get_all_build_artifacts()
+
+        md_records = [r for r in vault_records if not r.is_media]
+        media_records = [r for r in vault_records if r.is_media]
+        has_secure_files = any(r.is_secure for r in vault_records)
+
+        passphrase = args.password
+        if has_secure_files and not passphrase and not args.dry_run:
+            if not sys.stdin.isatty():
+                log.error(
+                    "Passphrase required for /secure/ notes in non-interactive environment. "
+                    "Provide --password or set KYKLOI_ENCRYPT_KEY."
+                )
+                sys.exit(1)
+
+            try:
+                passphrase = getpass.getpass("Enter passphrase for /secure/ notes: ")
+            except (OSError, EOFError):
+                log.error("Terminal disconnected: Unable to prompt for passphrase.")
+                sys.exit(1)
+
+            if not passphrase:
+                log.error("Passphrase required for secure notes.")
+                sys.exit(1)
+
+        passphrase_changed = False
+        current_key_fingerprint = ""
+        if has_secure_files and passphrase:
+            current_key_fingerprint = compute_passphrase_fingerprint(passphrase)
+            old_key_fingerprint = db.get_meta("__PASSPHRASE_FINGERPRINT__")
+            if old_key_fingerprint and old_key_fingerprint != current_key_fingerprint:
+                passphrase_changed = True
+                log.info(
+                    "Passphrase rotation detected. Invalidating encrypted document cache."
+                )
+
+        expected_outputs: set[Path] = set()
+        compile_tasks: list[CompileTask] = []
+        encrypt_blob_tasks: list[EncryptBlobTask] = []
+        asset_sync_jobs: list[tuple[Path, Path]] = []
+        staged_artifacts: list[BuildArtifactRecord] = []
+
+        # -------------------------------------------------------------------
+        # Media & Binary Assets Dispatch
+        # -------------------------------------------------------------------
+        for rec in media_records:
+            src_path = SRC / rec.rel_path
+            rel_posix = Path(rec.rel_path)
+
+            if rec.is_secure:
+                target = DST / rel_posix.with_name(rel_posix.name + ".enc")
+                rel_target_str = target.relative_to(DST).as_posix()
+                expected_outputs.add(target.resolve())
+                staged_artifacts.append(
+                    BuildArtifactRecord(rel_target_str, rec.sha256, "encrypted_blob")
+                )
+
+                cached_art = existing_artifacts.get(rel_target_str)
+                if (
+                    not target.exists()
+                    or passphrase_changed
+                    or not cached_art
+                    or cached_art.source_sha256 != rec.sha256
+                ):
+                    encrypt_blob_tasks.append(
+                        EncryptBlobTask(
+                            src_path=src_path,
+                            dst_path=target,
+                            passphrase=passphrase or "",
+                            dry_run=args.dry_run,
+                        )
+                    )
+            else:
+                target = DST / rel_posix
+                rel_target_str = target.relative_to(DST).as_posix()
+                expected_outputs.add(target.resolve())
+                staged_artifacts.append(
+                    BuildArtifactRecord(rel_target_str, rec.sha256, "media")
+                )
+
+                cached_art = existing_artifacts.get(rel_target_str)
+                if (
+                    not target.exists()
+                    or not cached_art
+                    or cached_art.source_sha256 != rec.sha256
+                ):
+                    asset_sync_jobs.append((src_path, target))
+
+        # -------------------------------------------------------------------
+        # Markdown Documents Dispatch
+        # -------------------------------------------------------------------
+        for rec in md_records:
+            src_path = SRC / rec.rel_path
+            rel = Path(rec.rel_path)
+            out = DST / rel.with_suffix(".html")
+            rel_out_str = out.relative_to(DST).as_posix()
+            expected_outputs.add(out.resolve())
+
+            staged_artifacts.append(
+                BuildArtifactRecord(
+                    rel_out_str,
+                    rec.sha256,
+                    "encrypted_html" if rec.is_secure else "html",
+                )
+            )
+
+            depth = len(rel.parent.parts) if rel.parent != Path(".") else 0
+            relative_root = ("../" * depth) if depth > 0 else ""
+
+            cached_art = existing_artifacts.get(rel_out_str)
+            md_content_changed = (
+                not cached_art or cached_art.source_sha256 != rec.sha256
+            )
+
+            is_dirty = (
+                not out.exists()
+                or global_deps_changed
+                or md_content_changed
+                or (rec.is_secure and passphrase_changed)
+            )
+
+            meta = doc_metadata_map.get(rec.canonical_filename)
+            doc_title = meta.title if meta else rec.stem.replace("-", " ").title()
+            has_cites = meta.has_citations if meta else False
+
+            if is_dirty:
+                needs_bib = central_bib if (central_bib and has_cites) else None
+                compile_tasks.append(
+                    CompileTask(
+                        md_path=src_path,
+                        out_path=out,
+                        template_path=DEFAULT_TEMPLATE,
+                        relative_root=relative_root,
+                        doc_title=doc_title,
+                        defaults_yaml=DEFAULTS_YAML,
+                        lua_filter=LUA_FILTER,
+                        bibliography_path=needs_bib,
+                        is_secure=rec.is_secure,
+                        passphrase=passphrase,
+                        dry_run=args.dry_run,
+                        pandoc_bin=pandoc_bin,
+                    )
+                )
+
+        # -------------------------------------------------------------------
+        # Search Records Generation
+        # -------------------------------------------------------------------
+        search_records: list[dict] = []
+        for idx, rec in enumerate(md_records):
+            raw_url = Path(rec.rel_path).with_suffix(".html").as_posix().lstrip("/")
+            clean_url = urllib.parse.quote(raw_url, safe="/")
+            meta = doc_metadata_map.get(rec.canonical_filename)
+            search_records.append(
+                {
+                    "id": idx + 1,
+                    "title": meta.title if meta else rec.stem.replace("-", " ").title(),
+                    "keywords": meta.keywords if meta else "",
+                    "date_edtf": meta.date_edtf if meta else "",
+                    "url": clean_url,
+                }
+            )
+
+        expected_outputs.add(SEARCH_DB_FILE.resolve())
+
+        # -------------------------------------------------------------------
+        # Static Assets Sync (UI Functional & Root Icons)
+        # -------------------------------------------------------------------
+        for folder_name, cat in [("assets", "asset"), ("root", "asset")]:
+            src_dir = APP_DIR / folder_name
+            if not src_dir.exists():
+                continue
+            for p in src_dir.rglob("*"):
+                if p.is_file() and not is_junk_path(p, src_dir):
+                    rel_p = p.relative_to(src_dir)
+                    target = DST / (
+                        "assets" / rel_p if folder_name == "assets" else rel_p
+                    )
+                    rel_target_str = target.relative_to(DST).as_posix()
+                    expected_outputs.add(target.resolve())
+
+                    h = compute_file_hash(p)
+                    staged_artifacts.append(BuildArtifactRecord(rel_target_str, h, cat))
+
+                    cached_art = existing_artifacts.get(rel_target_str)
+                    if (
+                        not target.exists()
+                        or not cached_art
+                        or cached_art.source_sha256 != h
+                    ):
+                        asset_sync_jobs.append((p, target))
+
+        with timed_step(log, "Artifact Pruning", logging.DEBUG):
+            orphans_pruned = prune_orphans(
+                dst_dir=DST, expected_files=expected_outputs, dry_run=args.dry_run
+            )
+            if orphans_pruned:
+                log.info("Pruned %d orphaned artifact(s) from target.", orphans_pruned)
+
+        if asset_sync_jobs:
+            log.info("Synchronizing %d static/media asset(s)...", len(asset_sync_jobs))
+            for src_file, target_file in asset_sync_jobs:
+                if not args.dry_run:
+                    target_file.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(src_file, target_file)
+                log.debug(
+                    "Synchronized asset: %s -> %s", src_file.name, target_file.name
+                )
+
+        failed = 0
+        mp_context = multiprocessing.get_context("spawn")
+
+        if encrypt_blob_tasks:
+            log.info("Encrypting %d binary blob(s)...", len(encrypt_blob_tasks))
+            with timed_step(
+                log, f"Binary Blob Encryption ({len(encrypt_blob_tasks)} items)"
+            ):
+                with concurrent.futures.ProcessPoolExecutor(
+                    max_workers=args.workers, mp_context=mp_context
+                ) as executor:
+                    futures = [
+                        executor.submit(encrypt_blob_worker, t)
+                        for t in encrypt_blob_tasks
+                    ]
+                    for future in concurrent.futures.as_completed(futures):
+                        path, ok, err = future.result()
+                        if not ok:
+                            failed += 1
+                            log.error("Failed to encrypt blob %s: %s", path.name, err)
+                        else:
+                            log.debug("Encrypted binary asset: %s", path.name)
+
+        if compile_tasks:
+            log.info("Compiling %d Markdown document(s)...", len(compile_tasks))
+            with timed_step(
+                log, f"Markdown Compilation ({len(compile_tasks)} documents)"
+            ):
+                with concurrent.futures.ProcessPoolExecutor(
+                    max_workers=args.workers, mp_context=mp_context
+                ) as executor:
+                    futures = [
+                        executor.submit(compile_markdown_worker, t)
+                        for t in compile_tasks
+                    ]
+                    for future in concurrent.futures.as_completed(futures):
+                        path, ok, err = future.result()
+                        if not ok:
+                            failed += 1
+                            log.error("Compilation error in %s: %s", path.name, err)
+                        else:
+                            log.debug("Compiled: %s", path.name)
+        else:
+            log.info(
+                "Document compilation cache hit. All %d documents are up-to-date.",
+                len(md_records),
+            )
+
+        if failed == 0:
+            search_index_needed = (
+                not SEARCH_DB_FILE.exists()
+                or len(compile_tasks) > 0
+                or orphans_pruned > 0
+            )
+            if search_index_needed:
+                build_sqlite_search_index(
+                    search_records, SEARCH_DB_FILE, dry_run=args.dry_run
+                )
+
+            if not args.dry_run:
+                valid_target_paths = {r.target_rel_path for r in staged_artifacts}
+                db.upsert_build_artifacts(staged_artifacts)
+                db.prune_build_artifacts(valid_target_paths)
+                db.set_meta("__GLOBAL_DEPENDENCIES__", current_global_hash)
+                if passphrase and current_key_fingerprint:
+                    db.set_meta("__PASSPHRASE_FINGERPRINT__", current_key_fingerprint)
+                if SEARCH_DB_FILE.exists():
+                    db.set_meta("__SEARCH_DB_HASH__", compute_file_hash(SEARCH_DB_FILE))
+
+            log.info("Build pipeline completed successfully.")
+        else:
+            log.error(
+                "Build failed with %d error(s). Ledger build artifacts retained in prior state.",
+                failed,
+            )
+            sys.exit(1)
 
 
 if __name__ == "__main__":
@@ -3450,6 +3329,7 @@ system/normalize/cli.py
 
 import argparse
 import os
+import re
 import sys
 import time
 from dataclasses import dataclass, field
@@ -3461,14 +3341,22 @@ PROJECT_ROOT = SCRIPT_DIR.parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from system.normalize.db import FileRecord, VaultDB
+from system.normalize.db import DocMetadataRecord, FileRecord, VaultDB
+
+CITATION_PATTERN = re.compile(
+    r"(?:\[@[a-zA-Z0-9_:.#$%&-]+|(?<!\w)@[a-zA-Z0-9_:.#$%&-]+)"
+)
 from system.normalize.engine import ActionType, DiffPlan, compute_diff
 from system.normalize.graph import (
     heal_markdown_links,
     parse_markdown_links,
     to_link_records,
 )
-from system.normalize.scanner import MARKDOWN_EXTENSIONS, scan_vault
+from system.normalize.scanner import (
+    MARKDOWN_EXTENSIONS,
+    VaultScanResult,
+    scan_vault,
+)
 from system.normalize.slugify import slugify_stem
 
 # Terminal ANSI Color Constants
@@ -3633,25 +3521,25 @@ def execute_transaction(manifest: TransactionManifest, db: VaultDB) -> bool:
             tmp_path.write_text(new_content, encoding="utf-8")
             created_tmp_files.append(tmp_path)
 
-            # Phase 2: Execute disk renames
-            for src, dst in manifest.disk_renames:
-                if src == dst:
-                    continue
-                dst.parent.mkdir(parents=True, exist_ok=True)
-                if src.parent == dst.parent and src.name.lower() == dst.name.lower():
-                    case_tmp = (
-                        dst.parent / f".norm_case_tmp_{os.urandom(4).hex()}_{dst.name}"
-                    )
-                    try:
-                        src.rename(case_tmp)
-                        case_tmp.rename(dst)
-                    except Exception:
-                        if case_tmp.exists() and not src.exists():
-                            case_tmp.rename(src)
-                        raise
-                else:
-                    src.rename(dst)
-                executed_renames.append((dst, src))
+        # Phase 2: Execute disk renames
+        for src, dst in manifest.disk_renames:
+            if src == dst:
+                continue
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            if src.parent == dst.parent and src.name.lower() == dst.name.lower():
+                case_tmp = (
+                    dst.parent / f".norm_case_tmp_{os.urandom(4).hex()}_{dst.name}"
+                )
+                try:
+                    src.rename(case_tmp)
+                    case_tmp.rename(dst)
+                except Exception:
+                    if case_tmp.exists() and not src.exists():
+                        case_tmp.rename(src)
+                    raise
+            else:
+                src.rename(dst)
+            executed_renames.append((dst, src))
 
         # Phase 3: Atomically swap text rewrites
         for abs_path, _ in manifest.text_rewrites:
@@ -3703,6 +3591,110 @@ def execute_transaction(manifest: TransactionManifest, db: VaultDB) -> bool:
         raise
 
 
+def parse_frontmatter_dict(text: str) -> dict:
+    if not text.startswith("---"):
+        return {}
+
+    lines = text.splitlines()
+    yaml_lines = []
+    for line in lines[1:]:
+        if line.strip() in ("---", "..."):
+            break
+        yaml_lines.append(line)
+
+    result = {}
+    current_key = None
+    multiline_mode = None
+    multiline_accumulator = []
+
+    def commit_multiline():
+        nonlocal current_key, multiline_mode, multiline_accumulator
+        if current_key and multiline_mode:
+            val = (
+                "\n".join(multiline_accumulator)
+                if multiline_mode == "|"
+                else " ".join(" ".join(multiline_accumulator).split())
+            )
+            result[current_key] = val
+        multiline_mode = None
+        multiline_accumulator = []
+
+    for line in yaml_lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+
+        indent = len(line) - len(line.lstrip())
+
+        if multiline_mode and indent > 0:
+            multiline_accumulator.append(stripped)
+            continue
+        elif multiline_mode and indent == 0:
+            commit_multiline()
+
+        if stripped.startswith("- ") and current_key:
+            item = stripped[2:].strip().strip("'\"")
+            if not isinstance(result.get(current_key), list):
+                result[current_key] = []
+            result[current_key].append(item)
+            continue
+
+        if ":" in stripped:
+            key, raw_val = stripped.split(":", 1)
+            key = key.strip()
+            raw_val = raw_val.strip()
+            current_key = key
+
+            if raw_val in ("|", ">"):
+                multiline_mode = raw_val
+                multiline_accumulator = []
+                continue
+
+            if raw_val.startswith("[") and raw_val.endswith("]"):
+                inner = raw_val[1:-1].strip()
+                result[key] = (
+                    [x.strip().strip("'\"") for x in inner.split(",") if x.strip()]
+                    if inner
+                    else []
+                )
+                continue
+
+            if (raw_val.startswith('"') and raw_val.endswith('"')) or (
+                raw_val.startswith("'") and raw_val.endswith("'")
+            ):
+                raw_val = raw_val[1:-1]
+
+            result[key] = raw_val
+
+    commit_multiline()
+    return result
+
+
+def extract_frontmatter_metadata(content: str, stem: str) -> Tuple[str, str, str, bool]:
+    parsed = parse_frontmatter_dict(content)
+    title = str(parsed.get("title", "")).strip()
+    date_edtf = str(parsed.get("date_edtf") or parsed.get("date", "")).strip()
+
+    keywords_val = parsed.get("keywords", "")
+    if isinstance(keywords_val, list):
+        keywords = " ".join(str(k).strip() for k in keywords_val)
+    elif isinstance(keywords_val, str):
+        keywords = keywords_val.strip()
+    else:
+        keywords = ""
+
+    has_citations = bool(CITATION_PATTERN.search(content))
+
+    if not title:
+        clean_stem = stem
+        ts_match = re.match(r"^(\d{8}|\d{12}|\d{14})[-_\s]+(.+)$", clean_stem)
+        if ts_match:
+            clean_stem = ts_match.group(2)
+        title = clean_stem.replace("-", " ").replace("_", " ").title()
+
+    return title, date_edtf, keywords, has_citations
+
+
 def sync_db_with_disk(content_root: Path, db: VaultDB):
     """Refreshes the SQLite ledger to match physical disk state after execution."""
     scan_res = scan_vault(content_root, db)
@@ -3737,6 +3729,19 @@ def sync_db_with_disk(content_root: Path, db: VaultDB):
                 ]
                 db.replace_document_links(
                     f.canonical_filename, to_link_records(valid_links)
+                )
+
+                title, date_edtf, keywords, has_cites = extract_frontmatter_metadata(
+                    content, f.stem
+                )
+                db.upsert_doc_metadata(
+                    DocMetadataRecord(
+                        canonical_filename=f.canonical_filename,
+                        title=title,
+                        date_edtf=date_edtf,
+                        keywords=keywords,
+                        has_citations=has_cites,
+                    )
                 )
             except OSError:
                 pass
@@ -4003,7 +4008,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional
 
-SCHEMA_VERSION = "2.0"
+SCHEMA_VERSION = "3.0"
 
 SCHEMA_SQL = """
 PRAGMA foreign_keys = ON;
@@ -4043,6 +4048,21 @@ CREATE TABLE IF NOT EXISTS links (
 
 CREATE INDEX IF NOT EXISTS idx_links_target ON links(target_canonical);
 CREATE INDEX IF NOT EXISTS idx_links_source ON links(source_canonical);
+
+CREATE TABLE IF NOT EXISTS doc_metadata (
+    canonical_filename TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    date_edtf TEXT NOT NULL,
+    keywords TEXT NOT NULL,
+    has_citations INTEGER NOT NULL DEFAULT 0,
+    FOREIGN KEY(canonical_filename) REFERENCES files(canonical_filename) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS build_artifacts (
+    target_rel_path TEXT PRIMARY KEY,
+    source_sha256 TEXT NOT NULL,
+    artifact_category TEXT NOT NULL
+);
 """
 
 
@@ -4066,6 +4086,22 @@ class LinkRecord:
     target_canonical: str
     raw_target: str
     line_number: Optional[int]
+
+
+@dataclass(frozen=True)
+class DocMetadataRecord:
+    canonical_filename: str
+    title: str
+    date_edtf: str
+    keywords: str
+    has_citations: bool
+
+
+@dataclass(frozen=True)
+class BuildArtifactRecord:
+    target_rel_path: str
+    source_sha256: str
+    artifact_category: str
 
 
 class VaultDB:
@@ -4121,6 +4157,8 @@ class VaultDB:
         if current_version != SCHEMA_VERSION:
             with conn:
                 conn.execute("PRAGMA foreign_keys = OFF;")
+                conn.execute("DROP TABLE IF EXISTS build_artifacts;")
+                conn.execute("DROP TABLE IF EXISTS doc_metadata;")
                 conn.execute("DROP TABLE IF EXISTS links;")
                 conn.execute("DROP TABLE IF EXISTS files;")
                 conn.execute("DROP TABLE IF EXISTS meta;")
@@ -4303,6 +4341,118 @@ class VaultDB:
             )
             for r in rows
         ]
+
+    # -----------------------------------------------------------------------
+    # Document Metadata Operations
+    # -----------------------------------------------------------------------
+
+    def upsert_doc_metadata(self, record: DocMetadataRecord):
+        conn = self.connect()
+        conn.execute(
+            """
+            INSERT INTO doc_metadata (canonical_filename, title, date_edtf, keywords, has_citations)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(canonical_filename) DO UPDATE SET
+                title = excluded.title,
+                date_edtf = excluded.date_edtf,
+                keywords = excluded.keywords,
+                has_citations = excluded.has_citations;
+            """,
+            (
+                record.canonical_filename,
+                record.title,
+                record.date_edtf,
+                record.keywords,
+                1 if record.has_citations else 0,
+            ),
+        )
+
+    def get_doc_metadata(self, canonical_filename: str) -> Optional[DocMetadataRecord]:
+        conn = self.connect()
+        row = conn.execute(
+            "SELECT * FROM doc_metadata WHERE canonical_filename = ?;",
+            (canonical_filename,),
+        ).fetchone()
+        if not row:
+            return None
+        return DocMetadataRecord(
+            canonical_filename=row["canonical_filename"],
+            title=row["title"],
+            date_edtf=row["date_edtf"],
+            keywords=row["keywords"],
+            has_citations=bool(row["has_citations"]),
+        )
+
+    def get_all_doc_metadata(self) -> Dict[str, DocMetadataRecord]:
+        conn = self.connect()
+        rows = conn.execute("SELECT * FROM doc_metadata;").fetchall()
+        return {
+            r["canonical_filename"]: DocMetadataRecord(
+                canonical_filename=r["canonical_filename"],
+                title=r["title"],
+                date_edtf=r["date_edtf"],
+                keywords=r["keywords"],
+                has_citations=bool(r["has_citations"]),
+            )
+            for r in rows
+        }
+
+    # -----------------------------------------------------------------------
+    # Build Artifact Operations
+    # -----------------------------------------------------------------------
+
+    def upsert_build_artifacts(self, records: List[BuildArtifactRecord]):
+        if not records:
+            return
+        conn = self.connect()
+        with conn:
+            conn.executemany(
+                """
+                INSERT INTO build_artifacts (target_rel_path, source_sha256, artifact_category)
+                VALUES (?, ?, ?)
+                ON CONFLICT(target_rel_path) DO UPDATE SET
+                    source_sha256 = excluded.source_sha256,
+                    artifact_category = excluded.artifact_category;
+                """,
+                [
+                    (r.target_rel_path, r.source_sha256, r.artifact_category)
+                    for r in records
+                ],
+            )
+
+    def get_all_build_artifacts(self) -> Dict[str, BuildArtifactRecord]:
+        conn = self.connect()
+        rows = conn.execute("SELECT * FROM build_artifacts;").fetchall()
+        return {
+            r["target_rel_path"]: BuildArtifactRecord(
+                target_rel_path=r["target_rel_path"],
+                source_sha256=r["source_sha256"],
+                artifact_category=r["artifact_category"],
+            )
+            for r in rows
+        }
+
+    def prune_build_artifacts(self, valid_targets: Set[str]) -> int:
+        conn = self.connect()
+        rows = conn.execute("SELECT target_rel_path FROM build_artifacts;").fetchall()
+        to_delete = [
+            r["target_rel_path"]
+            for r in rows
+            if r["target_rel_path"] not in valid_targets
+        ]
+        if to_delete:
+            with conn:
+                conn.executemany(
+                    "DELETE FROM build_artifacts WHERE target_rel_path = ?;",
+                    [(t,) for t in to_delete],
+                )
+        return len(to_delete)
+
+    def clear_build_state(self):
+        conn = self.connect()
+        with conn:
+            conn.execute("DELETE FROM build_artifacts;")
+            conn.execute("DELETE FROM meta WHERE key != 'schema_version';")
 
     # -----------------------------------------------------------------------
     # Helper Conversion
@@ -6191,10 +6341,29 @@ wheels/
 # Virtual environments
 .venv
 
+# Logs
+*.log
+
+# Databases (auto-generated)
+*.db
+*.db-wal
+*.db-shm
+
+# Generated artifacts
+dist/
+
 # Project binaries
 system/tools/archives/*.tar.gz
 system/tools/archives/*.zip
 !system/tools/archives/.gitkeep
+```
+
+## additional-context.md
+
+```md
+# Additional Context
+
+* Metadata inclusion in search functionality is **required and intended**. Do not question it's security implications, as the html artifact of the vault must remain searchable for the user, while hiding the written content from public view, or the entire functionality of the vault is distrupted.
 ```
 
 ## launch.bat
@@ -6470,21 +6639,72 @@ esac
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 MANIFEST_PATH="$SCRIPT_DIR/system/tools/tools-manifest.json"
 
-# Prioritize persistent user cache over /tmp to prevent noexec mount execution traps
-if [ -n "$XDG_CACHE_HOME" ] && [ -w "$XDG_CACHE_HOME" ]; then
-  BASE_RUNTIME="$XDG_CACHE_HOME"
-elif [ -n "$HOME" ] && [ -w "$HOME" ]; then
-  mkdir -p "$HOME/.cache" 2>/dev/null || true
-  if [ -d "$HOME/.cache" ] && [ -w "$HOME/.cache" ]; then
-    BASE_RUNTIME="$HOME/.cache"
-  else
-    BASE_RUNTIME="/tmp"
+test_exec_mount() {
+  candidate_dir="$1"
+  mkdir -p "$candidate_dir" 2>/dev/null || return 1
+  probe_file="$candidate_dir/.probe_$$"
+  printf '#!/bin/sh\nexit 0\n' >"$probe_file" 2>/dev/null || return 1
+  chmod +x "$probe_file" 2>/dev/null || {
+    rm -f "$probe_file"
+    return 1
+  }
+  if "$probe_file" 2>/dev/null; then
+    rm -f "$probe_file"
+    return 0
   fi
-else
-  BASE_RUNTIME="/tmp"
+  rm -f "$probe_file"
+  return 1
+}
+
+resolve_runtime_base() {
+  if [ -n "$KYKLOI_RUNTIME_DIR" ]; then
+    if test_exec_mount "$KYKLOI_RUNTIME_DIR"; then
+      echo "$KYKLOI_RUNTIME_DIR"
+      return 0
+    else
+      echo "[ERROR] Specified KYKLOI_RUNTIME_DIR='$KYKLOI_RUNTIME_DIR' is not executable (noexec or permission denied)." >&2
+    fi
+  fi
+
+  CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/kykloi"
+  if test_exec_mount "$CACHE_DIR"; then
+    echo "$CACHE_DIR"
+    return 0
+  fi
+
+  if test_exec_mount "/var/tmp/kykloi"; then
+    echo "/var/tmp/kykloi"
+    return 0
+  fi
+
+  if test_exec_mount "/tmp/kykloi"; then
+    echo "/tmp/kykloi"
+    return 0
+  fi
+
+  return 1
+}
+
+if ! BASE_RUNTIME="$(resolve_runtime_base)"; then
+  echo "" >&2
+  echo "==================== [FATAL EXECUTION BOUNDARY ERROR] ====================" >&2
+  echo "Kykloi could not identify an executable location to unpack portable tools." >&2
+  echo "All standard cache and temporary directories reject execution (noexec mount" >&2
+  echo "or insufficient filesystem permissions):" >&2
+  echo "  - \${XDG_CACHE_HOME:-~/.cache}/kykloi" >&2
+  echo "  - /var/tmp/kykloi" >&2
+  echo "  - /tmp/kykloi" >&2
+  echo "" >&2
+  echo "Remediation Options:" >&2
+  echo "  1. Install system Python (>= 3.10) and Pandoc using your OS package manager." >&2
+  echo "     Kykloi will automatically prioritize native host tools over bundled archives." >&2
+  echo "  2. Designate an authorized executable partition via environment variable:" >&2
+  echo "     export KYKLOI_RUNTIME_DIR=\"/path/to/executable/directory\"" >&2
+  echo "==========================================================================" >&2
+  exit 1
 fi
 
-RUNTIME_ROOT="${BASE_RUNTIME}/kykloi_runtime_${TARGET}"
+RUNTIME_ROOT="${BASE_RUNTIME}/runtime_${TARGET}"
 LOCAL_PY="$RUNTIME_ROOT/bin/python3"
 STAMP_FILE="$RUNTIME_ROOT/.verified_sha256"
 
@@ -6580,17 +6800,4 @@ description = "Deterministic Archival Knowlege Management and SSG"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = []
-```
-
-## README.md
-
-```md
-# Kykloi
-
-*This README is yet to be developed but in the meantime will contain bits of context as reminders and key points for inclusion in documentation later.*
-
-## Contextual Tidbits
-
-* Metadata inclusion from secure notes are included to maintain search functionality, but the note bodies are intended to be relatively secure.
-* The primary threat model intended to be mitigated on secure pages is to prevent casual browsing and bot ingestion, and minor security threats. This is not intended to prevent motivated, high resource security threats, and if such a level of security is desired, such information should **not** be posted to the public internet or under highly secure access control only.
 ```

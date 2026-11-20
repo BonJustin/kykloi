@@ -1713,3 +1713,20 @@
 2026-11-19 08:05:24 | WARNING  | kykloi.menu              | Unrecognized menu option: [2~
 2026-11-19 08:05:30 | INFO     | kykloi.launcher          | Shutting down vault server daemon...
 2026-11-19 08:05:30 | INFO     | kykloi.launcher          | Daemon cleanly terminated.
+2026-11-19 09:39:57 | INFO     | kykloi.launcher          | Vault daemon online at http://127.0.0.1:8000/ (bound to port 8000)
+2026-11-19 09:40:01 | INFO     | kykloi.launcher          | Executing build: /usr/bin/python3 /var/home/bonju/dev/kykloi/system/build/build.py
+2026-11-19 09:40:01 | DEBUG    | kykloi.compiler          | STARTED: Cryptographic Self-Test (NIST AES-256-GCM KAT)
+2026-11-19 09:40:01 | INFO     | kykloi.compiler          | Cryptographic accelerator active: [System OpenSSL EVP (libcrypto / AES-NI / NEON)]
+2026-11-19 09:40:01 | DEBUG    | kykloi.compiler          | FINISHED: Cryptographic Self-Test (NIST AES-256-GCM KAT) (0.21 ms)
+2026-11-19 09:40:01 | DEBUG    | kykloi.compiler          | STARTED: Pandoc Binary Resolution
+2026-11-19 09:40:01 | INFO     | kykloi.compiler          | Resolved Pandoc executable: /var/home/bonju/.cache/kykloi_pandoc_linux-x86_64/bin/pandoc
+2026-11-19 09:40:01 | DEBUG    | kykloi.compiler          | FINISHED: Pandoc Binary Resolution (0.18 ms)
+2026-11-19 09:40:01 | INFO     | kykloi.compiler          | Core templates/toolchain modified. Triggering full re-compilation.
+2026-11-19 09:40:01 | INFO     | kykloi.compiler          | STARTED: Ledger Synchronization & Fast Stat Check
+2026-11-19 09:40:01 | ERROR    | kykloi.compiler          | FAILED: Ledger Synchronization & Fast Stat Check after 2.30 ms: name 'DocMetadataRecord' is not defined
+2026-11-19 09:40:01 | ERROR    | kykloi.launcher          | Compilation process failed with exit code 1.
+2026-11-19 09:40:32 | INFO     | kykloi.launcher          | Shutting down vault server daemon...
+2026-11-19 09:40:32 | INFO     | kykloi.launcher          | Daemon cleanly terminated.
+2026-11-19 14:43:53 | INFO     | kykloi.launcher          | Vault daemon online at http://127.0.0.1:8000/ (bound to port 8000)
+2026-11-19 14:43:55 | INFO     | kykloi.launcher          | Shutting down vault server daemon...
+2026-11-19 14:43:56 | INFO     | kykloi.launcher          | Daemon cleanly terminated.

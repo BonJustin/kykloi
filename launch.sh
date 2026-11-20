@@ -121,21 +121,72 @@ esac
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 MANIFEST_PATH="$SCRIPT_DIR/system/tools/tools-manifest.json"
 
-# Prioritize persistent user cache over /tmp to prevent noexec mount execution traps
-if [ -n "$XDG_CACHE_HOME" ] && [ -w "$XDG_CACHE_HOME" ]; then
-  BASE_RUNTIME="$XDG_CACHE_HOME"
-elif [ -n "$HOME" ] && [ -w "$HOME" ]; then
-  mkdir -p "$HOME/.cache" 2>/dev/null || true
-  if [ -d "$HOME/.cache" ] && [ -w "$HOME/.cache" ]; then
-    BASE_RUNTIME="$HOME/.cache"
-  else
-    BASE_RUNTIME="/tmp"
+test_exec_mount() {
+  candidate_dir="$1"
+  mkdir -p "$candidate_dir" 2>/dev/null || return 1
+  probe_file="$candidate_dir/.probe_$$"
+  printf '#!/bin/sh\nexit 0\n' >"$probe_file" 2>/dev/null || return 1
+  chmod +x "$probe_file" 2>/dev/null || {
+    rm -f "$probe_file"
+    return 1
+  }
+  if "$probe_file" 2>/dev/null; then
+    rm -f "$probe_file"
+    return 0
   fi
-else
-  BASE_RUNTIME="/tmp"
+  rm -f "$probe_file"
+  return 1
+}
+
+resolve_runtime_base() {
+  if [ -n "$KYKLOI_RUNTIME_DIR" ]; then
+    if test_exec_mount "$KYKLOI_RUNTIME_DIR"; then
+      echo "$KYKLOI_RUNTIME_DIR"
+      return 0
+    else
+      echo "[ERROR] Specified KYKLOI_RUNTIME_DIR='$KYKLOI_RUNTIME_DIR' is not executable (noexec or permission denied)." >&2
+    fi
+  fi
+
+  CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/kykloi"
+  if test_exec_mount "$CACHE_DIR"; then
+    echo "$CACHE_DIR"
+    return 0
+  fi
+
+  if test_exec_mount "/var/tmp/kykloi"; then
+    echo "/var/tmp/kykloi"
+    return 0
+  fi
+
+  if test_exec_mount "/tmp/kykloi"; then
+    echo "/tmp/kykloi"
+    return 0
+  fi
+
+  return 1
+}
+
+if ! BASE_RUNTIME="$(resolve_runtime_base)"; then
+  echo "" >&2
+  echo "==================== [FATAL EXECUTION BOUNDARY ERROR] ====================" >&2
+  echo "Kykloi could not identify an executable location to unpack portable tools." >&2
+  echo "All standard cache and temporary directories reject execution (noexec mount" >&2
+  echo "or insufficient filesystem permissions):" >&2
+  echo "  - \${XDG_CACHE_HOME:-~/.cache}/kykloi" >&2
+  echo "  - /var/tmp/kykloi" >&2
+  echo "  - /tmp/kykloi" >&2
+  echo "" >&2
+  echo "Remediation Options:" >&2
+  echo "  1. Install system Python (>= 3.10) and Pandoc using your OS package manager." >&2
+  echo "     Kykloi will automatically prioritize native host tools over bundled archives." >&2
+  echo "  2. Designate an authorized executable partition via environment variable:" >&2
+  echo "     export KYKLOI_RUNTIME_DIR=\"/path/to/executable/directory\"" >&2
+  echo "==========================================================================" >&2
+  exit 1
 fi
 
-RUNTIME_ROOT="${BASE_RUNTIME}/kykloi_runtime_${TARGET}"
+RUNTIME_ROOT="${BASE_RUNTIME}/runtime_${TARGET}"
 LOCAL_PY="$RUNTIME_ROOT/bin/python3"
 STAMP_FILE="$RUNTIME_ROOT/.verified_sha256"
 

@@ -17,7 +17,7 @@ PROJECT_ROOT = SCRIPT_DIR.parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from system.normalize.db import FileRecord, VaultDB
+from system.normalize.db import DocMetadataRecord, FileRecord, VaultDB
 
 CITATION_PATTERN = re.compile(
     r"(?:\[@[a-zA-Z0-9_:.#$%&-]+|(?<!\w)@[a-zA-Z0-9_:.#$%&-]+)"
@@ -28,7 +28,11 @@ from system.normalize.graph import (
     parse_markdown_links,
     to_link_records,
 )
-from system.normalize.scanner import MARKDOWN_EXTENSIONS, scan_vault
+from system.normalize.scanner import (
+    MARKDOWN_EXTENSIONS,
+    VaultScanResult,
+    scan_vault,
+)
 from system.normalize.slugify import slugify_stem
 
 # Terminal ANSI Color Constants
@@ -193,25 +197,25 @@ def execute_transaction(manifest: TransactionManifest, db: VaultDB) -> bool:
             tmp_path.write_text(new_content, encoding="utf-8")
             created_tmp_files.append(tmp_path)
 
-            # Phase 2: Execute disk renames
-            for src, dst in manifest.disk_renames:
-                if src == dst:
-                    continue
-                dst.parent.mkdir(parents=True, exist_ok=True)
-                if src.parent == dst.parent and src.name.lower() == dst.name.lower():
-                    case_tmp = (
-                        dst.parent / f".norm_case_tmp_{os.urandom(4).hex()}_{dst.name}"
-                    )
-                    try:
-                        src.rename(case_tmp)
-                        case_tmp.rename(dst)
-                    except Exception:
-                        if case_tmp.exists() and not src.exists():
-                            case_tmp.rename(src)
-                        raise
-                else:
-                    src.rename(dst)
-                executed_renames.append((dst, src))
+        # Phase 2: Execute disk renames
+        for src, dst in manifest.disk_renames:
+            if src == dst:
+                continue
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            if src.parent == dst.parent and src.name.lower() == dst.name.lower():
+                case_tmp = (
+                    dst.parent / f".norm_case_tmp_{os.urandom(4).hex()}_{dst.name}"
+                )
+                try:
+                    src.rename(case_tmp)
+                    case_tmp.rename(dst)
+                except Exception:
+                    if case_tmp.exists() and not src.exists():
+                        case_tmp.rename(src)
+                    raise
+            else:
+                src.rename(dst)
+            executed_renames.append((dst, src))
 
         # Phase 3: Atomically swap text rewrites
         for abs_path, _ in manifest.text_rewrites:
