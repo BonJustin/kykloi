@@ -1866,3 +1866,498 @@
 2026-11-19 17:51:52 | INFO     | kykloi.launcher          | Compilation process exited normally (code 0).
 2026-11-20 08:24:07 | INFO     | kykloi.launcher          | Shutting down vault server daemon...
 2026-11-20 08:24:07 | INFO     | kykloi.launcher          | Daemon cleanly terminated.
+2026-11-20 08:41:01 | INFO     | kykloi.launcher          | Vault daemon online at http://127.0.0.1:8000/ (bound to port 8000)
+2026-11-20 08:41:03 | INFO     | kykloi.launcher          | Executing build: /usr/bin/python3 /var/home/bonju/dev/kykloi/system/build/build.py
+2026-11-20 08:41:03 | DEBUG    | kykloi.compiler          | STARTED: Cryptographic Self-Test (NIST AES-256-GCM KAT)
+2026-11-20 08:41:03 | INFO     | kykloi.compiler          | Cryptographic accelerator active: [System OpenSSL EVP (libcrypto / AES-NI / NEON)]
+2026-11-20 08:41:03 | DEBUG    | kykloi.compiler          | FINISHED: Cryptographic Self-Test (NIST AES-256-GCM KAT) (0.21 ms)
+2026-11-20 08:41:03 | DEBUG    | kykloi.compiler          | STARTED: Pandoc Binary Resolution
+2026-11-20 08:41:03 | INFO     | kykloi.compiler          | Resolved Pandoc executable: /var/home/bonju/.cache/kykloi/runtime_linux-x86_64/bin/pandoc
+2026-11-20 08:41:03 | DEBUG    | kykloi.compiler          | FINISHED: Pandoc Binary Resolution (1.55 ms)
+2026-11-20 08:41:03 | INFO     | kykloi.compiler          | STARTED: Ledger Synchronization & Fast Stat Check
+2026-11-20 08:41:03 | INFO     | kykloi.compiler          | FINISHED: Ledger Synchronization & Fast Stat Check (18.00 ms)
+2026-11-20 08:41:06 | DEBUG    | kykloi.compiler          | STARTED: Artifact Pruning
+2026-11-20 08:41:06 | DEBUG    | kykloi.compiler          | FINISHED: Artifact Pruning (5.68 ms)
+2026-11-20 08:41:06 | INFO     | kykloi.compiler          | Synchronizing 1 static/media asset(s)...
+2026-11-20 08:41:06 | DEBUG    | kykloi.compiler          | Synchronized asset: decrypt.js -> decrypt.js
+2026-11-20 08:41:06 | INFO     | kykloi.compiler          | Compiling 1 Markdown document(s)...
+2026-11-20 08:41:06 | INFO     | kykloi.compiler          | STARTED: Markdown Compilation (1 documents)
+2026-11-20 08:41:06 | DEBUG    | kykloi.compiler          | Compiled: silas.md
+2026-11-20 08:41:06 | INFO     | kykloi.compiler          | FINISHED: Markdown Compilation (1 documents) (366.36 ms)
+2026-11-20 08:41:06 | INFO     | kykloi.search            | Generated search index: 5 record(s) indexed (24576 bytes) at search.db
+2026-11-20 08:41:06 | INFO     | kykloi.compiler          | Build pipeline completed successfully.
+2026-11-20 08:41:06 | INFO     | kykloi.launcher          | Compilation process exited normally (code 0).
+2026-11-20 08:41:15 | INFO     | kykloi.menu              | Opening browser target: http://127.0.0.1:8000/
+2026-11-20 08:41:15 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET / HTTP/1.1" 200 -
+2026-11-20 08:41:15 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/css/pico.css HTTP/1.1" 200 -
+2026-11-20 08:41:15 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/css/style.css HTTP/1.1" 200 -
+2026-11-20 08:41:15 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/js/wasm-search.js HTTP/1.1" 200 -
+2026-11-20 08:41:15 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/fonts/libertinusserif-regular-webfont.woff2 HTTP/1.1" 200 -
+2026-11-20 08:41:15 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/fonts/libertinusserif-bold-webfont.woff2 HTTP/1.1" 200 -
+2026-11-20 08:41:15 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/js/search_worker.js HTTP/1.1" 200 -
+2026-11-20 08:41:15 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/js/sqlite3.js HTTP/1.1" 200 -
+2026-11-20 08:41:15 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/js/sqlite3.wasm HTTP/1.1" 200 -
+2026-11-20 08:41:15 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /search.db HTTP/1.1" 200 -
+2026-11-20 08:41:18 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /silas.html HTTP/1.1" 200 -
+2026-11-20 08:41:18 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/css/style.css HTTP/1.1" 200 -
+2026-11-20 08:41:18 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/css/pico.css HTTP/1.1" 200 -
+2026-11-20 08:41:18 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/fonts/jetbrainsmono-variablefont_wght-webfont.woff2 HTTP/1.1" 200 -
+2026-11-20 08:41:18 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/fonts/libertinusserif-bolditalic-webfont.woff2 HTTP/1.1" 200 -
+2026-11-20 08:42:04 | INFO     | kykloi.launcher          | Shutting down vault server daemon...
+2026-11-20 08:42:04 | INFO     | kykloi.launcher          | Daemon cleanly terminated.
+2026-11-20 08:42:47 | INFO     | kykloi.launcher          | Vault daemon online at http://127.0.0.1:8000/ (bound to port 8000)
+2026-11-20 08:42:57 | INFO     | kykloi.launcher          | Executing build: /usr/bin/python3 /var/home/bonju/dev/kykloi/system/build/build.py --clean
+2026-11-20 08:42:57 | DEBUG    | kykloi.compiler          | STARTED: Cryptographic Self-Test (NIST AES-256-GCM KAT)
+2026-11-20 08:42:57 | INFO     | kykloi.compiler          | Cryptographic accelerator active: [System OpenSSL EVP (libcrypto / AES-NI / NEON)]
+2026-11-20 08:42:57 | DEBUG    | kykloi.compiler          | FINISHED: Cryptographic Self-Test (NIST AES-256-GCM KAT) (0.21 ms)
+2026-11-20 08:42:57 | DEBUG    | kykloi.compiler          | STARTED: Pandoc Binary Resolution
+2026-11-20 08:42:57 | INFO     | kykloi.compiler          | Resolved Pandoc executable: /var/home/bonju/.cache/kykloi/runtime_linux-x86_64/bin/pandoc
+2026-11-20 08:42:57 | DEBUG    | kykloi.compiler          | FINISHED: Pandoc Binary Resolution (1.63 ms)
+2026-11-20 08:42:57 | INFO     | kykloi.compiler          | Core templates/toolchain modified. Triggering full re-compilation.
+2026-11-20 08:42:57 | INFO     | kykloi.compiler          | STARTED: Ledger Synchronization & Fast Stat Check
+2026-11-20 08:42:57 | INFO     | kykloi.compiler          | FINISHED: Ledger Synchronization & Fast Stat Check (12.54 ms)
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | STARTED: Artifact Pruning
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | FINISHED: Artifact Pruning (0.15 ms)
+2026-11-20 08:42:59 | INFO     | kykloi.compiler          | Synchronizing 104 static/media asset(s)...
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: test_artemis_2.jpg -> test_artemis_2.jpg
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: pico.css -> pico.css
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: style.css -> style.css
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: jetbrainsmono-variablefont_wght-webfont.woff2 -> jetbrainsmono-variablefont_wght-webfont.woff2
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: libertinusserif-bold-webfont.woff2 -> libertinusserif-bold-webfont.woff2
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: libertinusserif-bolditalic-webfont.woff2 -> libertinusserif-bolditalic-webfont.woff2
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: libertinusserif-italic-webfont.woff2 -> libertinusserif-italic-webfont.woff2
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: libertinusserif-regular-webfont.woff2 -> libertinusserif-regular-webfont.woff2
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: katex-swap.css -> katex-swap.css
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: katex-swap.min.css -> katex-swap.min.css
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: katex.css -> katex.css
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: katex.js -> katex.js
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: katex.min.css -> katex.min.css
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: katex.min.js -> katex.min.js
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: katex.mjs -> katex.mjs
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: README.md -> README.md
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: sqlite3.js -> sqlite3.js
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: sqlite3.wasm -> sqlite3.wasm
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: decrypt.js -> decrypt.js
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: search_worker.js -> search_worker.js
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: wasm-search.js -> wasm-search.js
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: auto-render.js -> auto-render.js
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: auto-render.min.js -> auto-render.min.js
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: auto-render.mjs -> auto-render.mjs
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: copy-tex.js -> copy-tex.js
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: copy-tex.min.js -> copy-tex.min.js
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: copy-tex.mjs -> copy-tex.mjs
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: mathtex-script-type.js -> mathtex-script-type.js
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: mathtex-script-type.min.js -> mathtex-script-type.min.js
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: mathtex-script-type.mjs -> mathtex-script-type.mjs
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: mhchem.js -> mhchem.js
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: mhchem.min.js -> mhchem.min.js
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: mhchem.mjs -> mhchem.mjs
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: render-a11y-string.js -> render-a11y-string.js
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: render-a11y-string.min.js -> render-a11y-string.min.js
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: render-a11y-string.mjs -> render-a11y-string.mjs
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Fraktur-Regular.woff2 -> KaTeX_Fraktur-Regular.woff2
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Math-Italic.ttf -> KaTeX_Math-Italic.ttf
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_AMS-Regular.ttf -> KaTeX_AMS-Regular.ttf
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_AMS-Regular.woff -> KaTeX_AMS-Regular.woff
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_AMS-Regular.woff2 -> KaTeX_AMS-Regular.woff2
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Caligraphic-Bold.ttf -> KaTeX_Caligraphic-Bold.ttf
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Caligraphic-Bold.woff -> KaTeX_Caligraphic-Bold.woff
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Caligraphic-Bold.woff2 -> KaTeX_Caligraphic-Bold.woff2
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Caligraphic-Regular.ttf -> KaTeX_Caligraphic-Regular.ttf
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Caligraphic-Regular.woff -> KaTeX_Caligraphic-Regular.woff
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Caligraphic-Regular.woff2 -> KaTeX_Caligraphic-Regular.woff2
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Fraktur-Bold.ttf -> KaTeX_Fraktur-Bold.ttf
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Fraktur-Bold.woff -> KaTeX_Fraktur-Bold.woff
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Fraktur-Bold.woff2 -> KaTeX_Fraktur-Bold.woff2
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Fraktur-Regular.ttf -> KaTeX_Fraktur-Regular.ttf
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Fraktur-Regular.woff -> KaTeX_Fraktur-Regular.woff
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Main-Bold.ttf -> KaTeX_Main-Bold.ttf
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Main-Bold.woff -> KaTeX_Main-Bold.woff
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Main-Bold.woff2 -> KaTeX_Main-Bold.woff2
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Main-BoldItalic.ttf -> KaTeX_Main-BoldItalic.ttf
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Main-BoldItalic.woff -> KaTeX_Main-BoldItalic.woff
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Main-BoldItalic.woff2 -> KaTeX_Main-BoldItalic.woff2
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Main-Italic.ttf -> KaTeX_Main-Italic.ttf
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Main-Italic.woff -> KaTeX_Main-Italic.woff
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Main-Italic.woff2 -> KaTeX_Main-Italic.woff2
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Main-Regular.ttf -> KaTeX_Main-Regular.ttf
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Main-Regular.woff -> KaTeX_Main-Regular.woff
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Main-Regular.woff2 -> KaTeX_Main-Regular.woff2
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Math-BoldItalic.ttf -> KaTeX_Math-BoldItalic.ttf
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Math-BoldItalic.woff -> KaTeX_Math-BoldItalic.woff
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Math-BoldItalic.woff2 -> KaTeX_Math-BoldItalic.woff2
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Math-Italic.woff -> KaTeX_Math-Italic.woff
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Math-Italic.woff2 -> KaTeX_Math-Italic.woff2
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_SansSerif-Bold.ttf -> KaTeX_SansSerif-Bold.ttf
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_SansSerif-Bold.woff -> KaTeX_SansSerif-Bold.woff
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_SansSerif-Bold.woff2 -> KaTeX_SansSerif-Bold.woff2
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_SansSerif-Italic.ttf -> KaTeX_SansSerif-Italic.ttf
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_SansSerif-Italic.woff -> KaTeX_SansSerif-Italic.woff
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_SansSerif-Italic.woff2 -> KaTeX_SansSerif-Italic.woff2
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_SansSerif-Regular.ttf -> KaTeX_SansSerif-Regular.ttf
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_SansSerif-Regular.woff -> KaTeX_SansSerif-Regular.woff
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_SansSerif-Regular.woff2 -> KaTeX_SansSerif-Regular.woff2
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Script-Regular.ttf -> KaTeX_Script-Regular.ttf
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Script-Regular.woff -> KaTeX_Script-Regular.woff
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Script-Regular.woff2 -> KaTeX_Script-Regular.woff2
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Size1-Regular.ttf -> KaTeX_Size1-Regular.ttf
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Size1-Regular.woff -> KaTeX_Size1-Regular.woff
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Size1-Regular.woff2 -> KaTeX_Size1-Regular.woff2
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Size2-Regular.ttf -> KaTeX_Size2-Regular.ttf
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Size2-Regular.woff -> KaTeX_Size2-Regular.woff
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Size2-Regular.woff2 -> KaTeX_Size2-Regular.woff2
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Size3-Regular.ttf -> KaTeX_Size3-Regular.ttf
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Size3-Regular.woff -> KaTeX_Size3-Regular.woff
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Size3-Regular.woff2 -> KaTeX_Size3-Regular.woff2
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Size4-Regular.ttf -> KaTeX_Size4-Regular.ttf
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Size4-Regular.woff -> KaTeX_Size4-Regular.woff
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Size4-Regular.woff2 -> KaTeX_Size4-Regular.woff2
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Typewriter-Regular.ttf -> KaTeX_Typewriter-Regular.ttf
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Typewriter-Regular.woff -> KaTeX_Typewriter-Regular.woff
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Typewriter-Regular.woff2 -> KaTeX_Typewriter-Regular.woff2
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: apple-touch-icon.png -> apple-touch-icon.png
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: favicon-96x96.png -> favicon-96x96.png
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: favicon.ico -> favicon.ico
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: favicon.svg -> favicon.svg
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: site.webmanifest -> site.webmanifest
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: web-app-manifest-192x192.png -> web-app-manifest-192x192.png
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: web-app-manifest-512x512.png -> web-app-manifest-512x512.png
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Synchronized asset: index.html -> index.html
+2026-11-20 08:42:59 | INFO     | kykloi.compiler          | Encrypting 1 binary blob(s)...
+2026-11-20 08:42:59 | INFO     | kykloi.compiler          | STARTED: Binary Blob Encryption (1 items)
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Encrypted binary asset: test_artemis_2-1.jpg
+2026-11-20 08:42:59 | INFO     | kykloi.compiler          | FINISHED: Binary Blob Encryption (1 items) (168.86 ms)
+2026-11-20 08:42:59 | INFO     | kykloi.compiler          | Compiling 5 Markdown document(s)...
+2026-11-20 08:42:59 | INFO     | kykloi.compiler          | STARTED: Markdown Compilation (5 documents)
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Compiled: 20261117181402-kykloi-highlights.md
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Compiled: 20261117062543-kykloi-to-do-list.md
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Compiled: 20261116170353-kykloi-introduction.md
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Compiled: 20261117053719-kykloi-cryptography.md
+2026-11-20 08:42:59 | DEBUG    | kykloi.compiler          | Compiled: silas.md
+2026-11-20 08:42:59 | INFO     | kykloi.compiler          | FINISHED: Markdown Compilation (5 documents) (508.10 ms)
+2026-11-20 08:42:59 | INFO     | kykloi.search            | Generated search index: 5 record(s) indexed (24576 bytes) at search.db
+2026-11-20 08:42:59 | INFO     | kykloi.compiler          | Build pipeline completed successfully.
+2026-11-20 08:42:59 | INFO     | kykloi.launcher          | Compilation process exited normally (code 0).
+2026-11-20 08:43:02 | INFO     | kykloi.menu              | Opening browser target: http://127.0.0.1:8000/
+2026-11-20 08:43:02 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET / HTTP/1.1" 200 -
+2026-11-20 08:43:02 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/css/pico.css HTTP/1.1" 200 -
+2026-11-20 08:43:02 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/css/style.css HTTP/1.1" 200 -
+2026-11-20 08:43:02 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/js/wasm-search.js HTTP/1.1" 200 -
+2026-11-20 08:43:02 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/fonts/libertinusserif-regular-webfont.woff2 HTTP/1.1" 200 -
+2026-11-20 08:43:02 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/fonts/libertinusserif-bold-webfont.woff2 HTTP/1.1" 200 -
+2026-11-20 08:43:02 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/js/search_worker.js HTTP/1.1" 200 -
+2026-11-20 08:43:02 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/js/sqlite3.js HTTP/1.1" 200 -
+2026-11-20 08:43:02 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/js/sqlite3.wasm HTTP/1.1" 200 -
+2026-11-20 08:43:02 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /search.db HTTP/1.1" 200 -
+2026-11-20 08:43:10 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /secure/silas.html HTTP/1.1" 200 -
+2026-11-20 08:43:10 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/css/style.css HTTP/1.1" 200 -
+2026-11-20 08:43:10 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/js/decrypt.js HTTP/1.1" 200 -
+2026-11-20 08:43:10 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/css/pico.css HTTP/1.1" 200 -
+2026-11-20 08:43:17 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/fonts/jetbrainsmono-variablefont_wght-webfont.woff2 HTTP/1.1" 200 -
+2026-11-20 08:43:17 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/fonts/libertinusserif-bolditalic-webfont.woff2 HTTP/1.1" 200 -
+2026-11-20 08:43:38 | INFO     | kykloi.launcher          | Executing build: /usr/bin/python3 /var/home/bonju/dev/kykloi/system/build/build.py --clean
+2026-11-20 08:43:38 | DEBUG    | kykloi.compiler          | STARTED: Cryptographic Self-Test (NIST AES-256-GCM KAT)
+2026-11-20 08:43:38 | INFO     | kykloi.compiler          | Cryptographic accelerator active: [System OpenSSL EVP (libcrypto / AES-NI / NEON)]
+2026-11-20 08:43:38 | DEBUG    | kykloi.compiler          | FINISHED: Cryptographic Self-Test (NIST AES-256-GCM KAT) (0.20 ms)
+2026-11-20 08:43:38 | DEBUG    | kykloi.compiler          | STARTED: Pandoc Binary Resolution
+2026-11-20 08:43:38 | INFO     | kykloi.compiler          | Resolved Pandoc executable: /var/home/bonju/.cache/kykloi/runtime_linux-x86_64/bin/pandoc
+2026-11-20 08:43:38 | DEBUG    | kykloi.compiler          | FINISHED: Pandoc Binary Resolution (1.64 ms)
+2026-11-20 08:43:38 | INFO     | kykloi.compiler          | Core templates/toolchain modified. Triggering full re-compilation.
+2026-11-20 08:43:38 | INFO     | kykloi.compiler          | STARTED: Ledger Synchronization & Fast Stat Check
+2026-11-20 08:43:38 | INFO     | kykloi.compiler          | FINISHED: Ledger Synchronization & Fast Stat Check (12.15 ms)
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | STARTED: Artifact Pruning
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | FINISHED: Artifact Pruning (0.15 ms)
+2026-11-20 08:43:40 | INFO     | kykloi.compiler          | Synchronizing 104 static/media asset(s)...
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: test_artemis_2.jpg -> test_artemis_2.jpg
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: pico.css -> pico.css
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: style.css -> style.css
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: jetbrainsmono-variablefont_wght-webfont.woff2 -> jetbrainsmono-variablefont_wght-webfont.woff2
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: libertinusserif-bold-webfont.woff2 -> libertinusserif-bold-webfont.woff2
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: libertinusserif-bolditalic-webfont.woff2 -> libertinusserif-bolditalic-webfont.woff2
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: libertinusserif-italic-webfont.woff2 -> libertinusserif-italic-webfont.woff2
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: libertinusserif-regular-webfont.woff2 -> libertinusserif-regular-webfont.woff2
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: katex-swap.css -> katex-swap.css
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: katex-swap.min.css -> katex-swap.min.css
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: katex.css -> katex.css
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: katex.js -> katex.js
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: katex.min.css -> katex.min.css
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: katex.min.js -> katex.min.js
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: katex.mjs -> katex.mjs
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: README.md -> README.md
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: sqlite3.js -> sqlite3.js
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: sqlite3.wasm -> sqlite3.wasm
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: decrypt.js -> decrypt.js
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: search_worker.js -> search_worker.js
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: wasm-search.js -> wasm-search.js
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: auto-render.js -> auto-render.js
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: auto-render.min.js -> auto-render.min.js
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: auto-render.mjs -> auto-render.mjs
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: copy-tex.js -> copy-tex.js
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: copy-tex.min.js -> copy-tex.min.js
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: copy-tex.mjs -> copy-tex.mjs
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: mathtex-script-type.js -> mathtex-script-type.js
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: mathtex-script-type.min.js -> mathtex-script-type.min.js
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: mathtex-script-type.mjs -> mathtex-script-type.mjs
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: mhchem.js -> mhchem.js
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: mhchem.min.js -> mhchem.min.js
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: mhchem.mjs -> mhchem.mjs
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: render-a11y-string.js -> render-a11y-string.js
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: render-a11y-string.min.js -> render-a11y-string.min.js
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: render-a11y-string.mjs -> render-a11y-string.mjs
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Fraktur-Regular.woff2 -> KaTeX_Fraktur-Regular.woff2
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Math-Italic.ttf -> KaTeX_Math-Italic.ttf
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_AMS-Regular.ttf -> KaTeX_AMS-Regular.ttf
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_AMS-Regular.woff -> KaTeX_AMS-Regular.woff
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_AMS-Regular.woff2 -> KaTeX_AMS-Regular.woff2
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Caligraphic-Bold.ttf -> KaTeX_Caligraphic-Bold.ttf
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Caligraphic-Bold.woff -> KaTeX_Caligraphic-Bold.woff
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Caligraphic-Bold.woff2 -> KaTeX_Caligraphic-Bold.woff2
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Caligraphic-Regular.ttf -> KaTeX_Caligraphic-Regular.ttf
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Caligraphic-Regular.woff -> KaTeX_Caligraphic-Regular.woff
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Caligraphic-Regular.woff2 -> KaTeX_Caligraphic-Regular.woff2
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Fraktur-Bold.ttf -> KaTeX_Fraktur-Bold.ttf
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Fraktur-Bold.woff -> KaTeX_Fraktur-Bold.woff
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Fraktur-Bold.woff2 -> KaTeX_Fraktur-Bold.woff2
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Fraktur-Regular.ttf -> KaTeX_Fraktur-Regular.ttf
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Fraktur-Regular.woff -> KaTeX_Fraktur-Regular.woff
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Main-Bold.ttf -> KaTeX_Main-Bold.ttf
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Main-Bold.woff -> KaTeX_Main-Bold.woff
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Main-Bold.woff2 -> KaTeX_Main-Bold.woff2
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Main-BoldItalic.ttf -> KaTeX_Main-BoldItalic.ttf
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Main-BoldItalic.woff -> KaTeX_Main-BoldItalic.woff
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Main-BoldItalic.woff2 -> KaTeX_Main-BoldItalic.woff2
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Main-Italic.ttf -> KaTeX_Main-Italic.ttf
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Main-Italic.woff -> KaTeX_Main-Italic.woff
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Main-Italic.woff2 -> KaTeX_Main-Italic.woff2
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Main-Regular.ttf -> KaTeX_Main-Regular.ttf
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Main-Regular.woff -> KaTeX_Main-Regular.woff
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Main-Regular.woff2 -> KaTeX_Main-Regular.woff2
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Math-BoldItalic.ttf -> KaTeX_Math-BoldItalic.ttf
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Math-BoldItalic.woff -> KaTeX_Math-BoldItalic.woff
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Math-BoldItalic.woff2 -> KaTeX_Math-BoldItalic.woff2
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Math-Italic.woff -> KaTeX_Math-Italic.woff
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Math-Italic.woff2 -> KaTeX_Math-Italic.woff2
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_SansSerif-Bold.ttf -> KaTeX_SansSerif-Bold.ttf
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_SansSerif-Bold.woff -> KaTeX_SansSerif-Bold.woff
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_SansSerif-Bold.woff2 -> KaTeX_SansSerif-Bold.woff2
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_SansSerif-Italic.ttf -> KaTeX_SansSerif-Italic.ttf
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_SansSerif-Italic.woff -> KaTeX_SansSerif-Italic.woff
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_SansSerif-Italic.woff2 -> KaTeX_SansSerif-Italic.woff2
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_SansSerif-Regular.ttf -> KaTeX_SansSerif-Regular.ttf
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_SansSerif-Regular.woff -> KaTeX_SansSerif-Regular.woff
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_SansSerif-Regular.woff2 -> KaTeX_SansSerif-Regular.woff2
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Script-Regular.ttf -> KaTeX_Script-Regular.ttf
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Script-Regular.woff -> KaTeX_Script-Regular.woff
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Script-Regular.woff2 -> KaTeX_Script-Regular.woff2
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Size1-Regular.ttf -> KaTeX_Size1-Regular.ttf
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Size1-Regular.woff -> KaTeX_Size1-Regular.woff
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Size1-Regular.woff2 -> KaTeX_Size1-Regular.woff2
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Size2-Regular.ttf -> KaTeX_Size2-Regular.ttf
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Size2-Regular.woff -> KaTeX_Size2-Regular.woff
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Size2-Regular.woff2 -> KaTeX_Size2-Regular.woff2
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Size3-Regular.ttf -> KaTeX_Size3-Regular.ttf
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Size3-Regular.woff -> KaTeX_Size3-Regular.woff
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Size3-Regular.woff2 -> KaTeX_Size3-Regular.woff2
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Size4-Regular.ttf -> KaTeX_Size4-Regular.ttf
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Size4-Regular.woff -> KaTeX_Size4-Regular.woff
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Size4-Regular.woff2 -> KaTeX_Size4-Regular.woff2
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Typewriter-Regular.ttf -> KaTeX_Typewriter-Regular.ttf
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Typewriter-Regular.woff -> KaTeX_Typewriter-Regular.woff
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Typewriter-Regular.woff2 -> KaTeX_Typewriter-Regular.woff2
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: apple-touch-icon.png -> apple-touch-icon.png
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: favicon-96x96.png -> favicon-96x96.png
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: favicon.ico -> favicon.ico
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: favicon.svg -> favicon.svg
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: site.webmanifest -> site.webmanifest
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: web-app-manifest-192x192.png -> web-app-manifest-192x192.png
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: web-app-manifest-512x512.png -> web-app-manifest-512x512.png
+2026-11-20 08:43:40 | DEBUG    | kykloi.compiler          | Synchronized asset: index.html -> index.html
+2026-11-20 08:43:40 | INFO     | kykloi.compiler          | Encrypting 1 binary blob(s)...
+2026-11-20 08:43:40 | INFO     | kykloi.compiler          | STARTED: Binary Blob Encryption (1 items)
+2026-11-20 08:43:41 | DEBUG    | kykloi.compiler          | Encrypted binary asset: test_artemis_2-1.jpg
+2026-11-20 08:43:41 | INFO     | kykloi.compiler          | FINISHED: Binary Blob Encryption (1 items) (165.25 ms)
+2026-11-20 08:43:41 | INFO     | kykloi.compiler          | Compiling 5 Markdown document(s)...
+2026-11-20 08:43:41 | INFO     | kykloi.compiler          | STARTED: Markdown Compilation (5 documents)
+2026-11-20 08:43:41 | DEBUG    | kykloi.compiler          | Compiled: 20261117181402-kykloi-highlights.md
+2026-11-20 08:43:41 | DEBUG    | kykloi.compiler          | Compiled: 20261117062543-kykloi-to-do-list.md
+2026-11-20 08:43:41 | DEBUG    | kykloi.compiler          | Compiled: 20261116170353-kykloi-introduction.md
+2026-11-20 08:43:41 | DEBUG    | kykloi.compiler          | Compiled: 20261117053719-kykloi-cryptography.md
+2026-11-20 08:43:41 | DEBUG    | kykloi.compiler          | Compiled: silas.md
+2026-11-20 08:43:41 | INFO     | kykloi.compiler          | FINISHED: Markdown Compilation (5 documents) (417.36 ms)
+2026-11-20 08:43:41 | INFO     | kykloi.search            | Generated search index: 5 record(s) indexed (24576 bytes) at search.db
+2026-11-20 08:43:41 | INFO     | kykloi.compiler          | Build pipeline completed successfully.
+2026-11-20 08:43:41 | INFO     | kykloi.launcher          | Compilation process exited normally (code 0).
+2026-11-20 08:43:45 | INFO     | kykloi.launcher          | Executing build: /usr/bin/python3 /var/home/bonju/dev/kykloi/system/build/build.py --clean
+2026-11-20 08:43:45 | DEBUG    | kykloi.compiler          | STARTED: Cryptographic Self-Test (NIST AES-256-GCM KAT)
+2026-11-20 08:43:45 | INFO     | kykloi.compiler          | Cryptographic accelerator active: [System OpenSSL EVP (libcrypto / AES-NI / NEON)]
+2026-11-20 08:43:45 | DEBUG    | kykloi.compiler          | FINISHED: Cryptographic Self-Test (NIST AES-256-GCM KAT) (0.20 ms)
+2026-11-20 08:43:45 | DEBUG    | kykloi.compiler          | STARTED: Pandoc Binary Resolution
+2026-11-20 08:43:45 | INFO     | kykloi.compiler          | Resolved Pandoc executable: /var/home/bonju/.cache/kykloi/runtime_linux-x86_64/bin/pandoc
+2026-11-20 08:43:45 | DEBUG    | kykloi.compiler          | FINISHED: Pandoc Binary Resolution (1.72 ms)
+2026-11-20 08:43:45 | INFO     | kykloi.compiler          | Core templates/toolchain modified. Triggering full re-compilation.
+2026-11-20 08:43:45 | INFO     | kykloi.compiler          | STARTED: Ledger Synchronization & Fast Stat Check
+2026-11-20 08:43:45 | INFO     | kykloi.compiler          | FINISHED: Ledger Synchronization & Fast Stat Check (12.24 ms)
+2026-11-20 08:43:49 | ERROR    | kykloi.server            | 127.0.0.1 - "GET /secure/silas.html HTTP/1.1" 503 -
+2026-11-20 08:43:49 | ERROR    | kykloi.server            | 127.0.0.1 - "GET /favicon.ico HTTP/1.1" 503 -
+2026-11-20 08:44:00 | INFO     | kykloi.launcher          | Shutting down vault server daemon...
+2026-11-20 08:44:00 | INFO     | kykloi.launcher          | Daemon cleanly terminated.
+2026-11-20 08:44:11 | INFO     | kykloi.launcher          | Vault daemon online at http://127.0.0.1:8000/ (bound to port 8000)
+2026-11-20 08:44:13 | INFO     | kykloi.launcher          | Executing build: /usr/bin/python3 /var/home/bonju/dev/kykloi/system/build/build.py --clean
+2026-11-20 08:44:14 | DEBUG    | kykloi.compiler          | STARTED: Cryptographic Self-Test (NIST AES-256-GCM KAT)
+2026-11-20 08:44:14 | INFO     | kykloi.compiler          | Cryptographic accelerator active: [System OpenSSL EVP (libcrypto / AES-NI / NEON)]
+2026-11-20 08:44:14 | DEBUG    | kykloi.compiler          | FINISHED: Cryptographic Self-Test (NIST AES-256-GCM KAT) (0.20 ms)
+2026-11-20 08:44:14 | DEBUG    | kykloi.compiler          | STARTED: Pandoc Binary Resolution
+2026-11-20 08:44:14 | INFO     | kykloi.compiler          | Resolved Pandoc executable: /var/home/bonju/.cache/kykloi/runtime_linux-x86_64/bin/pandoc
+2026-11-20 08:44:14 | DEBUG    | kykloi.compiler          | FINISHED: Pandoc Binary Resolution (1.49 ms)
+2026-11-20 08:44:14 | INFO     | kykloi.compiler          | Core templates/toolchain modified. Triggering full re-compilation.
+2026-11-20 08:44:14 | INFO     | kykloi.compiler          | STARTED: Ledger Synchronization & Fast Stat Check
+2026-11-20 08:44:14 | INFO     | kykloi.compiler          | FINISHED: Ledger Synchronization & Fast Stat Check (11.87 ms)
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | STARTED: Artifact Pruning
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | FINISHED: Artifact Pruning (0.15 ms)
+2026-11-20 08:44:16 | INFO     | kykloi.compiler          | Synchronizing 104 static/media asset(s)...
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: test_artemis_2.jpg -> test_artemis_2.jpg
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: pico.css -> pico.css
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: style.css -> style.css
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: jetbrainsmono-variablefont_wght-webfont.woff2 -> jetbrainsmono-variablefont_wght-webfont.woff2
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: libertinusserif-bold-webfont.woff2 -> libertinusserif-bold-webfont.woff2
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: libertinusserif-bolditalic-webfont.woff2 -> libertinusserif-bolditalic-webfont.woff2
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: libertinusserif-italic-webfont.woff2 -> libertinusserif-italic-webfont.woff2
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: libertinusserif-regular-webfont.woff2 -> libertinusserif-regular-webfont.woff2
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: katex-swap.css -> katex-swap.css
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: katex-swap.min.css -> katex-swap.min.css
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: katex.css -> katex.css
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: katex.js -> katex.js
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: katex.min.css -> katex.min.css
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: katex.min.js -> katex.min.js
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: katex.mjs -> katex.mjs
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: README.md -> README.md
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: sqlite3.js -> sqlite3.js
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: sqlite3.wasm -> sqlite3.wasm
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: decrypt.js -> decrypt.js
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: search_worker.js -> search_worker.js
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: wasm-search.js -> wasm-search.js
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: auto-render.js -> auto-render.js
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: auto-render.min.js -> auto-render.min.js
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: auto-render.mjs -> auto-render.mjs
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: copy-tex.js -> copy-tex.js
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: copy-tex.min.js -> copy-tex.min.js
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: copy-tex.mjs -> copy-tex.mjs
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: mathtex-script-type.js -> mathtex-script-type.js
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: mathtex-script-type.min.js -> mathtex-script-type.min.js
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: mathtex-script-type.mjs -> mathtex-script-type.mjs
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: mhchem.js -> mhchem.js
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: mhchem.min.js -> mhchem.min.js
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: mhchem.mjs -> mhchem.mjs
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: render-a11y-string.js -> render-a11y-string.js
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: render-a11y-string.min.js -> render-a11y-string.min.js
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: render-a11y-string.mjs -> render-a11y-string.mjs
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Fraktur-Regular.woff2 -> KaTeX_Fraktur-Regular.woff2
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Math-Italic.ttf -> KaTeX_Math-Italic.ttf
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_AMS-Regular.ttf -> KaTeX_AMS-Regular.ttf
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_AMS-Regular.woff -> KaTeX_AMS-Regular.woff
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_AMS-Regular.woff2 -> KaTeX_AMS-Regular.woff2
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Caligraphic-Bold.ttf -> KaTeX_Caligraphic-Bold.ttf
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Caligraphic-Bold.woff -> KaTeX_Caligraphic-Bold.woff
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Caligraphic-Bold.woff2 -> KaTeX_Caligraphic-Bold.woff2
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Caligraphic-Regular.ttf -> KaTeX_Caligraphic-Regular.ttf
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Caligraphic-Regular.woff -> KaTeX_Caligraphic-Regular.woff
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Caligraphic-Regular.woff2 -> KaTeX_Caligraphic-Regular.woff2
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Fraktur-Bold.ttf -> KaTeX_Fraktur-Bold.ttf
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Fraktur-Bold.woff -> KaTeX_Fraktur-Bold.woff
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Fraktur-Bold.woff2 -> KaTeX_Fraktur-Bold.woff2
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Fraktur-Regular.ttf -> KaTeX_Fraktur-Regular.ttf
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Fraktur-Regular.woff -> KaTeX_Fraktur-Regular.woff
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Main-Bold.ttf -> KaTeX_Main-Bold.ttf
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Main-Bold.woff -> KaTeX_Main-Bold.woff
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Main-Bold.woff2 -> KaTeX_Main-Bold.woff2
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Main-BoldItalic.ttf -> KaTeX_Main-BoldItalic.ttf
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Main-BoldItalic.woff -> KaTeX_Main-BoldItalic.woff
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Main-BoldItalic.woff2 -> KaTeX_Main-BoldItalic.woff2
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Main-Italic.ttf -> KaTeX_Main-Italic.ttf
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Main-Italic.woff -> KaTeX_Main-Italic.woff
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Main-Italic.woff2 -> KaTeX_Main-Italic.woff2
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Main-Regular.ttf -> KaTeX_Main-Regular.ttf
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Main-Regular.woff -> KaTeX_Main-Regular.woff
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Main-Regular.woff2 -> KaTeX_Main-Regular.woff2
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Math-BoldItalic.ttf -> KaTeX_Math-BoldItalic.ttf
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Math-BoldItalic.woff -> KaTeX_Math-BoldItalic.woff
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Math-BoldItalic.woff2 -> KaTeX_Math-BoldItalic.woff2
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Math-Italic.woff -> KaTeX_Math-Italic.woff
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Math-Italic.woff2 -> KaTeX_Math-Italic.woff2
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_SansSerif-Bold.ttf -> KaTeX_SansSerif-Bold.ttf
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_SansSerif-Bold.woff -> KaTeX_SansSerif-Bold.woff
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_SansSerif-Bold.woff2 -> KaTeX_SansSerif-Bold.woff2
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_SansSerif-Italic.ttf -> KaTeX_SansSerif-Italic.ttf
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_SansSerif-Italic.woff -> KaTeX_SansSerif-Italic.woff
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_SansSerif-Italic.woff2 -> KaTeX_SansSerif-Italic.woff2
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_SansSerif-Regular.ttf -> KaTeX_SansSerif-Regular.ttf
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_SansSerif-Regular.woff -> KaTeX_SansSerif-Regular.woff
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_SansSerif-Regular.woff2 -> KaTeX_SansSerif-Regular.woff2
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Script-Regular.ttf -> KaTeX_Script-Regular.ttf
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Script-Regular.woff -> KaTeX_Script-Regular.woff
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Script-Regular.woff2 -> KaTeX_Script-Regular.woff2
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Size1-Regular.ttf -> KaTeX_Size1-Regular.ttf
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Size1-Regular.woff -> KaTeX_Size1-Regular.woff
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Size1-Regular.woff2 -> KaTeX_Size1-Regular.woff2
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Size2-Regular.ttf -> KaTeX_Size2-Regular.ttf
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Size2-Regular.woff -> KaTeX_Size2-Regular.woff
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Size2-Regular.woff2 -> KaTeX_Size2-Regular.woff2
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Size3-Regular.ttf -> KaTeX_Size3-Regular.ttf
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Size3-Regular.woff -> KaTeX_Size3-Regular.woff
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Size3-Regular.woff2 -> KaTeX_Size3-Regular.woff2
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Size4-Regular.ttf -> KaTeX_Size4-Regular.ttf
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Size4-Regular.woff -> KaTeX_Size4-Regular.woff
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Size4-Regular.woff2 -> KaTeX_Size4-Regular.woff2
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Typewriter-Regular.ttf -> KaTeX_Typewriter-Regular.ttf
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Typewriter-Regular.woff -> KaTeX_Typewriter-Regular.woff
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: KaTeX_Typewriter-Regular.woff2 -> KaTeX_Typewriter-Regular.woff2
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: apple-touch-icon.png -> apple-touch-icon.png
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: favicon-96x96.png -> favicon-96x96.png
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: favicon.ico -> favicon.ico
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: favicon.svg -> favicon.svg
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: site.webmanifest -> site.webmanifest
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: web-app-manifest-192x192.png -> web-app-manifest-192x192.png
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: web-app-manifest-512x512.png -> web-app-manifest-512x512.png
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Synchronized asset: index.html -> index.html
+2026-11-20 08:44:16 | INFO     | kykloi.compiler          | Encrypting 1 binary blob(s)...
+2026-11-20 08:44:16 | INFO     | kykloi.compiler          | STARTED: Binary Blob Encryption (1 items)
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Encrypted binary asset: test_artemis_2-1.jpg
+2026-11-20 08:44:16 | INFO     | kykloi.compiler          | FINISHED: Binary Blob Encryption (1 items) (165.94 ms)
+2026-11-20 08:44:16 | INFO     | kykloi.compiler          | Compiling 5 Markdown document(s)...
+2026-11-20 08:44:16 | INFO     | kykloi.compiler          | STARTED: Markdown Compilation (5 documents)
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Compiled: 20261117181402-kykloi-highlights.md
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Compiled: 20261117062543-kykloi-to-do-list.md
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Compiled: 20261116170353-kykloi-introduction.md
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Compiled: 20261117053719-kykloi-cryptography.md
+2026-11-20 08:44:16 | DEBUG    | kykloi.compiler          | Compiled: silas.md
+2026-11-20 08:44:16 | INFO     | kykloi.compiler          | FINISHED: Markdown Compilation (5 documents) (417.05 ms)
+2026-11-20 08:44:16 | INFO     | kykloi.search            | Generated search index: 5 record(s) indexed (24576 bytes) at search.db
+2026-11-20 08:44:16 | INFO     | kykloi.compiler          | Build pipeline completed successfully.
+2026-11-20 08:44:16 | INFO     | kykloi.launcher          | Compilation process exited normally (code 0).
+2026-11-20 08:44:18 | INFO     | kykloi.menu              | Opening browser target: http://127.0.0.1:8000/
+2026-11-20 08:44:19 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET / HTTP/1.1" 200 -
+2026-11-20 08:44:19 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/js/wasm-search.js HTTP/1.1" 200 -
+2026-11-20 08:44:19 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/css/pico.css HTTP/1.1" 200 -
+2026-11-20 08:44:19 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/css/style.css HTTP/1.1" 200 -
+2026-11-20 08:44:19 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/fonts/libertinusserif-regular-webfont.woff2 HTTP/1.1" 200 -
+2026-11-20 08:44:19 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/fonts/libertinusserif-bold-webfont.woff2 HTTP/1.1" 200 -
+2026-11-20 08:44:19 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/js/search_worker.js HTTP/1.1" 200 -
+2026-11-20 08:44:19 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/js/sqlite3.js HTTP/1.1" 200 -
+2026-11-20 08:44:19 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/js/sqlite3.wasm HTTP/1.1" 200 -
+2026-11-20 08:44:19 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /search.db HTTP/1.1" 200 -
+2026-11-20 08:44:21 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /secure/silas.html HTTP/1.1" 200 -
+2026-11-20 08:44:21 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/js/decrypt.js HTTP/1.1" 200 -
+2026-11-20 08:44:21 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/css/pico.css HTTP/1.1" 200 -
+2026-11-20 08:44:21 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/css/style.css HTTP/1.1" 200 -
+2026-11-20 08:44:23 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/fonts/jetbrainsmono-variablefont_wght-webfont.woff2 HTTP/1.1" 200 -
+2026-11-20 08:44:23 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/fonts/libertinusserif-bolditalic-webfont.woff2 HTTP/1.1" 200 -
+2026-11-20 08:54:12 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /index.html HTTP/1.1" 200 -
+2026-11-20 08:54:12 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/js/wasm-search.js HTTP/1.1" 200 -
+2026-11-20 08:54:12 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/css/style.css HTTP/1.1" 200 -
+2026-11-20 08:54:12 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/css/pico.css HTTP/1.1" 200 -
+2026-11-20 08:54:12 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/js/search_worker.js HTTP/1.1" 200 -
+2026-11-20 08:54:12 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/js/sqlite3.js HTTP/1.1" 200 -
+2026-11-20 08:54:12 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /assets/js/sqlite3.wasm HTTP/1.1" 200 -
+2026-11-20 08:54:12 | DEBUG    | kykloi.server            | 127.0.0.1 - "GET /search.db HTTP/1.1" 200 -
+2026-11-20 09:02:56 | INFO     | kykloi.launcher          | Shutting down vault server daemon...
+2026-11-20 09:02:56 | INFO     | kykloi.launcher          | Daemon cleanly terminated.

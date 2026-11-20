@@ -1575,13 +1575,6 @@ def main():
 
     with VaultDB(NORM_DB_PATH) as db:
         db.init_schema()
-        if args.clean:
-            if DST.exists() and not args.dry_run:
-                shutil.rmtree(DST)
-            if not args.dry_run:
-                db.clear_build_state()
-
-        DST.mkdir(parents=True, exist_ok=True)
 
         central_bib = find_vault_bibliography(SRC)
         current_global_hash = compute_global_dependencies_hash(central_bib)
@@ -1621,6 +1614,15 @@ def main():
             if not passphrase:
                 log.error("Passphrase required for secure notes.")
                 sys.exit(1)
+
+        # Defer directory purging until after passphrase acquisition succeeds
+        if args.clean:
+            if DST.exists() and not args.dry_run:
+                shutil.rmtree(DST)
+            if not args.dry_run:
+                db.clear_build_state()
+
+        DST.mkdir(parents=True, exist_ok=True)
 
         passphrase_changed = False
         current_key_fingerprint = ""
@@ -1884,4 +1886,8 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        sys.stderr.write("\n[Kykloi] Build process cancelled by user.\n")
+        sys.exit(130)

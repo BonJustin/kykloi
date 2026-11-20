@@ -52,6 +52,7 @@ mimetypes.add_type("text/css", ".css")
 mimetypes.add_type("application/javascript", ".js")
 
 RANGE_REGEX = re.compile(r"^bytes=(\d*)-(\d*)$")
+IS_COMPILING: bool = False
 
 # ===========================================================================
 # 2. VAULT STATIC SERVER HANDLER
@@ -73,7 +74,10 @@ class KykloiVaultHandler(http.server.BaseHTTPRequestHandler):
         status_code = int(code_match.group(1)) if code_match else 200
 
         if status_code >= 500:
-            logger.error("%s - %s", self.address_string(), msg)
+            if IS_COMPILING:
+                logger.debug("%s - %s", self.address_string(), msg)
+            else:
+                logger.error("%s - %s", self.address_string(), msg)
         elif status_code >= 400:
             logger.warning("%s - %s", self.address_string(), msg)
         else:
@@ -88,6 +92,18 @@ class KykloiVaultHandler(http.server.BaseHTTPRequestHandler):
     def _dispatch_get(self, send_body: bool):
         parsed = urllib.parse.urlsplit(self.path)
         clean_path = urllib.parse.unquote(parsed.path)
+
+        if IS_COMPILING:
+            body = b"Vault compilation in progress. Please refresh in a moment.\n"
+            self.send_response(503)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Retry-After", "1")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Connection", "close")
+            self.end_headers()
+            if send_body:
+                self.wfile.write(body)
+            return
 
         if not DIST_DIR.exists() or not any(DIST_DIR.iterdir()):
             body = b"Vault unbuilt. Run compilation in CLI.\n"
@@ -245,11 +261,108 @@ def start_background_server(
 # ===========================================================================
 
 
+def vault_has_secure_content() -> bool:
+    """Checks whether the source vault contains files in /secure/ directories."""
+    if not CONTENT_DIR.exists():
+        return False
+    for path in CONTENT_DIR.rglob("*"):
+        if path.is_file() and "secure" in path.relative_to(CONTENT_DIR).parts:
+            return True
+    return False
+
+
+def ensure_build_prerequisites(session_password: str | None) -> tuple[bool, str | None]:
+    """
+    Verifies that ledger normalization and security credentials are satisfied.
+    Returns (can_proceed, effective_passphrase).
+    """
+    logger = get_logger("launcher")
+
+    # 1. Enforce ledger existence
+    if not NORM_DB_PATH.exists():
+        logger.warning(
+            "Vault ledger uninitialized. Normalization required before compilation."
+        )
+        try:
+            ans = input("Run vault normalization now? [Y/n]: ").strip().lower()
+        except (KeyboardInterrupt, EOFError):
+            print()
+            return False, session_password
+
+        if ans in ("", "y", "yes"):
+            code = run_normalization_pipeline(
+                content_root=CONTENT_DIR,
+                db_path=NORM_DB_PATH,
+                dry_run=False,
+                auto_apply=False,
+                check_only=False,
+            )
+            if code != 0:
+                logger.error("Normalization incomplete. Compilation aborted.")
+                return False, session_password
+        else:
+            logger.error("Compilation aborted: Ledger uninitialized.")
+            return False, session_password
+
+    # 2. Check for structural anomalies or un-normalized links
+    audit_code = run_normalization_pipeline(
+        content_root=CONTENT_DIR,
+        db_path=NORM_DB_PATH,
+        dry_run=True,
+        auto_apply=False,
+        check_only=True,
+    )
+    if audit_code != 0:
+        logger.warning(
+            "Vault has pending filename normalizations or boundary violations."
+        )
+        try:
+            ans = (
+                input("Execute normalization pipeline before compiling? [Y/n]: ")
+                .strip()
+                .lower()
+            )
+        except (KeyboardInterrupt, EOFError):
+            print()
+            return False, session_password
+
+        if ans in ("", "y", "yes"):
+            code = run_normalization_pipeline(
+                content_root=CONTENT_DIR,
+                db_path=NORM_DB_PATH,
+                dry_run=False,
+                auto_apply=False,
+                check_only=False,
+            )
+            if code != 0:
+                logger.error("Normalization unresolved. Compilation aborted.")
+                return False, session_password
+
+    # 3. Prompt for secure passphrase if required and unset
+    effective_pw = session_password
+    if vault_has_secure_content() and not effective_pw:
+        import getpass
+
+        try:
+            pw = getpass.getpass("Enter passphrase for /secure/ notes: ")
+            effective_pw = pw.strip() or None
+            if not effective_pw:
+                logger.error("Passphrase required to compile secure vault documents.")
+                return False, None
+        except (KeyboardInterrupt, EOFError):
+            print()
+            logger.warning("Passphrase entry cancelled.")
+            return False, session_password
+
+    return True, effective_pw
+
+
 def execute_build(
     clean: bool = False,
     passphrase: str | None = None,
     log_file: str | None = None,
 ) -> int:
+    global IS_COMPILING
     logger = get_logger("launcher")
     cmd = [sys.executable, str(BUILD_SCRIPT)]
     if clean:
@@ -263,12 +376,21 @@ def execute_build(
 
     logger.info("Executing build: %s", " ".join(cmd))
 
-    res = subprocess.run(cmd, cwd=str(ROOT_DIR), env=env)
-    if res.returncode == 0:
-        logger.info("Compilation process exited normally (code 0).")
-    else:
-        logger.error("Compilation process failed with exit code %d.", res.returncode)
-    return res.returncode
+    IS_COMPILING = True
+    try:
+        res = subprocess.run(cmd, cwd=str(ROOT_DIR), env=env)
+        if res.returncode == 0:
+            logger.info("Compilation process exited normally (code 0).")
+        else:
+            logger.error(
+                "Compilation process failed with exit code %d.", res.returncode
+            )
+        return res.returncode
+    except KeyboardInterrupt:
+        logger.warning("\nBuild cancelled by user.")
+        return 130
+    finally:
+        IS_COMPILING = False
 
 
 def get_ledger_status_tag() -> str:
@@ -414,27 +536,41 @@ def interactive_menu(
             break
 
         if choice == "1":
-            execute_build(clean=False, passphrase=session_password, log_file=log_file)
+            ok, session_password = ensure_build_prerequisites(session_password)
+            if ok:
+                execute_build(
+                    clean=False, passphrase=session_password, log_file=log_file
+                )
         elif choice == "2":
-            execute_build(clean=True, passphrase=session_password, log_file=log_file)
+            ok, session_password = ensure_build_prerequisites(session_password)
+            if ok:
+                execute_build(
+                    clean=True, passphrase=session_password, log_file=log_file
+                )
         elif choice == "3":
             logger.info("Initiating vault normalization pipeline...")
-            run_normalization_pipeline(
-                content_root=CONTENT_DIR,
-                db_path=NORM_DB_PATH,
-                dry_run=False,
-                auto_apply=False,
-                check_only=False,
-            )
+            try:
+                run_normalization_pipeline(
+                    content_root=CONTENT_DIR,
+                    db_path=NORM_DB_PATH,
+                    dry_run=False,
+                    auto_apply=False,
+                    check_only=False,
+                )
+            except KeyboardInterrupt:
+                logger.warning("\nNormalization interrupted by user.")
         elif choice == "4":
             logger.info("Auditing vault structure and links...")
-            run_normalization_pipeline(
-                content_root=CONTENT_DIR,
-                db_path=NORM_DB_PATH,
-                dry_run=True,
-                auto_apply=False,
-                check_only=True,
-            )
+            try:
+                run_normalization_pipeline(
+                    content_root=CONTENT_DIR,
+                    db_path=NORM_DB_PATH,
+                    dry_run=True,
+                    auto_apply=False,
+                    check_only=True,
+                )
+            except KeyboardInterrupt:
+                logger.warning("\nAudit interrupted by user.")
         elif choice == "5":
             import getpass
 
@@ -452,7 +588,23 @@ def interactive_menu(
                 logger.warning("Passphrase input aborted by user.")
         elif choice == "6":
             if not vault_ready:
-                logger.warning("Vault must be compiled before opening in browser.")
+                logger.warning("Vault is not compiled.")
+                try:
+                    ans = input("Compile vault now? [Y/n]: ").strip().lower()
+                except (KeyboardInterrupt, EOFError):
+                    ans = "n"
+
+                if ans in ("", "y", "yes"):
+                    ok, session_password = ensure_build_prerequisites(session_password)
+                    if (
+                        ok
+                        and execute_build(
+                            clean=False, passphrase=session_password, log_file=log_file
+                        )
+                        == 0
+                    ):
+                        logger.info("Opening browser target: %s", vault_url)
+                        webbrowser.open(vault_url)
             else:
                 logger.info("Opening browser target: %s", vault_url)
                 webbrowser.open(vault_url)
