@@ -398,8 +398,8 @@ def compute_diff(scan_result: VaultScanResult, db: VaultDB) -> DiffPlan:
             )
 
         # Step 6: Remaining unmatched DB files -> DELETE
-        for rel_path in sorted(unmatched_db_paths):
-            db_rec = db_files[rel_path]
+        for deleted_rel_path in sorted(unmatched_db_paths):
+            db_rec = db_files[deleted_rel_path]
             inbound_links = db.get_referencing_links(db_rec.canonical_filename)
 
             if inbound_links:
@@ -421,4 +421,4 @@ def compute_diff(scan_result: VaultScanResult, db: VaultDB) -> DiffPlan:
                 )
             )
 
-    return plan
+        return plan

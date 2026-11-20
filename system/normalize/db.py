@@ -6,7 +6,7 @@ Stores the master file registry, link dependencies, and schema state.
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set
 
 SCHEMA_VERSION = "3.0"
 

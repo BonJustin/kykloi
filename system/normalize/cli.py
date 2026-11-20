@@ -268,7 +268,8 @@ def execute_transaction(manifest: TransactionManifest, db: VaultDB) -> bool:
 
 
 def parse_frontmatter_dict(text: str) -> dict:
-    if not text.startswith("---"):
+    clean_text = text.lstrip("\ufeff")
+    if not clean_text.startswith("---"):
         return {}
 
     lines = text.splitlines()
