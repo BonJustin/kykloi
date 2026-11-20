@@ -10,6 +10,12 @@ REQ_MIN="${REQ_MIN:-10}"
 for arg; do
   if [ "$arg" = "--force-fallback" ]; then
     KYKLOI_FORCE_FALLBACK=1
+  elif [ "$arg" = "--test" ]; then
+    PASSTHROUGH_TEST=1
+    set -- "$@" "$arg"
+  elif [ "$arg" = "--clean-test" ]; then
+    PASSTHROUGH_TEST=1
+    set -- "$@" "$arg"
   else
     set -- "$@" "$arg"
   fi

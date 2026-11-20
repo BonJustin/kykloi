@@ -10,6 +10,10 @@ set "PASSTHROUGH_ARGS="
 if "%~1"=="" goto :done_parse_args
 if /i "%~1"=="--force-fallback" (
     set "KYKLOI_FORCE_FALLBACK=1"
+) else if /i "%~1"=="--test" (
+    set "PASSTHROUGH_ARGS=!PASSTHROUGH_ARGS! --test"
+) else if /i "%~1"=="--clean-test" (
+    set "PASSTHROUGH_ARGS=!PASSTHROUGH_ARGS! --clean-test"
 ) else (
     set "PASSTHROUGH_ARGS=!PASSTHROUGH_ARGS! %1"
 )

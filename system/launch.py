@@ -489,6 +489,21 @@ def parse_args():
         action="store_true",
         help="Inspect active cryptographic acceleration engine and exit.",
     )
+    p.add_argument(
+        "--test",
+        action="store_true",
+        help="Execute automated cross-platform field test suite and write report to logs/.",
+    )
+    p.add_argument(
+        "--clean-test",
+        action="store_true",
+        help="Execute automated field test suite, write report, and clean up workspace.",
+    )
+    p.add_argument(
+        "--purge-cache",
+        action="store_true",
+        help="Purge extracted temporary runtime binaries and reset workspace.",
+    )
     return p.parse_args()
 
 
@@ -526,11 +541,13 @@ def interactive_menu(
         print("  [5] Set / Update Secure Passphrase")
         print("  [6] Open Vault in Default Browser")
         print("  [7] Cryptographic Acceleration Diagnostics")
+        print("  [8] Run Field Test Suite (Archive to logs/)")
+        print("  [9] Purge Ephemeral Runtimes & Reset Workspace")
         print("  [0] Exit")
         print("==============================================================")
 
         try:
-            choice = input("Select an option [0-7]: ").strip()
+            choice = input("Select an option [0-9]: ").strip()
         except (KeyboardInterrupt, EOFError):
             print("\n")
             break
@@ -610,6 +627,34 @@ def interactive_menu(
                 webbrowser.open(vault_url)
         elif choice == "7":
             print_crypto_diagnostics()
+        elif choice == "8":
+            from test_runner import execute_field_test_suite
+
+            clean_prompt = (
+                input("Clean up workspace after test execution? [y/N]: ")
+                .strip()
+                .lower()
+            )
+            do_clean = clean_prompt in ("y", "yes")
+            execute_field_test_suite(auto_cleanup=do_clean)
+        elif choice == "9":
+            from test_runner import purge_ephemeral_runtimes, reset_vault_state
+
+            confirm = (
+                input(
+                    "Are you sure you want to purge unpacked runtimes and reset content/dist? [y/N]: "
+                )
+                .strip()
+                .lower()
+            )
+            if confirm in ("y", "yes"):
+                reset_vault_state()
+                purged = purge_ephemeral_runtimes()
+                print(
+                    f"[Cleanup] Workspace reset. Purged {len(purged)} ephemeral directories:"
+                )
+                for p in purged:
+                    print(f"  - {p}")
         elif choice == "0":
             break
         else:
@@ -622,6 +667,22 @@ def main():
     if args.crypto_info:
         print_crypto_diagnostics()
         sys.exit(0)
+
+    if args.purge_cache:
+        from test_runner import purge_ephemeral_runtimes, reset_vault_state
+
+        reset_vault_state()
+        purged = purge_ephemeral_runtimes()
+        for p in purged:
+            print(f"Purged: {p}")
+        print("Ephemeral caches and vault state cleared.")
+        sys.exit(0)
+
+    if args.test or args.clean_test:
+        from test_runner import execute_field_test_suite
+
+        code = execute_field_test_suite(auto_cleanup=args.clean_test)
+        sys.exit(code)
 
     log_file_path = Path(args.log_file).resolve() if args.log_file else None
     logger = setup_logging(
