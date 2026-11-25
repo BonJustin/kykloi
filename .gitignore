@@ -21,6 +21,7 @@ kykloi_test_*
 *.key
 *.pem
 *secret*
+!test-content/**
 
 # --- Databases & Transaction Journals ---
 *.db

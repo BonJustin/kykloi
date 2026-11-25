@@ -116,7 +116,7 @@ class KykloiVaultHandler(http.server.BaseHTTPRequestHandler):
             return
 
         active_dist = getattr(self, "dist_dir", DIST_DIR)
-        if not active_dist.exists() or not any(active_dist.iterdir()):
+        if not active_dist.exists() or not (active_dist / "index.html").is_file():
             body = b"Vault unbuilt. Run compilation in CLI.\n"
             self.send_response(503)
             self.send_header("Content-Type", "text/plain; charset=utf-8")
@@ -521,7 +521,7 @@ def interactive_menu(
     logger = get_logger("menu")
 
     while True:
-        vault_ready = DIST_DIR.exists() and any(DIST_DIR.iterdir())
+        vault_ready = (DIST_DIR / "index.html").is_file()
         status_line = (
             f"Vault: Ready ({vault_url})" if vault_ready else "Vault: Not Compiled"
         )

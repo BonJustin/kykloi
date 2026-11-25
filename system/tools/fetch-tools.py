@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-system/tools/fetch_tools.py - Autonomous Archive Fetcher & Verifier.
+system/tools/fetch-tools.py - Autonomous Archive Fetcher & Verifier.
 Part of Project Kykloi.
 Retrieves and validates offline toolchain archives using only Python standard libraries.
 """
@@ -137,7 +137,7 @@ def fetch_binaries(all_platforms: bool = False, force: bool = False) -> int:
     host_pandoc, host_python = detect_host_targets()
 
     queue: list[
-        tuple[str, str, Path, str]
+        tuple[str, str, Path, str, str]
     ] = []  # (tool, target, dest_file, expected_sha256, url)
 
     tools_dict = manifest.get("tools", {})

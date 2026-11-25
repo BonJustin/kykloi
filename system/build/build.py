@@ -1273,7 +1273,9 @@ def resolve_pandoc_binary(root_dir: Path) -> str:
         return sys_pandoc
 
     raise FileNotFoundError(
-        f"Pandoc executable not found on host and archive missing at {archive_path}"
+        f"Pandoc executable not found on host and archive missing at {archive_path}.\n"
+        f"Remediation: Install Pandoc via your system package manager or run: "
+        f"python3 system/tools/fetch-tools.py --host-only"
     )
 
 
