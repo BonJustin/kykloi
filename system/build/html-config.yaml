@@ -1,0 +1,9 @@
+from: markdown+mark+task_lists
+to: html
+wrap: none
+section-divs: true
+eol: lf
+default-image-extension: .jpg
+variables:
+  document-css: false
+  title: false

@@ -1,0 +1,149 @@
+/* --- Libertinus Serif --- */
+@font-face {
+    font-family: 'Libertinus Serif';
+    src: url('../fonts/libertinusserif-regular-webfont.woff2') format('woff2');
+    font-weight: 400;
+    font-style: normal;
+}
+
+@font-face {
+    font-family: 'Libertinus Serif';
+    src: url('../fonts/libertinusserif-italic-webfont.woff2') format('woff2');
+    font-weight: 400;
+    font-style: italic;
+}
+
+@font-face {
+    font-family: 'Libertinus Serif';
+    src: url('../fonts/libertinusserif-bold-webfont.woff2') format('woff2');
+    font-weight: 700;
+    font-style: normal;
+}
+
+@font-face {
+    font-family: 'Libertinus Serif';
+    src: url('../fonts/libertinusserif-bolditalic-webfont.woff2') format('woff2');
+    font-weight: 700;
+    font-style: italic;
+}
+
+/* --- JetBrains Mono --- */
+@font-face {
+    font-family: 'JetBrains Mono';
+    src: url('../fonts/jetbrainsmono-variablefont_wght-webfont.woff2') format('woff2');
+    font-weight: 100 900;
+    font-style: normal;
+}
+
+:root {
+    --pico-font-family-sans-serif: system-ui, sans-serif;
+    --pico-font-family-serif: "Libertinus Serif", Georgia, serif;
+    --pico-font-family-monospace: "JetBrains Mono", ui-monospace, monospace;
+    --pico-font-family: var(--pico-font-family-serif);
+}
+
+h1 {
+    text-align: center;
+    color: var(--pico-primary);
+}
+
+span.smallcaps {
+    font-variant: small-caps;
+}
+
+main figure {
+    text-align: center;
+    display: block;
+}
+
+figcaption {
+    text-align: center;
+    color: var(--pico-muted-color);
+}
+
+a:not([role="button"]) {
+    --pico-text-decoration: none;
+    --text-decoration: none;
+    text-decoration: none;
+}
+
+main ul,
+main ol {
+    padding-inline-start: 1rem;
+}
+
+li > ul,
+li > ol {
+    margin-top: calc(var(--pico-typography-spacing-vertical) * 0.25);
+    margin-bottom: 0;
+}
+
+li {
+    margin-bottom: calc(var(--pico-typography-spacing-vertical) * 0.25);
+}
+
+main ul li {
+    list-style-type: disc;
+}
+
+main ul ul li {
+    list-style-type: circle;
+}
+
+main ul ul ul li {
+    list-style-type: disc;
+}
+
+main ul ul ul ul li {
+    list-style-type: circle;
+}
+
+dl dd {
+    margin-bottom: calc(var(--pico-typography-spacing-vertical) * 0.5);
+}
+
+li > p {
+    margin-bottom: calc(var(--pico-typography-spacing-vertical) * 0.25);
+}
+li > p:last-child {
+    margin-bottom: 0;
+}
+
+header.site_header {
+    padding-inline: var(--pico-spacing);
+}
+
+main {
+    max-width: 78ch;
+    margin-inline: auto;
+}
+
+main figure img,
+main p > img {
+    display: block;
+    margin: 0 auto;
+    border: var(--pico-border-width) solid var(--pico-primary);
+    border-radius: var(--pico-border-radius);
+    box-sizing: border-box;
+}
+
+.katex-display {
+    margin-top: var(--pico-typography-spacing-vertical);
+    margin-bottom: var(--pico-typography-spacing-vertical);
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-top: 0.5em;
+    padding-bottom: 0.5em;
+}
+
+.brand_text {
+    color: var(--pico-primary);
+    font-size: 2rem;
+    font-weight: bold;
+    display: flex;
+    align-items: baseline;
+}
+
+footer {
+    color: var(--pico-muted-color);
+}

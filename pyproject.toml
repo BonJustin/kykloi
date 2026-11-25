@@ -1,0 +1,7 @@
+[project]
+name = "Kykloi"
+version = "0.7.0"
+description = "Deterministic Archival Knowlege Management and SSG"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []

@@ -1,0 +1,9 @@
+## Kykloi
+
+*This README is yet to be developed but in the meantime will contain bits of context as reminders and key points for inclusion in documentation later.*
+
+### Important notes for inclusion in future README
+
+- [ ] Included shell scripts (`launch.sh` and `launch.bat`) are entirely uneccessary provided that Python >= 3.10 is installed and discoverable on the host system. They perform no function not available via direct Python CLI invocation. The only exclusive feature provided by these shell scripts is to hydrate included static Python binaries for common architectures/environments in the case that Python is not installed or available. Ideal installation would include host installation of Python and Pandoc, bypassing all binary extraction and bypassing all security hardened `noexec` boundaries.
+- [ ] Security threat model is **not** intended to prevent cache-timing attacks, and is not effective protection against nation-state actors. It attempts to prevent casual browsing or automated scraping of internal document contents for limited/single-user privacy of the distribution artifact (`dist/`, a static website) which can be locally hosted or served *without* including the archival repository (`contents/`). Documents on the static site are protected via a single, site-wide password/encryption key, and metadata (title, date_edtf, keywords) are **not** hidden, so that for the user or guests with the password, the documents in the knowlege base remain discoverable via the built in SQLite WASM search mechanisms while content remains obscured.
+- [ ] Kykloi's distribution artifact (`dist/`) is intended to run in localhost contexts or over `https://` protocol on external server with `window.crypto.subtle`. (This requires much more careful description and depth eventually.)

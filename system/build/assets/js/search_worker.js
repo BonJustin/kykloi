@@ -1,0 +1,231 @@
+"use strict";
+
+importScripts("sqlite3.js");
+
+let sqlite3 = null;
+let db = null;
+let initPromise = null;
+const messageQueue = [];
+
+async function initDatabase(dbUrl) {
+  if (db) return;
+
+  if (!sqlite3) {
+    sqlite3 = await self.sqlite3InitModule({
+      print: (msg) => console.log("[Kykloi SQLite]", msg),
+      printErr: (msg) => console.error("[Kykloi SQLite Error]", msg),
+    });
+  }
+
+  const response = await fetch(dbUrl);
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status} fetching search index from ${dbUrl}`);
+  }
+
+  const arrayBuffer = await response.arrayBuffer();
+  const bytes = new Uint8Array(arrayBuffer);
+
+  const pData = sqlite3.wasm.allocFromTypedArray(bytes);
+  db = new sqlite3.oo1.DB();
+
+  const SQLITE_DESERIALIZE_FREEONCLOSE = sqlite3.capi.SQLITE_DESERIALIZE_FREEONCLOSE || 1;
+  const SQLITE_DESERIALIZE_RESIZEABLE = sqlite3.capi.SQLITE_DESERIALIZE_RESIZEABLE || 2;
+
+  const rc = sqlite3.capi.sqlite3_deserialize(
+    db.pointer,
+    "main",
+    pData,
+    bytes.byteLength,
+    bytes.byteLength,
+    SQLITE_DESERIALIZE_FREEONCLOSE | SQLITE_DESERIALIZE_RESIZEABLE
+  );
+
+  if (rc !== 0) {
+    throw new Error(`sqlite3_deserialize failed with return code: ${rc}`);
+  }
+}
+
+function buildFtsQueries(rawQuery) {
+  const trimmed = rawQuery.trim();
+  if (!trimmed) return [];
+
+  const hasAdvancedSyntax = /["':]|\b(AND|OR|NOT)\b|^-/i.test(trimmed);
+
+  const tokens = trimmed
+    .replace(/[^\p{L}\p{N}_]+/gu, " ")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+
+  const fallbackQuery = tokens.length > 0
+    ? tokens.map((t) => `"${t.replace(/"/g, '""')}"*`).join(" ")
+    : null;
+
+  if (hasAdvancedSyntax) {
+    return [trimmed, fallbackQuery].filter(Boolean);
+  }
+
+  return [fallbackQuery].filter(Boolean);
+}
+
+function getRecentDocuments(searchId) {
+  if (!db) return;
+
+  const sql = `
+    SELECT title, url, date_edtf
+    FROM docs_fts
+    ORDER BY (date_edtf != '') DESC, date_edtf DESC, rowid DESC
+    LIMIT 50;
+  `;
+
+  const rows = [];
+  try {
+    db.exec({
+      sql,
+      rowMode: "object",
+      callback: (row) => rows.push(row),
+    });
+
+    self.postMessage({
+      type: "results",
+      query: "",
+      searchId,
+      hits: rows,
+      hasMore: false,
+      isDefault: true,
+    });
+  } catch (err) {
+    console.warn("[Kykloi Search Worker] Failed to fetch recent documents:", err);
+    self.postMessage({
+      type: "results",
+      query: "",
+      searchId,
+      hits: [],
+      hasMore: false,
+      isDefault: true,
+      error: err.message,
+    });
+  }
+}
+
+function executeSearch(query, searchId) {
+  const trimmed = (query || "").trim();
+
+  if (!trimmed) {
+    getRecentDocuments(searchId);
+    return;
+  }
+
+  const candidateQueries = buildFtsQueries(trimmed);
+  if (candidateQueries.length === 0 || !db) {
+    self.postMessage({
+      type: "results",
+      query,
+      searchId,
+      hits: [],
+      hasMore: false,
+      isDefault: false,
+    });
+    return;
+  }
+
+  const sql = `
+    SELECT title, url, date_edtf
+    FROM docs_fts
+    WHERE docs_fts MATCH ?
+    ORDER BY rank
+    LIMIT 101;
+  `;
+
+  let rows = [];
+  let executionSuccess = false;
+
+  for (const ftsQuery of candidateQueries) {
+    try {
+      rows = [];
+      db.exec({
+        sql,
+        bind: [ftsQuery],
+        rowMode: "object",
+        callback: (row) => rows.push(row),
+      });
+      executionSuccess = true;
+      break;
+    } catch (err) {
+    }
+  }
+
+  if (!executionSuccess) {
+    self.postMessage({
+      type: "results",
+      query,
+      searchId,
+      hits: [],
+      hasMore: false,
+      isDefault: false,
+    });
+    return;
+  }
+
+  const hasMore = rows.length > 100;
+  const hits = hasMore ? rows.slice(0, 100) : rows;
+
+  self.postMessage({
+    type: "results",
+    query,
+    searchId,
+    hits,
+    hasMore,
+    isDefault: false,
+  });
+}
+
+async function processMessage(data) {
+  const { type, dbUrl, query, searchId } = data || {};
+
+  switch (type) {
+    case "init":
+      if (!initPromise) {
+        initPromise = initDatabase(dbUrl)
+          .then(() => {
+            self.postMessage({ type: "ready" });
+            while (messageQueue.length > 0) {
+              const pending = messageQueue.shift();
+              processMessage(pending);
+            }
+          })
+          .catch((err) => {
+            initPromise = null;
+            self.postMessage({ type: "error", error: err.message });
+          });
+      }
+      break;
+
+    case "search":
+      if (!db && initPromise) {
+        messageQueue.push(data);
+        return;
+      }
+      if (!db && !initPromise) {
+        self.postMessage({
+          type: "results",
+          query,
+          searchId,
+          hits: [],
+          hasMore: false,
+          isDefault: false,
+          error: "Search database is not initialized.",
+        });
+        return;
+      }
+      executeSearch(query || "", searchId);
+      break;
+
+    default:
+      console.warn("[Kykloi Search Worker] Unhandled message type:", type);
+  }
+}
+
+self.onmessage = (e) => {
+  processMessage(e.data);
+};

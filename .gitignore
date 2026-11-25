@@ -1,0 +1,72 @@
+# --- Python Runtime & Virtual Environments ---
+__pycache__/
+*.py[oc]
+wheels/
+*.egg-info
+.venv/
+.python-version.local
+
+# --- Tooling & Test Caches ---
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+kykloi_test_*
+
+# --- Secrets & Environment Overrides ---
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*secret*
+
+# --- Databases & Transaction Journals ---
+*.db
+*.db-wal
+*.db-shm
+*.norm_tmp*
+*.norm_case_tmp*
+*.prune.tmp*
+
+# --- Logs & Telemetry ---
+*.log
+logs/*
+!logs/.gitkeep
+
+# --- User Content & Generated Distribution Artifacts ---
+content/*
+!content/.gitkeep
+dist/*
+!dist/.gitkeep
+backups/*
+!backups/.gitkeep
+*.zip.sha256
+
+# --- Portable Toolchain Archives ---
+system/tools/archives/*
+!system/tools/archives/.gitkeep
+
+# --- IDE & Editor State ---
+.vscode/
+.idea/
+.obsidian/
+.zed/
+*.swp
+*.swo
+*~
+
+# --- Cross-Platform OS Junk ---
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+desktop.ini
+$RECYCLE.BIN/
+.directory
