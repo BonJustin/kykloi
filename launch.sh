@@ -21,6 +21,7 @@ for arg; do
     ;;
   esac
 done
+export KYKLOI_FORCE_FALLBACK
 
 # ---------------------------------------------------------------------------
 # 1. EVALUATE HOST PYTHON (WITH CANDIDATE PATH PROBING)

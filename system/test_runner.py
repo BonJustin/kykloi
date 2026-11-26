@@ -38,7 +38,11 @@ from system.backup import (
     find_previous_backups,
     prune_previous_backups,
 )
-from system.build.build import ACTIVE_ENGINE_NAME
+from system.build.build import (
+    ACTIVE_ENGINE_NAME,
+    probe_pandoc_version,
+    resolve_pandoc_binary,
+)
 from system.normalize.cli import run_normalization_pipeline
 from system.normalize.scanner import is_junk_path
 
@@ -162,9 +166,15 @@ def print_environment_report():
         f"Python Version:        {platform.python_version()} ({platform.python_implementation()})"
     )
     print(f"Crypto Accelerator:    {ACTIVE_ENGINE_NAME}")
-    print(
-        f"Pandoc on PATH:        {shutil.which('pandoc') or 'None (using bundled archive)'}"
-    )
+    try:
+        resolved_pandoc = resolve_pandoc_binary(PROJECT_ROOT)
+        pandoc_ver = probe_pandoc_version(resolved_pandoc)
+        ver_str = ".".join(str(x) for x in pandoc_ver) if pandoc_ver else "unknown"
+        is_bundled = "runtime_" in resolved_pandoc or "kykloi_pandoc" in resolved_pandoc
+        source_tag = "bundled archive" if is_bundled else "host system"
+        print(f"Pandoc Runtime:        {resolved_pandoc} (v{ver_str}, {source_tag})")
+    except Exception as exc:
+        print(f"Pandoc Runtime:        Failed to resolve ({exc})")
     print(
         "================================================================================\n"
     )

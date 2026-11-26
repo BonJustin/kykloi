@@ -22,6 +22,7 @@ import logging
 import multiprocessing
 import os
 import platform
+import re
 import shutil
 import sqlite3
 import subprocess
@@ -1080,6 +1081,33 @@ def parse_args():
 # 5. BINARY RESOLUTION & CRYPTOGRAPHIC UTILITIES
 # ===========================================================================
 
+MIN_PANDOC_VERSION = (3, 0)
+
+
+def probe_pandoc_version(executable: str | Path) -> tuple[int, ...] | None:
+    """
+    Safely probes a Pandoc binary for its semantic version tuple.
+    Returns (major, minor, ...) or None if invalid or unexecutable.
+    """
+    try:
+        res = subprocess.run(
+            [str(executable), "--version"],
+            capture_output=True,
+            text=True,
+            timeout=3,
+        )
+        if res.returncode != 0:
+            return None
+        first_line = res.stdout.splitlines()[0] if res.stdout else ""
+        match = re.search(
+            r"pandoc(?:\.exe)?\s+(\d+(?:\.\d+)+)", first_line, re.IGNORECASE
+        )
+        if match:
+            return tuple(int(x) for x in match.group(1).split("."))
+    except Exception:
+        return None
+    return None
+
 
 def resolve_pandoc_binary(root_dir: Path) -> str:
     system = platform.system().lower()
@@ -1094,6 +1122,8 @@ def resolve_pandoc_binary(root_dir: Path) -> str:
 
     archives_dir = root_dir / "system" / "tools" / "archives"
     manifest_path = root_dir / "system" / "tools" / "tools-manifest.json"
+    log = get_logger("pandoc")
+    force_fallback = os.environ.get("KYKLOI_FORCE_FALLBACK") == "1"
 
     if system == "windows":
         base_runtime = Path(
@@ -1130,9 +1160,12 @@ def resolve_pandoc_binary(root_dir: Path) -> str:
 
         valid_base = next((c for c in candidates if _probe_exec(c)), None)
         if valid_base is None:
-            sys_pandoc = shutil.which("pandoc")
-            if sys_pandoc:
-                return sys_pandoc
+            if not force_fallback:
+                sys_pandoc = shutil.which("pandoc")
+                if sys_pandoc:
+                    ver = probe_pandoc_version(sys_pandoc)
+                    if ver and ver >= MIN_PANDOC_VERSION:
+                        return sys_pandoc
             raise PermissionError(
                 "Execution boundary restriction: Cannot locate a writable, executable directory "
                 "to extract bundled Pandoc (all probed cache and temp mounts enforce 'noexec'). "
@@ -1152,31 +1185,54 @@ def resolve_pandoc_binary(root_dir: Path) -> str:
     ):
         return str(pandoc_bin.resolve())
 
-    # Probe host system for native Pandoc before uncompressing archives
-    pandoc_candidates = [
-        shutil.which("pandoc"),
-        "/opt/homebrew/bin/pandoc",
-        "/usr/local/bin/pandoc",
-        "/opt/local/bin/pandoc",
-        "/usr/pkg/bin/pandoc",
-        str(
-            Path(os.environ.get("ProgramFiles", "C:\\Program Files"))
-            / "Pandoc"
-            / "pandoc.exe"
-        ),
-        str(
-            Path(os.environ.get("ProgramFiles(x86)", "C:\\Program Files (x86)"))
-            / "Pandoc"
-            / "pandoc.exe"
-        ),
-        str(Path(os.environ.get("LOCALAPPDATA", "")) / "Pandoc" / "pandoc.exe"),
-        str(Path.home() / ".local" / "bin" / "pandoc"),
-    ]
+    # Probe host system for native compliant Pandoc before uncompressing archives
+    if not force_fallback:
+        pandoc_candidates = [
+            shutil.which("pandoc"),
+            "/opt/homebrew/bin/pandoc",
+            "/usr/local/bin/pandoc",
+            "/opt/local/bin/pandoc",
+            "/usr/pkg/bin/pandoc",
+            str(
+                Path(os.environ.get("ProgramFiles", "C:\\Program Files"))
+                / "Pandoc"
+                / "pandoc.exe"
+            ),
+            str(
+                Path(os.environ.get("ProgramFiles(x86)", "C:\\Program Files (x86)"))
+                / "Pandoc"
+                / "pandoc.exe"
+            ),
+            str(Path(os.environ.get("LOCALAPPDATA", "")) / "Pandoc" / "pandoc.exe"),
+            str(Path.home() / ".local" / "bin" / "pandoc"),
+        ]
 
-    for candidate in pandoc_candidates:
-        if candidate and os.path.isfile(candidate):
-            if system == "windows" or os.access(candidate, os.X_OK):
-                return str(Path(candidate).resolve())
+        for candidate in pandoc_candidates:
+            if candidate and os.path.isfile(candidate):
+                if system == "windows" or os.access(candidate, os.X_OK):
+                    cand_ver = probe_pandoc_version(candidate)
+                    min_ver_str = ".".join(str(x) for x in MIN_PANDOC_VERSION)
+                    if cand_ver and cand_ver >= MIN_PANDOC_VERSION:
+                        log.debug(
+                            "Selected compliant host Pandoc %s at %s",
+                            ".".join(str(x) for x in cand_ver),
+                            candidate,
+                        )
+                        return str(Path(candidate).resolve())
+                    elif cand_ver:
+                        log.warning(
+                            "Host Pandoc at %s is version %s (minimum required is %s); falling back to bundled archive.",
+                            candidate,
+                            ".".join(str(x) for x in cand_ver),
+                            min_ver_str,
+                        )
+                    else:
+                        log.debug(
+                            "Host Pandoc candidate at %s failed version probe; ignoring.",
+                            candidate,
+                        )
+    else:
+        log.info("Host Pandoc probing bypassed [--force-fallback requested].")
 
     if not manifest_path.is_file():
         raise FileNotFoundError(f"Tools manifest missing at {manifest_path}")
@@ -1194,7 +1250,6 @@ def resolve_pandoc_binary(root_dir: Path) -> str:
 
     archive_path = archives_dir / archive_name
     ext = "zip" if archive_name.endswith(".zip") else "tar.gz"
-    log = get_logger("pandoc")
 
     if archive_path.is_file():
         log.info("Verifying integrity checksum for %s...", archive_path.name)
@@ -1268,9 +1323,12 @@ def resolve_pandoc_binary(root_dir: Path) -> str:
                             stamp_file.write_text(actual_hash, encoding="utf-8")
                             return str(target_file.resolve())
 
-    sys_pandoc = shutil.which("pandoc")
-    if sys_pandoc:
-        return sys_pandoc
+    if not force_fallback:
+        sys_pandoc = shutil.which("pandoc")
+        if sys_pandoc:
+            ver = probe_pandoc_version(sys_pandoc)
+            if ver and ver >= MIN_PANDOC_VERSION:
+                return sys_pandoc
 
     raise FileNotFoundError(
         f"Pandoc executable not found on host and archive missing at {archive_path}.\n"
