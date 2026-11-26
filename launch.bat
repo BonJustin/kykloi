@@ -1,124 +1,88 @@
-@echo off
-setlocal enabledelayedexpansion
+@echo on
+setlocal EnableExtensions EnableDelayedExpansion
 
 :: ---------------------------------------------------------------------------
-:: 0. PARSE CLI FLAGS (e.g. --force-fallback)
+:: 0. INITIALIZATION & SCRIPT ROOT
 :: ---------------------------------------------------------------------------
+echo [Kykloi] Windows Launcher initialized. Assessing environment...
+
+set "SCRIPT_DIR=%~dp0"
+if "%REQ_MAJ%"=="" set "REQ_MAJ=3"
+if "%REQ_MIN%"=="" set "REQ_MIN=10"
+set "KYKLOI_FORCE_FALLBACK=0"
 set "PASSTHROUGH_ARGS="
+set "USE_HOST=0"
+set "HOST_EXEC="
 
+:: ---------------------------------------------------------------------------
+:: 1. PARSE CLI FLAGS (e.g. --force-fallback)
+:: ---------------------------------------------------------------------------
 :parse_args
-if "%~1"=="" goto :done_parse_args
+if "%~1"=="" goto done_parse_args
 if /i "%~1"=="--force-fallback" (
     set "KYKLOI_FORCE_FALLBACK=1"
-) else if /i "%~1"=="--test" (
-    set "PASSTHROUGH_ARGS=!PASSTHROUGH_ARGS! --test"
-) else if /i "%~1"=="--clean-test" (
-    set "PASSTHROUGH_ARGS=!PASSTHROUGH_ARGS! --clean-test"
 ) else (
     set "PASSTHROUGH_ARGS=!PASSTHROUGH_ARGS! %1"
 )
 shift
-goto :parse_args
+goto parse_args
 :done_parse_args
 
 :: ---------------------------------------------------------------------------
-:: 1. CONFIGURATION & VERSION CONSTRAINTS
+rem 2. EVALUATE HOST PYTHON
 :: ---------------------------------------------------------------------------
-if "%REQ_MAJ%"=="" set "REQ_MAJ=3"
-if "%REQ_MIN%"=="" set "REQ_MIN=10"
-
-set "USE_HOST=0"
-
-:: ---------------------------------------------------------------------------
-:: 2. EVALUATE HOST PYTHON (WITH DYNAMIC CANDIDATE PROBING)
-:: ---------------------------------------------------------------------------
-set "HOST_EXEC="
-if not "%KYKLOI_FORCE_FALLBACK%"=="1" (
-    :: 1. Probe PATH and the Windows Python Launcher (py -3)
-    for %%C in ("python" "py") do (
-        if "!USE_HOST!"=="0" (
-            set "TEST_CMD="
-            if "%%~C"=="python" (
-                where python >nul 2>&1 && set "TEST_CMD=python"
-            ) else if "%%~C"=="py" (
-                where py >nul 2>&1 && set "TEST_CMD=py -3"
-            )
-
-            if defined TEST_CMD (
-                set "HOST_MAJOR="
-                set "HOST_MINOR="
-                for /f "tokens=1,2 delims=." %%a in ('!TEST_CMD! -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2^>nul') do (
-                    set "HOST_MAJOR=%%a"
-                    set "HOST_MINOR=%%b"
-                )
-                if defined HOST_MAJOR if defined HOST_MINOR (
-                    if "!HOST_MAJOR!"=="%REQ_MAJ%" (
-                        if !HOST_MINOR! geq %REQ_MIN% (
-                            set "USE_HOST=1"
-                            set "HOST_EXEC=!TEST_CMD!"
-                        )
-                    )
-                )
-            )
-        )
-    )
-
-    :: 2. Dynamically scan standard installation roots for any Python3* directory
-        if "!USE_HOST!"=="0" (
-            for /d %%D in (
-                "%LOCALAPPDATA%\Programs\Python\Python3*"
-                "%ProgramFiles%\Python3*"
-                "%ProgramFiles(x86)%\Python3*"
-            ) do (
-                if "!USE_HOST!"=="0" (
-                    if exist "%%~D\python.exe" (
-                        set "TEST_CMD="%%~D\python.exe""
-                        set "HOST_MAJOR="
-                        set "HOST_MINOR="
-                        for /f "tokens=1,2 delims=." %%a in ('!TEST_CMD! -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2^>nul') do (
-                            set "HOST_MAJOR=%%a"
-                            set "HOST_MINOR=%%b"
-                        )
-                        if defined HOST_MAJOR if defined HOST_MINOR (
-                            if "!HOST_MAJOR!"=="%REQ_MAJ%" (
-                                if !HOST_MINOR! geq %REQ_MIN% (
-                                    set "USE_HOST=1"
-                                    set "HOST_EXEC=!TEST_CMD!"
-                                )
-                            )
-                        )
-                    )
-                )
-            )
-        )
-    )
-
-    if "%USE_HOST%"=="1" (
-    echo [Kykloi] Using host Python runtime: !HOST_EXEC! (!HOST_MAJOR!.!HOST_MINOR!)
-    !HOST_EXEC! system\launch.py %PASSTHROUGH_ARGS%
-    exit /b %ERRORLEVEL%
+if "%KYKLOI_FORCE_FALLBACK%"=="1" (
+    echo [Kykloi] Host probing bypassed [--force-fallback requested].
+    goto hydrate_runtime_start
 )
 
-:: ---------------------------------------------------------------------------
-:: 3. HYDRATE RUNTIME FROM LOCAL ARCHIVE (WITH SHA-256 VERIFICATION)
-:: ---------------------------------------------------------------------------
-set "SCRIPT_DIR=%~dp0"
+echo [Kykloi] Probing host system for Python ^>= %REQ_MAJ%.%REQ_MIN%...
 
-:: Architecture Detection (x86_64 vs ARM64)
+rem 1. Probe py launcher and standard PATH candidates
+call :probe_candidate "py -3"
+if "!USE_HOST!"=="1" goto host_python_found
+
+call :probe_candidate "python"
+if "!USE_HOST!"=="1" goto host_python_found
+
+call :probe_candidate "python3"
+if "!USE_HOST!"=="1" goto host_python_found
+
+rem 2. Probe standard Windows installation directories
+call :probe_directory_roots
+if "!USE_HOST!"=="1" goto host_python_found
+
+echo [Kykloi] No compatible host Python runtime discovered on system.
+goto hydrate_runtime_start
+
+:host_python_found
+echo [Kykloi] Using host Python runtime: !HOST_EXEC! (!HOST_MAJOR!.!HOST_MINOR!)
+!HOST_EXEC! "%SCRIPT_DIR%system\launch.py" %PASSTHROUGH_ARGS%
+exit /b !ERRORLEVEL!
+
+:hydrate_runtime_start
+
+:: ---------------------------------------------------------------------------
+:: 3. HYDRATE RUNTIME FROM LOCAL ARCHIVE
+:: ---------------------------------------------------------------------------
+rem Detect Target Architecture (x86_64 vs ARM64)
 set "TARGET=windows-x86_64"
 if /i "%PROCESSOR_ARCHITECTURE%"=="ARM64" set "TARGET=windows-arm64"
 if /i "%PROCESSOR_ARCHITEW6432%"=="ARM64" set "TARGET=windows-arm64"
 
 set "MANIFEST_PATH=%SCRIPT_DIR%system\tools\tools-manifest.json"
-set "RUNTIME_ROOT=%TEMP%\kykloi_runtime_%TARGET%"
+
+if not "%KYKLOI_RUNTIME_DIR%"=="" (
+    set "RUNTIME_ROOT=%KYKLOI_RUNTIME_DIR%\runtime_%TARGET%"
+) else (
+    set "RUNTIME_ROOT=%TEMP%\kykloi_runtime_%TARGET%"
+)
+
 set "LOCAL_PY=%RUNTIME_ROOT%\python.exe"
 set "STAMP_FILE=%RUNTIME_ROOT%\.verified_sha256"
 
-if not exist "%LOCAL_PY%" goto :hydrate_runtime
-if not exist "%STAMP_FILE%" goto :hydrate_runtime
-goto :execute_runtime
+if exist "%LOCAL_PY%" if exist "%STAMP_FILE%" goto execute_runtime
 
-:hydrate_runtime
 if not exist "%MANIFEST_PATH%" (
     echo [FATAL] Tool manifest missing: %MANIFEST_PATH%
     pause
@@ -126,8 +90,11 @@ if not exist "%MANIFEST_PATH%" (
 )
 
 echo [Kykloi] Querying manifest definitions for %TARGET%...
-:: Atomic single-process extraction to avoid multi-invocation latency
-for /f "usebackq tokens=1,2 delims=|" %%A in (`powershell -NoProfile -Command "$m=(Get-Content -Raw '%MANIFEST_PATH%' | ConvertFrom-Json).tools.python.targets.'%TARGET%'; if($m){Write-Output ($m.archive + '|' + $m.sha256)}" 2^>nul`) do (
+set "ARCHIVE_NAME="
+set "EXPECTED_SHA="
+
+rem Extract archive name and sha256 using PowerShell
+for /f "usebackq tokens=1,2 delims=|" %%A in (`powershell -NoProfile -Command "$j = (Get-Content '%MANIFEST_PATH%' -Raw | ConvertFrom-Json).tools.python.targets.'%TARGET%'; Write-Output ($j.archive + '|' + $j.sha256)" 2^>nul`) do (
     set "ARCHIVE_NAME=%%A"
     set "EXPECTED_SHA=%%B"
 )
@@ -148,17 +115,33 @@ if not exist "%ARCHIVE_PY%" (
 )
 
 echo [Kykloi] Verifying SHA-256 checksum for %ARCHIVE_NAME%...
+set "ACTUAL_SHA="
 for /f "skip=1 tokens=*" %%H in ('certutil -hashfile "%ARCHIVE_PY%" SHA256 2^>nul') do (
-    set "RAW_HASH=%%H"
-    goto :hash_extracted
+    if not defined ACTUAL_SHA (
+        set "RAW_HASH=%%H"
+        set "ACTUAL_SHA=!RAW_HASH: =!"
+    )
 )
-:hash_extracted
-set "ACTUAL_SHA=!RAW_HASH: =!"
 
 if /i not "!ACTUAL_SHA!"=="!EXPECTED_SHA!" (
     echo [FATAL] Checksum verification failed for %ARCHIVE_NAME%
     echo         Expected: !EXPECTED_SHA!
     echo         Actual:   !ACTUAL_SHA!
+    pause
+    exit /b 1
+)
+
+where tar >nul 2>&1
+if %ERRORLEVEL% neq 0 (
+    echo.
+    echo ==================== [FATAL ARCHIVE TOOL ERROR] ====================
+    echo Kykloi requires the 'tar' utility to extract its portable Python runtime.
+    echo Windows 10 [version 1803+] and Windows 11 include 'tar' natively.
+    echo.
+    echo Remediation Options:
+    echo   1. Install Python 3.10+ directly on the host system.
+    echo   2. Run on a modern Windows version with native tar support.
+    echo ====================================================================
     pause
     exit /b 1
 )
@@ -170,10 +153,56 @@ tar -xzf "%ARCHIVE_PY%" -C "%RUNTIME_ROOT%" --strip-components=1
 <nul set /p="!ACTUAL_SHA!" > "%STAMP_FILE%"
 
 :execute_runtime
-
-:: ---------------------------------------------------------------------------
-:: 4. EXECUTE APPLICATION LAUNCHER
-:: ---------------------------------------------------------------------------
 echo [Kykloi] Using fallback Python runtime: %LOCAL_PY%
 "%LOCAL_PY%" "%SCRIPT_DIR%system\launch.py" %PASSTHROUGH_ARGS%
 exit /b %ERRORLEVEL%
+
+:: ---------------------------------------------------------------------------
+:: 4. SUBROUTINES
+:: ---------------------------------------------------------------------------
+
+:probe_candidate
+set "CMD_TEST=%~1"
+if "%CMD_TEST%"=="" exit /b 0
+
+rem Query version safely using sys.version_info
+set "HOST_MAJOR="
+set "HOST_MINOR="
+for /f "tokens=1,2 delims=." %%a in ('%CMD_TEST% -c "import sys; print(str(sys.version_info[0])+'.'+str(sys.version_info[1]))" 2^>nul') do (
+    set "HOST_MAJOR=%%a"
+    set "HOST_MINOR=%%b"
+)
+
+if not defined HOST_MAJOR exit /b 0
+if not defined HOST_MINOR exit /b 0
+
+if "%HOST_MAJOR%"=="%REQ_MAJ%" (
+    if %HOST_MINOR% geq %REQ_MIN% (
+        set "USE_HOST=1"
+        set "HOST_EXEC=%CMD_TEST%"
+    )
+)
+exit /b 0
+
+:probe_directory_roots
+for /d %%D in (
+    "%LOCALAPPDATA%\Programs\Python\Python3*"
+    "%ProgramFiles%\Python3*"
+) do (
+    if "!USE_HOST!"=="0" (
+        if exist "%%~D\python.exe" (
+            call :probe_candidate "%%~D\python.exe"
+        )
+    )
+)
+
+if not "%ProgramFiles(x86)%"=="" (
+    for /d %%D in ("%ProgramFiles(x86)%\Python3*") do (
+        if "!USE_HOST!"=="0" (
+            if exist "%%~D\python.exe" (
+                call :probe_candidate "%%~D\python.exe"
+            )
+        )
+    )
+)
+exit /b 0
