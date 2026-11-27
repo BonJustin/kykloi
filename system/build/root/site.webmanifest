@@ -1,6 +1,6 @@
 {
-  "name": "JmB²",
-  "short_name": "JmB²",
+  "name": "{{BRAND_TEXT}}",
+  "short_name": "{{BRAND_TEXT}}",
   "icons": [
     {
       "src": "/web-app-manifest-192x192.png",

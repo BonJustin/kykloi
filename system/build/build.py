@@ -1001,6 +1001,49 @@ DEFAULTS_YAML = APP_DIR / "html-config.yaml"
 DEFAULT_TEMPLATE = APP_DIR / "templates" / "pandoc-template.html"
 LUA_FILTER = APP_DIR / "translate-links.lua"
 SEARCH_DB_FILE = DST / "search.db"
+CONFIG_PATH = Path(
+    os.environ.get("KYKLOI_CONFIG_PATH", SYSTEM_DIR / "config.json")
+).resolve()
+
+DEFAULT_CONFIG = {
+    "vault_title": "Κύκλοι",
+    "brand_text": "JmB²",
+    "title_prefix": "",
+}
+
+
+def load_vault_config(config_path: Path = CONFIG_PATH) -> dict[str, str]:
+    config = dict(DEFAULT_CONFIG)
+    if config_path.is_file():
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, dict):
+                for k in ("vault_title", "brand_text", "title_prefix"):
+                    if k in data and isinstance(data[k], str):
+                        config[k] = data[k]
+        except Exception:
+            pass
+    return config
+
+
+def save_vault_config(
+    vault_title: str,
+    brand_text: str,
+    title_prefix: str = "",
+    config_path: Path = CONFIG_PATH,
+) -> None:
+    config_data = {
+        "vault_title": vault_title,
+        "brand_text": brand_text,
+        "title_prefix": title_prefix,
+    }
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    temp_file = config_path.with_suffix(".tmp")
+    with open(temp_file, "w", encoding="utf-8") as f:
+        json.dump(config_data, f, indent=2, ensure_ascii=False)
+        f.write("\n")
+    temp_file.replace(config_path)
 
 
 @dataclass(frozen=True)
@@ -1017,6 +1060,8 @@ class CompileTask:
     passphrase: Optional[str]
     dry_run: bool
     pandoc_bin: str
+    brand_text: str = "JmB²"
+    title_prefix: str = ""
 
 
 @dataclass(frozen=True)
@@ -1073,6 +1118,12 @@ def parse_args():
         type=Path,
         default=None,
         help="Override SQLite ledger path.",
+    )
+    p.add_argument(
+        "--config-path",
+        type=Path,
+        default=None,
+        help="Override JSON configuration path.",
     )
     return p.parse_args()
 
@@ -1348,9 +1399,19 @@ def compute_file_hash(path: Path) -> str:
         return ""
 
 
-def compute_global_dependencies_hash(bibliography_file: Optional[Path] = None) -> str:
+def compute_global_dependencies_hash(
+    bibliography_file: Optional[Path] = None,
+    config_file: Optional[Path] = None,
+) -> str:
     hasher = hashlib.sha256()
-    tracked = [DEFAULTS_YAML, LUA_FILTER, DEFAULT_TEMPLATE, Path(__file__).resolve()]
+    target_config = config_file or CONFIG_PATH
+    tracked = [
+        DEFAULTS_YAML,
+        LUA_FILTER,
+        DEFAULT_TEMPLATE,
+        target_config,
+        Path(__file__).resolve(),
+    ]
     if bibliography_file and bibliography_file.is_file():
         tracked.append(bibliography_file)
 
@@ -1495,10 +1556,14 @@ def compile_markdown_worker(task: CompileTask) -> tuple[Path, bool, Optional[str
             f"relative_root={task.relative_root}",
             "-V",
             f"pagetitle={task.doc_title}",
+            "-V",
+            f"brand_text={task.brand_text}",
             f"--math-method=katex:{task.relative_root}assets/katex/",
             "-o",
             str(task.out_path),
         ]
+        if task.title_prefix:
+            cmd.extend(["-V", f"title-prefix={task.title_prefix}"])
         if task.bibliography_path:
             cmd.extend(
                 [
@@ -1562,8 +1627,12 @@ def compile_markdown_worker(task: CompileTask) -> tuple[Path, bool, Optional[str
         "-V",
         f"pagetitle={task.doc_title}",
         "-V",
+        f"brand_text={task.brand_text}",
+        "-V",
         "encrypted=true",
     ]
+    if task.title_prefix:
+        envelope_cmd.extend(["-V", f"title-prefix={task.title_prefix}"])
     for css in css_files:
         envelope_cmd.extend(["--css", f"{task.relative_root}{css}"])
 
@@ -1634,7 +1703,7 @@ def find_vault_bibliography(src_root: Path) -> Optional[Path]:
 
 
 def main():
-    global SRC, DST, NORM_DB_PATH, SEARCH_DB_FILE
+    global SRC, DST, NORM_DB_PATH, SEARCH_DB_FILE, CONFIG_PATH
     args = parse_args()
     if args.src:
         SRC = args.src.resolve()
@@ -1643,6 +1712,8 @@ def main():
         SEARCH_DB_FILE = DST / "search.db"
     if args.db_path:
         NORM_DB_PATH = args.db_path.resolve()
+    if args.config_path:
+        CONFIG_PATH = args.config_path.resolve()
     log_file_path = Path(args.log_file).resolve() if args.log_file else None
     log = setup_logging(
         subsystem="compiler",
@@ -1690,8 +1761,11 @@ def main():
     with VaultDB(NORM_DB_PATH) as db:
         db.init_schema()
 
+        vault_config = load_vault_config(CONFIG_PATH)
         central_bib = find_vault_bibliography(SRC)
-        current_global_hash = compute_global_dependencies_hash(central_bib)
+        current_global_hash = compute_global_dependencies_hash(
+            central_bib, config_file=CONFIG_PATH
+        )
         old_global_hash = db.get_meta("__GLOBAL_DEPENDENCIES__")
         global_deps_changed = old_global_hash != current_global_hash
 
@@ -1752,7 +1826,7 @@ def main():
         expected_outputs: set[Path] = set()
         compile_tasks: list[CompileTask] = []
         encrypt_blob_tasks: list[EncryptBlobTask] = []
-        asset_sync_jobs: list[tuple[Path, Path]] = []
+        asset_sync_jobs: list[tuple[Path, Path, Optional[bytes]]] = []
         staged_artifacts: list[BuildArtifactRecord] = []
 
         # -------------------------------------------------------------------
@@ -1799,7 +1873,7 @@ def main():
                     or not cached_art
                     or cached_art.source_sha256 != rec.sha256
                 ):
-                    asset_sync_jobs.append((src_path, target))
+                    asset_sync_jobs.append((src_path, target, None))
 
         # -------------------------------------------------------------------
         # Markdown Documents Dispatch
@@ -1854,6 +1928,8 @@ def main():
                         passphrase=passphrase,
                         dry_run=args.dry_run,
                         pandoc_bin=pandoc_bin,
+                        brand_text=vault_config["brand_text"],
+                        title_prefix=vault_config["title_prefix"],
                     )
                 )
 
@@ -1893,7 +1969,18 @@ def main():
                     rel_target_str = target.relative_to(DST).as_posix()
                     expected_outputs.add(target.resolve())
 
-                    h = compute_file_hash(p)
+                    is_templated = p.name in ("index.html", "site.webmanifest")
+                    if is_templated:
+                        raw_text = p.read_text(encoding="utf-8")
+                        transformed_text = raw_text.replace(
+                            "{{VAULT_TITLE}}", vault_config["vault_title"]
+                        ).replace("{{BRAND_TEXT}}", vault_config["brand_text"])
+                        transformed_bytes = transformed_text.encode("utf-8")
+                        h = hashlib.sha256(transformed_bytes).hexdigest()
+                    else:
+                        transformed_bytes = None
+                        h = compute_file_hash(p)
+
                     staged_artifacts.append(BuildArtifactRecord(rel_target_str, h, cat))
 
                     cached_art = existing_artifacts.get(rel_target_str)
@@ -1901,8 +1988,9 @@ def main():
                         not target.exists()
                         or not cached_art
                         or cached_art.source_sha256 != h
+                        or (is_templated and global_deps_changed)
                     ):
-                        asset_sync_jobs.append((p, target))
+                        asset_sync_jobs.append((p, target, transformed_bytes))
 
         with timed_step(log, "Artifact Pruning", logging.DEBUG):
             orphans_pruned = prune_orphans(
@@ -1913,10 +2001,13 @@ def main():
 
         if asset_sync_jobs:
             log.info("Synchronizing %d static/media asset(s)...", len(asset_sync_jobs))
-            for src_file, target_file in asset_sync_jobs:
+            for src_file, target_file, transformed_bytes in asset_sync_jobs:
                 if not args.dry_run:
                     target_file.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(src_file, target_file)
+                    if transformed_bytes is not None:
+                        target_file.write_bytes(transformed_bytes)
+                    else:
+                        shutil.copy2(src_file, target_file)
                 log.debug(
                     "Synchronized asset: %s -> %s", src_file.name, target_file.name
                 )

@@ -105,6 +105,7 @@ The launcher will bind an HTTP daemon (default: `http://127.0.0.1:8000`) and dis
   [7] Open Vault in Default Browser
   [8] Cryptographic Acceleration Diagnostics
   [9] Create Archival Vault Backup (.zip)
+ [10] Configure Vault Identity (Title & Brand)
   [0] Exit
 ==============================================================
 ```

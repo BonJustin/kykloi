@@ -42,7 +42,13 @@ from system.backup import (
     prune_previous_backups,
     run_interactive_backup,
 )
-from system.build.build import ACTIVE_ENGINE_NAME, _resolve_active_crypto_engine
+from system.build import (
+    ACTIVE_ENGINE_NAME,
+    CONFIG_PATH,
+    _resolve_active_crypto_engine,
+    load_vault_config,
+    save_vault_config,
+)
 from system.normalize.cli import (
     run_audit,
     run_normalization_pipeline,
@@ -509,7 +515,62 @@ def parse_args():
         action="store_true",
         help="Delete previous backups from destination after creating new archive.",
     )
+    p.add_argument(
+        "--set-title",
+        type=str,
+        default=None,
+        help="Update vault title in system/config.json.",
+    )
+    p.add_argument(
+        "--set-brand",
+        type=str,
+        default=None,
+        help="Update vault brand / monogram in system/config.json.",
+    )
+    p.add_argument(
+        "--set-title-prefix",
+        type=str,
+        default=None,
+        help="Update browser note title prefix in system/config.json.",
+    )
     return p.parse_args()
+
+
+def configure_identity_interactive():
+    config = load_vault_config()
+    print("\n================== CONFIGURE VAULT IDENTITY ==================")
+    print("  Press Enter to retain the current value in brackets.")
+    print("==============================================================")
+
+    cur_title = config.get("vault_title", "Κύκλοι")
+    try:
+        new_title = input(f"  Vault Title [{cur_title}]: ").strip()
+    except (KeyboardInterrupt, EOFError):
+        print()
+        return
+
+    cur_brand = config.get("brand_text", "JmB²")
+    try:
+        new_brand = input(f"  Brand / Header Monogram [{cur_brand}]: ").strip()
+    except (KeyboardInterrupt, EOFError):
+        print()
+        return
+
+    cur_prefix = config.get("title_prefix", "")
+    prefix_display = cur_prefix if cur_prefix else "(none)"
+    try:
+        new_prefix = input(f"  Note Tab Prefix [{prefix_display}]: ").strip()
+    except (KeyboardInterrupt, EOFError):
+        print()
+        return
+
+    final_title = new_title if new_title else cur_title
+    final_brand = new_brand if new_brand else cur_brand
+    final_prefix = new_prefix if new_prefix else cur_prefix
+
+    save_vault_config(final_title, final_brand, final_prefix)
+    print(f"\n[+] Saved identity configuration to {CONFIG_PATH.name}.")
+    print("    Run [1] Compile Site or [2] Rebuild Site to apply changes.\n")
 
 
 def interactive_menu(
@@ -548,11 +609,12 @@ def interactive_menu(
         print("  [7] Open Vault in Default Browser")
         print("  [8] Cryptographic Acceleration Diagnostics")
         print("  [9] Create Archival Vault Backup (.zip)")
+        print(" [10] Configure Vault Identity (Title & Brand)")
         print("  [0] Exit")
         print("==============================================================")
 
         try:
-            choice = input("Select an option [0-9]: ").strip()
+            choice = input("Select an option [0-10]: ").strip()
         except (KeyboardInterrupt, EOFError):
             print("\n")
             break
@@ -634,6 +696,8 @@ def interactive_menu(
                 )
             except KeyboardInterrupt:
                 logger.warning("\nBackup workflow interrupted by user.")
+        elif choice == "10":
+            configure_identity_interactive()
         elif choice == "0":
             break
         else:
@@ -642,6 +706,34 @@ def interactive_menu(
 
 def main():
     args = parse_args()
+
+    if (
+        args.set_title is not None
+        or args.set_brand is not None
+        or args.set_title_prefix is not None
+    ):
+        cfg = load_vault_config()
+        new_title = (
+            args.set_title
+            if args.set_title is not None
+            else cfg.get("vault_title", "Κύκλοι")
+        )
+        new_brand = (
+            args.set_brand
+            if args.set_brand is not None
+            else cfg.get("brand_text", "JmB²")
+        )
+        new_prefix = (
+            args.set_title_prefix
+            if args.set_title_prefix is not None
+            else cfg.get("title_prefix", "")
+        )
+        save_vault_config(new_title, new_brand, new_prefix)
+        print(
+            f"[+] Updated identity configuration: title='{new_title}', brand='{new_brand}', prefix='{new_prefix}'"
+        )
+        if not args.build:
+            sys.exit(0)
 
     if args.crypto_info:
         print_crypto_diagnostics()
