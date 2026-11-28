@@ -358,6 +358,31 @@ def ensure_build_prerequisites(session_password: str | None) -> tuple[bool, str 
     return True, effective_pw
 
 
+def ensure_host_pandoc_staged() -> bool:
+    """
+    Ensures the Pandoc archive for the host system is present in
+    system/tools/archives/. If missing, downloads it automatically.
+    Gracefully warns if offline or unreachable without halting execution.
+    """
+    logger = get_logger("launcher")
+    try:
+        from system.tools import ensure_host_pandoc
+
+        ok, dest_path = ensure_host_pandoc(
+            manifest_path=ROOT_DIR / "system" / "tools" / "tools-manifest.json",
+            archives_dir=ROOT_DIR / "system" / "tools" / "archives",
+            quiet=False,
+        )
+        if not ok:
+            logger.warning(
+                "Pandoc archive for host system is not staged and could not be fetched (offline?)."
+            )
+        return ok
+    except Exception as exc:
+        logger.warning("Pandoc pre-staging check encountered an error: %s", exc)
+        return False
+
+
 def execute_build(
     clean: bool = False,
     passphrase: str | None = None,
@@ -533,6 +558,21 @@ def parse_args():
         default=None,
         help="Update browser note title prefix in system/config.json.",
     )
+    p.add_argument(
+        "--fetch-all",
+        action="store_true",
+        help="Download complete multi-platform offline toolchain archives and exit.",
+    )
+    p.add_argument(
+        "--fetch-host",
+        action="store_true",
+        help="Download offline toolchain archives for current host architecture and exit.",
+    )
+    p.add_argument(
+        "--fetch-force",
+        action="store_true",
+        help="Re-download toolchain archives even if checksums match (use with --fetch-all/--fetch-host).",
+    )
     return p.parse_args()
 
 
@@ -610,11 +650,12 @@ def interactive_menu(
         print("  [8] Cryptographic Acceleration Diagnostics")
         print("  [9] Create Archival Vault Backup (.zip)")
         print(" [10] Configure Vault Identity (Title & Brand)")
+        print(" [11] Pre-Package Portable Toolchain (Download Multi-Platform Archives)")
         print("  [0] Exit")
         print("==============================================================")
 
         try:
-            choice = input("Select an option [0-10]: ").strip()
+            choice = input("Select an option [0-11]: ").strip()
         except (KeyboardInterrupt, EOFError):
             print("\n")
             break
@@ -698,6 +739,41 @@ def interactive_menu(
                 logger.warning("\nBackup workflow interrupted by user.")
         elif choice == "10":
             configure_identity_interactive()
+        elif choice == "11":
+            print("\n================ OFFLINE TOOLCHAIN DOWNLOAD ================")
+            print(
+                "  Stages offline Python and Pandoc binaries in system/tools/archives/"
+            )
+            print(
+                "  to enable carrying Kykloi across different systems on external storage."
+            )
+            print("============================================================")
+            print(
+                "  [1] Download complete multi-platform toolchain (All OS targets, ~330 MB)"
+            )
+            print("  [2] Download host toolchain only (Current OS target, ~50 MB)")
+            print("  [0] Cancel")
+            try:
+                sub_choice = input("Select an option [0-2]: ").strip()
+            except (KeyboardInterrupt, EOFError):
+                print()
+                continue
+            if sub_choice == "1":
+                from system.tools import fetch_binaries
+
+                code = fetch_binaries(all_platforms=True)
+                if code == 0:
+                    logger.info("Complete multi-platform toolchain verified and ready.")
+                else:
+                    logger.warning("One or more toolchain archives failed to download.")
+            elif sub_choice == "2":
+                from system.tools import fetch_binaries
+
+                code = fetch_binaries(all_platforms=False)
+                if code == 0:
+                    logger.info("Host toolchain verified and ready.")
+                else:
+                    logger.warning("Host toolchain archive failed to download.")
         elif choice == "0":
             break
         else:
@@ -706,6 +782,15 @@ def interactive_menu(
 
 def main():
     args = parse_args()
+
+    if args.fetch_all or args.fetch_host:
+        from system.tools import fetch_binaries
+
+        target_all = bool(args.fetch_all)
+        scope = "complete multi-platform" if target_all else "host"
+        print(f"[Kykloi] Downloading {scope} offline toolchain archives...")
+        code = fetch_binaries(all_platforms=target_all, force=args.fetch_force)
+        sys.exit(code)
 
     if (
         args.set_title is not None
@@ -803,6 +888,9 @@ def main():
         log_file=log_file_path,
         enable_console=True,
     )
+
+    # Ensure host Pandoc archive is staged by default
+    ensure_host_pandoc_staged()
 
     if args.build:
         ok, effective_pw = ensure_build_prerequisites(args.password)

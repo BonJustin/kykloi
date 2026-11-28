@@ -31,15 +31,29 @@ Installing Python and Pandoc via your system package manager is the recommended 
 
 #### 2. Standalone Toolchain Bootstrapping
 
-If Pandoc is not installed globally on your machine, Kykloi includes an autonomous toolchain fetcher to download and verify portable binaries for your host architecture:
+If Pandoc is not installed globally on your machine, Kykloi automatically stages and verifies the required portable Pandoc binary for your host system in `system/tools/archives/` on launch.
 
-```sh
-# Fetch Pandoc (and fallback Python) for the current host architecture:
-python3 system/tools/fetch-tools.py --host-only
+To create a fully portable, multi-platform flash drive that works across Windows, Linux, and macOS without internet access, you can download all toolchain binaries at once:
 
-# Or fetch all multi-platform archives:
-python3 system/tools/fetch-tools.py
-```
+* **Via the launcher scripts**:
+
+  ```sh
+  ./launch.sh --fetch-all    # Linux / macOS
+  launch.bat --fetch-all     # Windows
+  ```
+
+* **Via the interactive menu**:
+  Start Kykloi and select option **`[11] Pre-Package Portable Toolchain`**.
+
+* **Via direct script invocation**:
+
+  ```sh
+  # Fetch toolchain for current host only:
+  python3 system/tools/fetch-tools.py --host-only
+
+  # Or fetch all multi-platform archives:
+  python3 system/tools/fetch-tools.py
+  ```
 
 Downloaded archives are cryptographically verified against `system/tools/tools-manifest.json` using SHA-256 digests and staged in `system/tools/archives/`.
 

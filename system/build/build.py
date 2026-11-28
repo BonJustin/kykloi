@@ -1302,6 +1302,24 @@ def resolve_pandoc_binary(root_dir: Path) -> str:
     archive_path = archives_dir / archive_name
     ext = "zip" if archive_name.endswith(".zip") else "tar.gz"
 
+    if not archive_path.is_file():
+        log.info(
+            "Pandoc archive %s not found in archives; attempting retrieval...",
+            archive_name,
+        )
+        try:
+            from system.tools import ensure_host_pandoc
+
+            ok, fetched = ensure_host_pandoc(
+                manifest_path=manifest_path,
+                archives_dir=archives_dir,
+                quiet=False,
+            )
+            if ok and fetched:
+                archive_path = fetched
+        except Exception as exc:
+            log.warning("Automatic retrieval of Pandoc archive failed: %s", exc)
+
     if archive_path.is_file():
         log.info("Verifying integrity checksum for %s...", archive_path.name)
         actual_hash = compute_file_hash(archive_path)
