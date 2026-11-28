@@ -282,6 +282,7 @@ if [ ! -f "$LOCAL_PY" ] || [ ! -f "$STAMP_FILE" ]; then
 
   ARCHIVE_NAME=$(extract_python_field "$TARGET" "archive" "$MANIFEST_PATH")
   EXPECTED_SHA=$(extract_python_field "$TARGET" "sha256" "$MANIFEST_PATH")
+  DOWNLOAD_URL=$(extract_python_field "$TARGET" "url" "$MANIFEST_PATH")
 
   if [ -z "$ARCHIVE_NAME" ] || [ -z "$EXPECTED_SHA" ]; then
     echo "[FATAL] Target ${TARGET} not found in manifest python definitions." >&2
@@ -291,9 +292,31 @@ if [ ! -f "$LOCAL_PY" ] || [ ! -f "$STAMP_FILE" ]; then
   ARCHIVE_PY="$SCRIPT_DIR/system/tools/archives/$ARCHIVE_NAME"
 
   if [ ! -f "$ARCHIVE_PY" ]; then
-    echo "[FATAL] Pre-packaged archive not found: $ARCHIVE_NAME" >&2
-    echo "        Expected at: $ARCHIVE_PY" >&2
-    exit 1
+    if [ -n "$DOWNLOAD_URL" ]; then
+      echo "[Kykloi] Pre-packaged archive not found locally: $ARCHIVE_NAME"
+      echo "[Kykloi] Downloading portable runtime from release mirror..."
+      mkdir -p "$SCRIPT_DIR/system/tools/archives"
+      if command -v curl >/dev/null 2>&1; then
+        curl -fSL "$DOWNLOAD_URL" -o "$ARCHIVE_PY" || {
+          rm -f "$ARCHIVE_PY"
+          echo "[FATAL] Failed to download $ARCHIVE_NAME via curl." >&2
+          exit 1
+        }
+      elif command -v wget >/dev/null 2>&1; then
+        wget -q --show-progress -O "$ARCHIVE_PY" "$DOWNLOAD_URL" || {
+          rm -f "$ARCHIVE_PY"
+          echo "[FATAL] Failed to download $ARCHIVE_NAME via wget." >&2
+          exit 1
+        }
+      else
+        echo "[FATAL] Neither curl nor wget is available to download $ARCHIVE_NAME." >&2
+        exit 1
+      fi
+    else
+      echo "[FATAL] Pre-packaged archive not found and no download URL available: $ARCHIVE_NAME" >&2
+      echo "        Expected at: $ARCHIVE_PY" >&2
+      exit 1
+    fi
   fi
 
   echo "[Kykloi] Verifying SHA-256 for $ARCHIVE_NAME..."
