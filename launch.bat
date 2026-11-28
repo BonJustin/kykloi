@@ -130,15 +130,6 @@ if not exist "%ARCHIVE_PY%" (
     exit /b 1
 )
 
-set "ARCHIVE_PY=%SCRIPT_DIR%system\tools\archives\%ARCHIVE_NAME%"
-
-if not exist "%ARCHIVE_PY%" (
-    echo [FATAL] Pre-packaged archive not found: %ARCHIVE_NAME%
-    echo         Expected at: %ARCHIVE_PY%
-    pause
-    exit /b 1
-)
-
 echo [Kykloi] Verifying SHA-256 checksum for %ARCHIVE_NAME%...
 set "ACTUAL_SHA="
 for /f "skip=1 tokens=*" %%H in ('certutil -hashfile "%ARCHIVE_PY%" SHA256 2^>nul') do (
