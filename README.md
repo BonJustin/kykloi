@@ -59,7 +59,7 @@ kykloi/
 
 ## 3. Vault Invariants & Conventions
 
-* **Zero-Mutation Archival Standard**: Kykloi never modifies the internal text of user Markdown files. Normalizations are strictly executed as filesystem path renames.
+* **Low-Mutation Archival Standard**: Kykloi never modifies the internal text of user Markdown files with the sole exception of internal link healing to prevent maintenance nightmares when re-organizing personal repositories.
 * **Deterministic File Stem Slugs**: `YYYYMMDDHHMMSS-kebab-case-title.ext`
   * Leading 14-digit UTC/local timestamp prefix.
   * Hyphen-separated lowercase alphanumeric stem.

@@ -50,6 +50,7 @@ from system.build import (
     save_vault_config,
 )
 from system.normalize.cli import (
+    recover_uncommitted_journal,
     run_audit,
     run_normalization_pipeline,
     scaffold_new_document,
@@ -424,6 +425,8 @@ def get_ledger_status_tag() -> str:
         return "Uninitialized"
     try:
         with VaultDB(NORM_DB_PATH) as db:
+            db.init_schema()
+            recover_uncommitted_journal(CONTENT_DIR, db)
             files = db.get_all_files().values()
             docs = sum(1 for f in files if not f.is_media)
             media = sum(1 for f in files if f.is_media)
@@ -891,6 +894,15 @@ def main():
 
     # Ensure host Pandoc archive is staged by default
     ensure_host_pandoc_staged()
+
+    # Recover any uncommitted mutation journal from a previously interrupted session
+    if NORM_DB_PATH.exists():
+        try:
+            with VaultDB(NORM_DB_PATH) as db:
+                db.init_schema()
+                recover_uncommitted_journal(CONTENT_DIR, db)
+        except Exception as exc:
+            logger.debug("Startup journal recovery check encountered: %s", exc)
 
     if args.build:
         ok, effective_pw = ensure_build_prerequisites(args.password)

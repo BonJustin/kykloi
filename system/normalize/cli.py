@@ -19,6 +19,11 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from system.normalize.db import DocMetadataRecord, FileRecord, VaultDB
+
+try:
+    from system.logger import get_logger
+except ImportError:
+    from logger import get_logger
 from system.normalize.engine import ActionType, DiffPlan, compute_diff
 from system.normalize.graph import (
     BrokenLinkDiagnostic,
@@ -392,6 +397,103 @@ def audit_security_boundaries(
     return violations
 
 
+def recover_uncommitted_journal(content_root: Path, db: VaultDB) -> bool:
+    """
+    Recovers from an interrupted normalization session recorded in the mutation journal.
+    Rolls forward any uncommitted physical operations and re-synchronizes the ledger.
+    Returns True if an interrupted session was recovered, False otherwise.
+    """
+    journal = db.get_uncommitted_journal()
+    if not journal or journal.id is None:
+        return False
+
+    content_root = content_root.resolve()
+    logger = get_logger("recovery")
+    logger.warning(
+        "Interrupted mutation session discovered: %s (Stage: %s, Created: %s). Initiating roll-forward recovery...",
+        journal.session_id,
+        journal.stage,
+        journal.created_at,
+    )
+
+    try:
+        if journal.stage == "COMMITTED":
+            db.clear_committed_journals()
+            logger.info("Cleared dangling committed journal (%s).", journal.session_id)
+            return True
+
+        # Phase A: Complete any pending file renames
+        if journal.stage in ("STAGED", "RENAMED"):
+            try:
+                renames = json.loads(journal.file_renames_json)
+            except Exception as e:
+                logger.error("Failed to parse file_renames_json during recovery: %s", e)
+                renames = []
+
+            for src_str, dst_str in renames:
+                src_path = Path(src_str)
+                dst_path = Path(dst_str)
+                if src_path.exists() and not dst_path.exists():
+                    assert_within_content_root(src_path, content_root)
+                    assert_within_content_root(dst_path, content_root)
+                    dst_path.parent.mkdir(parents=True, exist_ok=True)
+                    if (
+                        src_path.parent == dst_path.parent
+                        and src_path.name.lower() == dst_path.name.lower()
+                    ):
+                        tmp = (
+                            dst_path.parent
+                            / f".norm_case_tmp_{os.urandom(4).hex()}_{dst_path.name}"
+                        )
+                        src_path.rename(tmp)
+                        tmp.rename(dst_path)
+                    else:
+                        src_path.rename(dst_path)
+                    logger.info(
+                        "Recovered file rename: %s -> %s", src_path.name, dst_path.name
+                    )
+
+            prune_empty_directories(content_root)
+            db.update_journal_stage(journal.id, "RENAMED")
+
+        # Phase B: Complete link healing if needed
+        if journal.stage in ("STAGED", "RENAMED"):
+            scan_result = scan_vault(content_root, db)
+            boundary_violations = audit_security_boundaries(scan_result)
+            canonical_to_final = {
+                f.canonical_filename: f.rel_path for f in scan_result.files
+            }
+            healing_plan, _ = plan_link_healing(
+                content_root=content_root,
+                scanned_files=scan_result.files,
+                relocation_map={},
+                canonical_to_final_rel=canonical_to_final,
+                boundary_violations=boundary_violations,
+            )
+            if healing_plan.has_patches:
+                execute_link_healing_plan(content_root, healing_plan)
+                logger.info(
+                    "Recovered in-place link updates across %d files.",
+                    len(healing_plan.patches_by_file),
+                )
+
+            db.update_journal_stage(journal.id, "PATCHED")
+
+        # Phase C: Finalize ledger synchronization and commit journal
+        sync_db_with_disk(content_root, db)
+        db.update_journal_stage(journal.id, "COMMITTED")
+        db.clear_committed_journals()
+        logger.info(
+            "Successfully recovered and committed interrupted session %s.",
+            journal.session_id,
+        )
+        return True
+
+    except Exception as exc:
+        logger.critical("Crash recovery encountered an unexpected error: %s", exc)
+        return False
+
+
 def print_audit_report(
     norm_plan: NormalizationPlan,
     boundary_violations: list[tuple[str, str, int, str]],
@@ -633,6 +735,7 @@ def run_audit(
     t0 = time.perf_counter()
     with VaultDB(db_path) as db:
         db.init_schema()
+        recover_uncommitted_journal(content_root, db)
         scan_result = scan_vault(content_root, db)
         boundary_violations = audit_security_boundaries(scan_result)
         diff_plan = compute_diff(scan_result, db)
@@ -690,6 +793,7 @@ def run_normalization_pipeline(
 
     with VaultDB(db_path) as db:
         db.init_schema()
+        recover_uncommitted_journal(content_root, db)
         scan_result = scan_vault(content_root, db)
         boundary_violations = audit_security_boundaries(scan_result)
         diff_plan = compute_diff(scan_result, db)
@@ -770,7 +874,12 @@ def run_normalization_pipeline(
         patches_json = json.dumps(
             {
                 k: [
-                    {"start": p.start_char, "end": p.end_char, "new": p.new_target}
+                    {
+                        "start": p.start_char,
+                        "end": p.end_char,
+                        "new": p.new_target,
+                        "old": p.old_target,
+                    }
                     for p in v
                 ]
                 for k, v in healing_plan.patches_by_file.items()

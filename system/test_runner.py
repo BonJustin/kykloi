@@ -453,7 +453,73 @@ def execute_field_test_suite(auto_cleanup: bool = False) -> int:
             )
             results.append(("Mutation Link Repair", ok, dur, err))
 
-            # Step 8: Static HTTP Server & RFC 7233 Byte-Range Testing
+            # Step 8: Crash Recovery & Uncommitted Mutation Roll-Forward
+            def step_crash_recovery():
+                import json
+
+                from system.normalize.cli import recover_uncommitted_journal
+                from system.normalize.db import VaultDB
+
+                test_file = isolated_content / "20261118120000-sample-note-3.md"
+                if not test_file.is_file():
+                    raise FileNotFoundError(
+                        "Fixture note missing for crash recovery test."
+                    )
+
+                target_recovered = (
+                    isolated_content / "20261118120000-sample-note-recovered.md"
+                )
+                if target_recovered.exists():
+                    target_recovered.unlink()
+
+                with VaultDB(isolated_db) as db:
+                    renames_json = json.dumps([(str(test_file), str(target_recovered))])
+                    db.record_journal(
+                        session_id="test_crash_session",
+                        stage="STAGED",
+                        file_renames_json=renames_json,
+                        content_patches_json="{}",
+                        created_at="2026-11-28T00:00:00Z",
+                    )
+                    uncommitted = db.get_uncommitted_journal()
+                    if not uncommitted:
+                        raise AssertionError(
+                            "Failed to record simulated crash journal."
+                        )
+
+                    recovered = recover_uncommitted_journal(isolated_content, db)
+                    if not recovered:
+                        raise AssertionError(
+                            "recover_uncommitted_journal returned False."
+                        )
+
+                    remaining = db.get_uncommitted_journal()
+                    if remaining is not None:
+                        raise AssertionError(
+                            "Uncommitted journal was not cleared after recovery."
+                        )
+
+                    if not target_recovered.is_file():
+                        raise AssertionError("File was not rolled forward to new path.")
+                    if test_file.exists():
+                        raise AssertionError(
+                            "Original file still exists after roll-forward."
+                        )
+
+                    db_files = db.get_all_files()
+                    rel_p = target_recovered.relative_to(isolated_content).as_posix()
+                    if rel_p not in db_files:
+                        raise AssertionError(
+                            f"Recovered file '{rel_p}' not present in synchronized ledger."
+                        )
+
+            ok, dur, err = run_pipeline_step(
+                "Crash Recovery & Interrupted Journal Roll-Forward",
+                step_crash_recovery,
+            )
+            results.append(("Crash Journal Recovery", ok, dur, err))
+
+            # Step 9: Static HTTP Server & RFC 7233 Byte-Range Testing
             def step_server():
                 class SandboxVaultHandler(KykloiVaultHandler):
                     dist_dir = isolated_dist

@@ -43,7 +43,7 @@ for path_entry in (PROJECT_ROOT, SYSTEM_DIR, APP_DIR):
 
 from logger import get_logger, setup_logging, timed_step
 
-from system.normalize.cli import sync_db_with_disk
+from system.normalize.cli import recover_uncommitted_journal, sync_db_with_disk
 from system.normalize.db import BuildArtifactRecord, VaultDB
 from system.normalize.scanner import is_junk_path
 
@@ -1778,6 +1778,7 @@ def main():
 
     with VaultDB(NORM_DB_PATH) as db:
         db.init_schema()
+        recover_uncommitted_journal(SRC, db)
 
         vault_config = load_vault_config(CONFIG_PATH)
         central_bib = find_vault_bibliography(SRC)
