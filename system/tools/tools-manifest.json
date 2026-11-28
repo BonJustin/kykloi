@@ -9,27 +9,27 @@
       "targets": {
         "linux-x86_64": {
           "archive": "pandoc-3.14-linux-amd64.tar.gz",
-          "url": "https://github.com/jgm/pandoc/releases/download/3.14/pandoc-3.14-linux-amd64.tar.gz",
+          "url": "https://github.com/BonJustin/kykloi/releases/download/toolchain-v1/pandoc-3.14-linux-amd64.tar.gz",
           "sha256": "c5f4720cdefb3f7bdc5d07202ef579feef0d1370773c873804dd8fdaa8c4f1b8"
         },
         "linux-arm64": {
           "archive": "pandoc-3.14-linux-arm64.tar.gz",
-          "url": "https://github.com/jgm/pandoc/releases/download/3.14/pandoc-3.14-linux-arm64.tar.gz",
+          "url": "https://github.com/BonJustin/kykloi/releases/download/toolchain-v1/pandoc-3.14-linux-arm64.tar.gz",
           "sha256": "c692f3d78a415741bbbac4cdbbbe26fa7edca1f43d2301b982fbf4009cc8cf7f"
         },
         "macos-arm64": {
           "archive": "pandoc-3.14-arm64-macOS.zip",
-          "url": "https://github.com/jgm/pandoc/releases/download/3.14/pandoc-3.14-arm64-macOS.zip",
+          "url": "https://github.com/BonJustin/kykloi/releases/download/toolchain-v1/pandoc-3.14-arm64-macOS.zip",
           "sha256": "58d6593884fec9d4424b641b92503c316d9c36decb2891ff8d73ae74dd3b6304"
         },
         "macos-x86_64": {
           "archive": "pandoc-3.14-x86_64-macOS.zip",
-          "url": "https://github.com/jgm/pandoc/releases/download/3.14/pandoc-3.14-x86_64-macOS.zip",
+          "url": "https://github.com/BonJustin/kykloi/releases/download/toolchain-v1/pandoc-3.14-x86_64-macOS.zip",
           "sha256": "891708579061e7b1c1a6ce0df30ebb3cb2b6d0ca045ed3c8554ab830c1e0c270"
         },
         "windows-x86_64": {
           "archive": "pandoc-3.14-windows-x86_64.zip",
-          "url": "https://github.com/jgm/pandoc/releases/download/3.14/pandoc-3.14-windows-x86_64.zip",
+          "url": "https://github.com/BonJustin/kykloi/releases/download/toolchain-v1/pandoc-3.14-windows-x86_64.zip",
           "sha256": "0144b96e8c7b023fd382ec5ef5bdc475e873f1019d6fa72502492df2c9a94a3b"
         }
       }
@@ -40,42 +40,42 @@
       "targets": {
         "linux-x86_64": {
           "archive": "cpython-3.12.16+20261110-x86_64-unknown-linux-gnu-install_only.tar.gz",
-          "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261110/cpython-3.12.16+20261110-x86_64-unknown-linux-gnu-install_only.tar.gz",
+          "url": "https://github.com/BonJustin/kykloi/releases/download/toolchain-v1/cpython-3.12.16+20261110-x86_64-unknown-linux-gnu-install_only.tar.gz",
           "sha256": "c2f87d4b4e8db3abddb0f116c6ccfc503d0cbdbb9ee8faacddad1b679ec12e99"
         },
         "linux-arm64": {
           "archive": "cpython-3.12.16+20261110-aarch64-unknown-linux-gnu-install_only.tar.gz",
-          "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261110/cpython-3.12.16+20261110-aarch64-unknown-linux-gnu-install_only.tar.gz",
+          "url": "https://github.com/BonJustin/kykloi/releases/download/toolchain-v1/cpython-3.12.16+20261110-aarch64-unknown-linux-gnu-install_only.tar.gz",
           "sha256": "4792f81750282597fb2a3389fe18b945ed2ba6aad5e45ad406d122c58cb33081"
         },
         "macos-arm64": {
           "archive": "cpython-3.12.16+20261110-aarch64-apple-darwin-install_only.tar.gz",
-          "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261110/cpython-3.12.16+20261110-aarch64-apple-darwin-install_only.tar.gz",
+          "url": "https://github.com/BonJustin/kykloi/releases/download/toolchain-v1/cpython-3.12.16+20261110-aarch64-apple-darwin-install_only.tar.gz",
           "sha256": "e956e60bc9465d577ef8062059aa05cd3a2665b4b8678a2ed24e432368330b8f"
         },
         "macos-x86_64": {
           "archive": "cpython-3.12.16+20261110-x86_64-apple-darwin-install_only.tar.gz",
-          "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261110/cpython-3.12.16+20261110-x86_64-apple-darwin-install_only.tar.gz",
+          "url": "https://github.com/BonJustin/kykloi/releases/download/toolchain-v1/cpython-3.12.16+20261110-x86_64-apple-darwin-install_only.tar.gz",
           "sha256": "83f2922437e6d546d0fcdb8c11f150a8e52787e8d9ea8651b1974e20908eb1bc"
         },
         "windows-x86_64": {
           "archive": "cpython-3.12.16+20261110-x86_64-pc-windows-msvc-install_only.tar.gz",
-          "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261110/cpython-3.12.16+20261110-x86_64-pc-windows-msvc-install_only.tar.gz",
+          "url": "https://github.com/BonJustin/kykloi/releases/download/toolchain-v1/cpython-3.12.16+20261110-x86_64-pc-windows-msvc-install_only.tar.gz",
           "sha256": "e23fe5b16926de1d81661b1a97352e89fb167549c55a6825796ccd0f32ec7f1b"
         },
         "linux-arm64-musl": {
           "archive": "cpython-3.12.16+20261110-aarch64-unknown-linux-musl-install_only.tar.gz",
-          "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261110/cpython-3.12.16+20261110-aarch64-unknown-linux-musl-install_only.tar.gz",
+          "url": "https://github.com/BonJustin/kykloi/releases/download/toolchain-v1/cpython-3.12.16+20261110-aarch64-unknown-linux-musl-install_only.tar.gz",
           "sha256": "d92d39867d6f16d81876b683c088373e2a965407c2011ad9979ffb4859a8bdcb"
         },
         "linux-x86_64-musl": {
           "archive": "cpython-3.12.16+20261110-x86_64-unknown-linux-musl-install_only.tar.gz",
-          "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261110/cpython-3.12.16+20261110-x86_64-unknown-linux-musl-install_only.tar.gz",
+          "url": "https://github.com/BonJustin/kykloi/releases/download/toolchain-v1/cpython-3.12.16+20261110-x86_64-unknown-linux-musl-install_only.tar.gz",
           "sha256": "4f38d67f42dd29535e49b0ccdd6bc25ac7748b2c4550de78d8879ea4076ee9b3"
         },
         "windows-arm64": {
           "archive": "cpython-3.12.16+20261110-aarch64-pc-windows-msvc-install_only.tar.gz",
-          "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261110/cpython-3.12.16+20261110-aarch64-pc-windows-msvc-install_only.tar.gz",
+          "url": "https://github.com/BonJustin/kykloi/releases/download/toolchain-v1/cpython-3.12.16+20261110-aarch64-pc-windows-msvc-install_only.tar.gz",
           "sha256": "7122bf62a0cf601527ba62e19ca715d64db86b269765da23937e9ac7f968f39c"
         }
       }

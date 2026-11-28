@@ -11,43 +11,23 @@ Kykloi is an offline-first knowledge vault compiler that normalizes Markdown doc
 Kykloi requires:
 
 1. **Python >= 3.10** (no external `pip` dependencies required; uses standard library exclusively).
-2. **Pandoc** (required for compiling Markdown to HTML).
+2. **Pandoc >= 3.0** (required for compiling Markdown to HTML).
+
+*Kykloi works on the stable versions available in November 2026, currently Python 3.15.2 and Pandoc 3.14. This gives a range of functional versions and should be easily adaptable to future changes.*
 
 ### Installing Prerequisites
 
 #### 1. Host Installation (Recommended)
 
-Installing Python and Pandoc via your system package manager is the recommended approach, bypassing all binary extraction and `noexec` temporary filesystem restrictions:
+Installing Python and Pandoc via your system package manager is the recommended and best approach to using Kykloi, bypassing all binary extraction and `noexec` temporary filesystem restrictions. The best ways of doing this are to do so directly per their own instructions. Be sure to add these to your system's version of environment variables so that Kykloi can find them.
 
-* **macOS**:
+* **Python**
 
-  ```sh
-  brew install python pandoc
-  ```
+  [http://www.python.org/downloads](http://www.python.org/downloads)
 
-* **Debian / Ubuntu**:
+* **Pandoc**:
 
-  ```sh
-  sudo apt update && sudo apt install -y python3 pandoc
-  ```
-
-* **Fedora / RHEL**:
-
-  ```sh
-  sudo dnf install -y python3 pandoc
-  ```
-
-* **Arch Linux**:
-
-  ```sh
-  sudo pacman -S python pandoc-cli
-  ```
-
-* **Windows** (via WinGet or Scoop):
-
-  ```powershell
-  winget install Python.Python.3.12 JohnMacFarlane.Pandoc
-  ```
+  [http://www.pandoc.org/installing.html](http://www.pandoc.org/installing.html)
 
 #### 2. Standalone Toolchain Bootstrapping
 
@@ -62,6 +42,8 @@ python3 system/tools/fetch-tools.py
 ```
 
 Downloaded archives are cryptographically verified against `system/tools/tools-manifest.json` using SHA-256 digests and staged in `system/tools/archives/`.
+
+*Unfortunately, this is fragile. There is no way to guarantee these specific version download links will be available or unchanging. Ultimately finding them is not difficult if you know what you are looking for, but without the portable binaries and updating the SHA-256 hashes, Kykloi is entire dependant on the host system.*
 
 ---
 
