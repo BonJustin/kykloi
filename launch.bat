@@ -94,13 +94,38 @@ set "ARCHIVE_NAME="
 set "EXPECTED_SHA="
 
 rem Extract archive name and sha256 using PowerShell
-for /f "usebackq tokens=1,2 delims=|" %%A in (`powershell -NoProfile -Command "$j = (Get-Content '%MANIFEST_PATH%' -Raw | ConvertFrom-Json).tools.python.targets.'%TARGET%'; Write-Output ($j.archive + '|' + $j.sha256)" 2^>nul`) do (
+rem Extract archive name, sha256, and url using PowerShell
+for /f "usebackq tokens=1,2,3 delims=|" %%A in (`powershell -NoProfile -Command "$j = (Get-Content '%MANIFEST_PATH%' -Raw | ConvertFrom-Json).tools.python.targets.'%TARGET%'; Write-Output ($j.archive + '|' + $j.sha256 + '|' + $j.url)" 2^>nul`) do (
     set "ARCHIVE_NAME=%%A"
     set "EXPECTED_SHA=%%B"
+    set "DOWNLOAD_URL=%%C"
 )
 
 if "%ARCHIVE_NAME%"=="" (
     echo [FATAL] Failed to extract manifest parameters for target %TARGET%
+    pause
+    exit /b 1
+)
+
+set "ARCHIVE_PY=%SCRIPT_DIR%system\tools\archives\%ARCHIVE_NAME%"
+
+if not exist "%ARCHIVE_PY%" (
+    if not "%DOWNLOAD_URL%"=="" (
+        echo [Kykloi] Runtime archive not found locally: %ARCHIVE_NAME%
+        echo [Kykloi] Downloading portable Python from release mirror...
+        if not exist "%SCRIPT_DIR%system\tools\archives" mkdir "%SCRIPT_DIR%system\tools\archives"
+        where curl >nul 2>&1
+        if !ERRORLEVEL! equ 0 (
+            curl.exe -fSL "%DOWNLOAD_URL%" -o "%ARCHIVE_PY%"
+        ) else (
+            powershell -NoProfile -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri '%DOWNLOAD_URL%' -OutFile '%ARCHIVE_PY%'"
+        )
+    )
+)
+
+if not exist "%ARCHIVE_PY%" (
+    echo [FATAL] Pre-packaged archive not found: %ARCHIVE_NAME%
+    echo         Expected at: %ARCHIVE_PY%
     pause
     exit /b 1
 )
